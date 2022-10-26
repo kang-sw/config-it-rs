@@ -1,0 +1,3 @@
+[submodule "backends/web/front"]
+	path = backends/web/front
+	url = git@github.com:perfkitpp/perfkit-web-front.git
