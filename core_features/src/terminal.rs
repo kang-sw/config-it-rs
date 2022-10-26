@@ -1,4 +1,1 @@
-struct TerminalContext {
-    
-}
 

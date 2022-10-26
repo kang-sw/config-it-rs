@@ -2,5 +2,6 @@
 
 members = [
     "core_features",
-    "usages"
+    "usages",
+    "backends/web"
 ]
