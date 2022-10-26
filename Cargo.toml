@@ -1,0 +1,6 @@
+[workspace]
+
+members = [
+    "perfkit-core",
+    "perfkit-examples"
+]
