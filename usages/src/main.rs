@@ -1,4 +1,4 @@
-use perfkit_core::add;
+use core_features::add;
 
 fn main() {
     let res = add(1, 2);

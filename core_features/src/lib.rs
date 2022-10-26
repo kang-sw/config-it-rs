@@ -1,6 +1,6 @@
-mod config;
-mod terminal;
-mod trace;
+pub mod config;
+pub mod terminal;
+pub mod trace;
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right
@@ -15,6 +15,5 @@ mod tests {
         let result = add(2, 2);
         assert_eq!(result, 4);
         
-        print!("{}", config::ss());
     }
 }

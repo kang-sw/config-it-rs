@@ -1,6 +1,6 @@
 [workspace]
 
 members = [
-    "perfkit-core",
-    "perfkit-examples"
+    "core_features",
+    "usages"
 ]
