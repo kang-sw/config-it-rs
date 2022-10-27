@@ -1,7 +1,9 @@
 [workspace]
 
 members = [
-    "core_features",
-    "usages",
-    "backends/web"
+    "backends/web",
+    "perfkit_config",
+    "perfkit_graphics",
+    "perfkit_terminal",
+    "perfkit_trace"
 ]
