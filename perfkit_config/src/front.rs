@@ -1,50 +1,61 @@
-/*
-   1. Config Entity
-   2. Config Set -> NOT a physical concept ... just user-defined struct of various entities!
-   3. Config Storage -> Collection of entities. Classes are set of entities with prefix.
-   4. Config Registry -> Collection of categories. File save/load root
-
-   Config Entity    --> ConfigBase:1, Data:1:mut
-   Config Set       --> ConfigStorage:1, ConfigEntity:N
-   Config Storage   --> w:ConfigBase:N
-   Config Base      --> Data:1:mut
- */
-use std::any::Any;
+//!
+//! 1. Config Entity
+//! 2. Config Set -> NOT a physical concept ... just user-defined struct of various entities!
+//! 3. Config Storage -> Collection of entities. Classes are set of entities with prefix.
+//! 4. Config Registry -> Collection of categories. File save/load root
+//!
+//! Config Entity    --> ConfigBase:1, Data:1:mut
+//! Config Set       --> ConfigStorage:1, ConfigEntity:N
+//! Config Storage   --> w:ConfigBase:N
+//! Config Base      --> Data:1:mut
+//!
+//! Targets following behavior:
+//!
+//! ``` ignore
+//! #[perkfit_config_set]
+//! struct MySet {
+//!   /// Doc comment will be embedded into metadata as entity description
+//!   #[min(3), max(5)]
+//!   element: i32, // Turns into perfkit_config::Entity<i32>
+//!
+//!   /// Serde serializable/deserializable user defined structs are allowed
+//!   ///  to be used as config set component
+//!   my_data: UserType,
+//!
+//!   /// one_of attribute
+//! }
+//!
+//! #[derive(Serialize,Deserialize)]
+//! struct UserType {
+//!   ...
+//! }
+//! ...
+//!
+//! let cfg = MySet::create(&storage, "name"
+//! ```
+//!
 use std::marker::PhantomData;
 use std::ops::Deref;
-use std::rc::Weak;
-use std::sync::{Arc, Mutex, RwLock};
-use crate::back::ConfigSetBackend;
+use std::sync;
+use std::sync::{Arc};
+use crate::__all::*;
 
-
-///
-///
-/// Metadata for configuration entity. This can be used as template for multiple config entity
-///  instances.
-///
-///
-pub struct ConfigMetadata {
-    name: String,
-    description: String,
-}
 
 ///
 ///
 /// User may interact with this config entity.
 ///
 #[derive(Clone)]
-pub struct ConfigEntity<T> {
-    __p0: PhantomData<T>,
+pub struct Entity<T> {
     fence: u64,
     local_copy: Arc<T>,
-    base: Arc<()>,
+    base: sync::Arc<EntityBase>,
 }
 
-impl<T> ConfigEntity<T> {
-    pub fn __test_create(val: T) -> ConfigEntity<T> {
-        let s = ConfigEntity::<T> {
-            __p0: PhantomData::default(),
-            base: Arc::new(()),
+impl<T> Entity<T> {
+    pub fn __test_create(val: T) -> Entity<T> {
+        let s = Entity::<T> {
+            base: unimplemented!(),
             fence: 0,
             local_copy: Arc::new(val),
         };
@@ -53,10 +64,10 @@ impl<T> ConfigEntity<T> {
     }
 
     /// Commit config entity value changes for next category update.
-    pub fn commit(&self, value: T) { unimplemented!(); }
+    pub fn commit(&self, _value: T) { unimplemented!(); }
 
     /// Commit config entity in-place.
-    pub fn set(&self, value: T) { unimplemented!(); }
+    pub fn set(&self, _value: T) { unimplemented!(); }
 
     /// Get reference to original data.
     /// > **warning** It may not
@@ -64,7 +75,7 @@ impl<T> ConfigEntity<T> {
 
     /// Check if there's any active update. Dirty flag is consumed after invocation.
     /// - Fetches local copy from base
-    pub fn consume_update(&mut self) -> bool { unimplemented!(); }
+    pub fn fetch(&mut self) -> bool { unimplemented!(); }
 
     /// Mark this config entity as dirty state.
     pub fn mark_dirty(&mut self) { unimplemented!(); }
@@ -74,17 +85,17 @@ mod __test {
     use std::any::Any;
     use std::ops::Deref;
     use std::sync::Arc;
-    use crate::front::ConfigEntity;
+    use crate::front::Entity;
 
     #[test]
     fn test_compilation() {
-        let s;
+        let _s;
         {
-            let _r = ConfigEntity::<i32>::__test_create(3);
+            let _r = Entity::<i32>::__test_create(3);
             let _v = 3;
             let _ = _r.clone();
 
-            s = _r.refer();
+            _s = _r.refer();
 
             let _s = Arc::<i32>::new(3);
             let _g: Arc::<dyn Any> = _s.clone();
@@ -96,46 +107,4 @@ mod __test {
     }
 }
 
-///
-///
-/// User should create registry to control over storages
-///
-pub struct ConfigRegistry {
-    /// TODO: All registered entities
 
-    /// TODO: Backend event listners
-}
-
-///
-///
-/// User has basic control over config category
-///
-pub trait ConfigStorage: Drop {
-    /// Register this storage. If any other storage with same name exist, it'll wait for previous
-    ///  instance is disposed, which may cause deadlock!
-
-
-    /// Updates internal state.
-    fn update(&mut self) -> bool;
-
-    /// Install observer for external update (Backend, config reload, etc ...)
-    fn observe_external_update(&mut self, bound: Weak<dyn Any>, handler: Box<&dyn FnMut()>);
-}
-
-///
-///
-/// User directly
-///
-pub trait ConfigSet {
-    fn get_storage(&self) -> Arc<Mutex<dyn ConfigStorage>>;
-}
-
-///
-///
-/// Basic config object.
-///
-struct ConfigEntityBase {
-    id: u64,
-    data: RwLock<Arc<dyn Any>>,
-    meta: Arc<ConfigMetadata>,
-}
