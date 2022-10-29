@@ -69,9 +69,9 @@ use crate::__all::*;
 ///
 /// User may interact with this config entity.
 ///
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Entity<T> {
-    base: Arc<()>,
+    config_id: u64,
     fence: u64,
     cached: RefCell<Arc<T>>,
 }
@@ -83,12 +83,12 @@ impl<T> Entity<T> {
     /// Commit config entity in-place.
     pub fn set(&self, _value: T) { todo!(); }
 
-    /// Get reference to value. Usefull when value need to be copied safely.
+    /// Get pointer to value. Usefull when value need to be copied safely.
     pub fn get(&self) -> Arc<T> { todo!(); }
 }
 
-impl<T: Any + Send + Sync + Clone> UploadCache for Entity<T> {
-    fn upload_cache(&self, value: Arc<dyn EntityValue>) {
+impl<T: Any + Send + Sync + Clone> EntityInstance for Entity<T> {
+    fn upload_cache(&self, value: ValuePtr) {
         unsafe {
             assert_eq!(value.deref().type_id(), TypeId::of::<T>());
 
@@ -98,10 +98,76 @@ impl<T: Any + Send + Sync + Clone> UploadCache for Entity<T> {
             self.cached.replace(ptr);
         }
     }
+
+    fn get_config_id(&self) -> u64 {
+        self.config_id
+    }
 }
 
-pub(super) trait UploadCache {
-    fn upload_cache(&self, value: Arc<dyn EntityValue>);
+pub trait EntityInstance {
+    fn upload_cache(&self, value: ValuePtr);
+    fn get_config_id(&self) -> u64;
+}
+
+///
+///
+/// Basic behavior of configuration set.
+///
+///
+
+pub trait EntityCollection {
+    fn collect_init_info(&self, visitor: impl Fn(&dyn EntityInstance, Arc<Metadata>));
+    fn component_at(&self, at: usize) -> &dyn EntityInstance;
+}
+
+#[cfg(test)]
+mod example {
+    use once_cell::sync::{OnceCell};
+    use super::*;
+
+    struct MyConfig {
+        s0: Entity<i32>,
+        s1: Entity<f32>,
+        s2: Entity<f64>,
+    }
+
+    #[cfg(none)]
+    impl EntityCollection for MyConfig {
+        fn collect_init_info(&self, visitor: impl Fn(&dyn EntityInstance, Arc<Metadata>)) {
+            static META_SET: [OnceCell<Arc<Metadata>>; 3] = [
+                OnceCell::new(),
+                OnceCell::new(),
+                OnceCell::new(),
+            ];
+
+            let meta_arr = [
+                META_SET[0].get_or_init(|| Arc::new(Metadata { name: "".into(), description: "".into() })),
+                META_SET[1].get_or_init(|| Arc::new(Metadata { name: "".into(), description: "".into() })),
+                META_SET[2].get_or_init(|| Arc::new(Metadata { name: "".into(), description: "".into() })),
+            ];
+
+            let inst_arr = [
+                &self.s0 as &dyn EntityInstance,
+                &self.s1 as &dyn EntityInstance,
+                &self.s2 as &dyn EntityInstance,
+            ];
+
+            static META_VERIFY: OnceCell<()> = OnceCell::new();
+            META_VERIFY.get_or_init(|| todo!("Check if there's name duplication"));
+
+            inst_arr.iter().zip(meta_arr)
+                .for_each(|(x1, x2)| visitor(x1.deref(), (*x2).clone()));
+        }
+
+        fn component_at(&self, at: usize) -> &dyn EntityInstance {
+            match at {
+                0 => &self.s0 as &dyn EntityInstance,
+                1 => &self.s1 as &dyn EntityInstance,
+                2 => &self.s2 as &dyn EntityInstance,
+                _ => unimplemented!(),
+            }
+        }
+    }
 }
 
 #[test]
@@ -109,12 +175,9 @@ fn momo() {
     let s = Entity::<i32> {
         cached: RefCell::new(Arc::new(0)),
         fence: 0,
-        base: Arc::new(()),
+        config_id: 0,
     };
 
     let f = Arc::new(0);
-    s.upload_cache(f as Arc<dyn EntityValue>);
+    s.upload_cache(f as ValuePtr);
 }
-
-
-

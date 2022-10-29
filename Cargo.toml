@@ -3,6 +3,7 @@
 members = [
     "backends/web",
     "perfkit_config",
+    "perfkit_config_macros",
     "perfkit_graphics",
     "perfkit_trace"
 ]
