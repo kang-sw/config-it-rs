@@ -20,7 +20,14 @@ pub struct Metadata {
     pub v_min: Option<ValuePtr>,
     pub v_max: Option<ValuePtr>,
     pub v_one_of: Vec<ValuePtr>,
+
+    pub edit_mode: EditMode,
 }
+
+enum EditMode {
+    None,
+}
+
 
 pub trait EntityValue: Any + Send + Sync {
     fn as_any(&self) -> &dyn Any;
