@@ -14,14 +14,14 @@ pub struct Metadata {
     description: Arc<str>,
 }
 
-///
-/// Represents entity type.
-pub trait EntityValue {
-    //
+pub trait EntityValue: Any + Send + Sync {
+    fn as_any(&self) -> &dyn Any;
 }
 
-impl<T: Any + Serialize + DeserializeOwned> EntityValue for T {
-    //
+impl<T: Any + Send + Sync + Serialize + DeserializeOwned> EntityValue for T {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 ///

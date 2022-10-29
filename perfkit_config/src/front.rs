@@ -29,14 +29,38 @@
 //! struct UserType {
 //!   ...
 //! }
-//! ...
 //!
-//! let cfg = MySet::create(&storage, "name"
+//! ... // Frontend
+//! let reg = Registry::new();
+//! reg.load(load_json_from_file("file_name.json"), LoadPolicy::);
+//!
+//! let back = perfkit_backend_web::Backend::create(
+//!   perfkit_backend_web::BackendDesc {
+//!     config_registry: reg.clone(),
+//!     trace_registry: ...,
+//!     command_registry: ...,
+//!     binding: (None, parse_env_or<u16>("PF_BK_PORT", 15572)),
+//!     ...
+//!   }
+//! );
+//!
+//! // Create storage
+//! let storage : Arc<Storage> = Storage::find_or_create(reg, "storage_name");
+//!
+//! // Create config set(user defined), by registering given storage.
+//! let cfg = MySet::create(&storage, ["prefix", "path", "goes", "here"]).expect("Config set with same prefix is not allowed!");
+//!
+//! //
+//! cfg.update(); // Searches storage, fetch all updates
+//! if cfg.element.take_update_flag() {
+//!   // Do some heavy work with this ...
+//! }
+//! ... // Backend
+//!
 //! ```
-//!
-use std::marker::PhantomData;
+use std::any::{Any, TypeId};
+use std::cell::{Cell, RefCell};
 use std::ops::Deref;
-use std::sync;
 use std::sync::{Arc};
 use crate::__all::*;
 
@@ -47,64 +71,50 @@ use crate::__all::*;
 ///
 #[derive(Clone)]
 pub struct Entity<T> {
+    base: Arc<()>,
     fence: u64,
-    local_copy: Arc<T>,
-    base: sync::Arc<EntityBase>,
+    cached: RefCell<Arc<T>>,
 }
 
 impl<T> Entity<T> {
-    pub fn __test_create(val: T) -> Entity<T> {
-        let s = Entity::<T> {
-            base: unimplemented!(),
-            fence: 0,
-            local_copy: Arc::new(val),
-        };
-
-        return s;
-    }
-
     /// Commit config entity value changes for next category update.
-    pub fn commit(&self, _value: T) { unimplemented!(); }
+    pub fn commit(&self, _value: T) { todo!(); }
 
     /// Commit config entity in-place.
-    pub fn set(&self, _value: T) { unimplemented!(); }
+    pub fn set(&self, _value: T) { todo!(); }
 
-    /// Get reference to original data.
-    /// > **warning** It may not
-    pub fn refer(&self) -> &T { self.local_copy.deref() }
-
-    /// Check if there's any active update. Dirty flag is consumed after invocation.
-    /// - Fetches local copy from base
-    pub fn fetch(&mut self) -> bool { unimplemented!(); }
-
-    /// Mark this config entity as dirty state.
-    pub fn mark_dirty(&mut self) { unimplemented!(); }
+    /// Get reference to value. Usefull when value need to be copied safely.
+    pub fn get(&self) -> Arc<T> { todo!(); }
 }
 
-mod __test {
-    use std::any::Any;
-    use std::ops::Deref;
-    use std::sync::Arc;
-    use crate::front::Entity;
+impl<T: Any + Send + Sync + Clone> UploadCache for Entity<T> {
+    fn upload_cache(&self, value: Arc<dyn EntityValue>) {
+        unsafe {
+            assert_eq!(value.deref().type_id(), TypeId::of::<T>());
 
-    #[test]
-    fn test_compilation() {
-        let _s;
-        {
-            let _r = Entity::<i32>::__test_create(3);
-            let _v = 3;
-            let _ = _r.clone();
-
-            _s = _r.refer();
-
-            let _s = Arc::<i32>::new(3);
-            let _g: Arc::<dyn Any> = _s.clone();
-            let _f = || 3;
-
-            assert_eq!(_g.deref().type_id(), _s.deref().type_id());
-            assert_eq!(_f(), 3);
+            let raw = Arc::into_raw(value);
+            let raw = raw as *const T;
+            let ptr = Arc::from_raw(raw);
+            self.cached.replace(ptr);
         }
     }
 }
+
+pub(super) trait UploadCache {
+    fn upload_cache(&self, value: Arc<dyn EntityValue>);
+}
+
+#[test]
+fn momo() {
+    let s = Entity::<i32> {
+        cached: RefCell::new(Arc::new(0)),
+        fence: 0,
+        base: Arc::new(()),
+    };
+
+    let f = Arc::new(0);
+    s.upload_cache(f as Arc<dyn EntityValue>);
+}
+
 
 
