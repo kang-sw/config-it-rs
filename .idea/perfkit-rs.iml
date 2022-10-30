@@ -9,7 +9,7 @@
       <sourceFolder url="file://$MODULE_DIR$/perfkit_graphics/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/perfkit_terminal/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/perfkit_trace/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/perfkit_config_macros/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/perfkit_config_macros_internal/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

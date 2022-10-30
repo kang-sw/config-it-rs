@@ -1,5 +1,5 @@
 [package]
-name = "perfkit_config_macros"
+name = "perfkit_config_macros_internal"
 version = "0.1.0"
 edition = "2021"
 
@@ -10,4 +10,3 @@ edition = "2021"
 proc-macro2 = { version = "1.0" }
 quote = "1.0"
 syn = "1.0"
-itertools = "0.10"
