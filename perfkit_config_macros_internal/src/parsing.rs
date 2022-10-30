@@ -11,7 +11,7 @@ use syn::spanned::Spanned;
 ///
 /// Type information
 ///
-pub(self) struct TypeDesc {
+pub(super) struct TypeDesc {
     pub type_visibility: syn::Visibility,
     pub identifier: syn::Ident,
     pub generics: syn::Generics,
@@ -19,7 +19,8 @@ pub(self) struct TypeDesc {
     pub fields: Vec<FieldDesc>,
 }
 
-pub(self) struct FieldDesc {
+pub(super) struct FieldDesc {
+    pub visibility: syn::Visibility,
     pub identifier: syn::Ident,
     pub src_type: syn::Type,
 
@@ -42,7 +43,7 @@ pub(self) struct FieldDesc {
 ///
 /// Parses incoming derive input, then publish it as
 ///
-pub(self) fn decompose_input(input: DeriveInput) -> Result<TypeDesc, (Span, String)> {
+pub(super) fn decompose_input(input: DeriveInput) -> Result<TypeDesc, (Span, String)> {
     let data = if let Struct(data) = input.data {
         data
     } else {
@@ -66,6 +67,7 @@ pub(self) fn decompose_input(input: DeriveInput) -> Result<TypeDesc, (Span, Stri
         let mut desc = FieldDesc {
             identifier,
             src_type: field.ty,
+            visibility: field.vis,
             default_value: Default::default(),
             docstring: String::with_capacity(200),
             min: Default::default(),
@@ -190,35 +192,3 @@ fn test_input(input: TokenStream) -> TokenStream {
     TokenStream::new()
 }
 
-#[test]
-fn test_macro() {
-    let raw = r###"
-        struct MyStruct<T, Y> {
-          #[perfkit(default=34, min=0, max=154,  env="MY_ENV_VAR_NAME", no_import, no_export, hidden)]
-          my_var : i32,
-
-          pub my_var_2 : f32,
-
-          /// My elels dsa 1
-          /// My elels dsa 2
-          /// My elels dsa 3
-          /// My elels dsa 4
-          #[perfkit()]
-          pub my_var_emp : f32,
-
-          #[perfkit(no_import)]
-          pub my_var_4 : f32,
-
-          ///
-          /// Hello, world!
-          ///
-          #[perfkit(one_of(1,2,3,4))]
-          pub my_var_3 : f64
-        }
-    "###;
-
-    // println!("{}", test_input(raw.parse().unwrap()).to_string());
-    let r = decompose_input(parse2(raw.parse().unwrap()).unwrap()).unwrap();
-
-    r;
-}
