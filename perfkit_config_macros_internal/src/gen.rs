@@ -1,31 +1,24 @@
-use std::borrow::Borrow;
+use super::parsing::*;
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
+use std::borrow::Borrow;
 use syn::parse2;
-use super::parsing::*;
 
 pub(self) fn generate(ty: TypeDesc) -> TokenStream {
     let identifier = ty.identifier;
     let vis = ty.type_visibility;
     let generics = ty.generics;
 
-    let fields = (&ty.fields).iter().map(
-        |x| {
-            let vis = &x.visibility;
-            let ident = &x.identifier;
-            let ty = &x.src_type;
+    let fields = (&ty.fields).iter().map(|x| {
+        let vis = &x.visibility;
+        let ident = &x.identifier;
+        let ty = &x.src_type;
 
-            quote! {
+        quote! {}
+    });
 
-            }
-        }
-    );
-
-    quote! {
-
-    }
+    quote! {}
 }
-
 
 #[test]
 fn test_macro() {

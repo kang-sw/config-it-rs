@@ -1,11 +1,11 @@
-use proc_macro2 as proc_macro;
 use proc_macro::{TokenStream, TokenTree};
+use proc_macro2 as proc_macro;
 use proc_macro2::Span;
-use quote::{ToTokens};
+use quote::ToTokens;
 
-use syn::{parse2, DeriveInput, parse_macro_input, AttrStyle, MetaNameValue};
-use syn::Data::Struct;
 use syn::spanned::Spanned;
+use syn::Data::Struct;
+use syn::{parse2, parse_macro_input, AttrStyle, DeriveInput, MetaNameValue};
 
 ///
 ///
@@ -47,7 +47,10 @@ pub(super) fn decompose_input(input: DeriveInput) -> Result<TypeDesc, (Span, Str
     let data = if let Struct(data) = input.data {
         data
     } else {
-        return Err((input.ident.span(), "Non-struct type is not permitted".into()));
+        return Err((
+            input.ident.span(),
+            "Non-struct type is not permitted".into(),
+        ));
     };
 
     let mut out = TypeDesc {
@@ -96,42 +99,52 @@ pub(super) fn decompose_input(input: DeriveInput) -> Result<TypeDesc, (Span, Str
 
 fn decompose_attribute(desc: &mut FieldDesc, attr: syn::Attribute) -> bool {
     // Simply ignores non-perfkit attribute
-    if false == attr.path.is_ident("perfkit") { return false; };
-
-    use syn::NestedMeta::*;
-    use syn::Meta::*;
-
-    let meta_list = if let Ok(List(m)) = attr.parse_meta() { m } else { return false; };
-    meta_list.nested.into_iter().for_each(|meta| {
-        match meta {
-            Meta(List(v)) if v.path.is_ident("one_of") => { desc.one_of = Some(v) }
-
-            Meta(NameValue(MetaNameValue { path, lit, .. })) => {
-                if path.is_ident("min") {
-                    desc.min = Some(lit);
-                } else if path.is_ident("max") {
-                    desc.max = Some(lit);
-                } else if path.is_ident("env") {
-                    desc.env_var = Some(lit);
-                }
-            }
-
-            Meta(Path(v)) if v.is_ident("no_export") => { desc.flag_disable_export = true }
-            Meta(Path(v)) if v.is_ident("no_import") => { desc.flag_disable_import = true }
-            Meta(Path(v)) if v.is_ident("hidden") => { desc.flag_hidden = true }
-
-            Meta(Path(v)) if v.is_ident("transient") => {
-                desc.flag_disable_import = true;
-                desc.flag_disable_export = true
-            }
-
-            _ => {}
+    if attr.path.is_ident("doc") {
+        if let Ok(NameValue(v)) = attr.parse_meta() {
+            desc.docstring += v.lit.to_token_stream().to_string().as_str();
         }
+        return false;
+    }
+
+    if false == attr.path.is_ident("perfkit") {
+        return false;
+    };
+
+    use syn::Meta::*;
+    use syn::NestedMeta::*;
+
+    let meta_list = if let Ok(List(m)) = attr.parse_meta() {
+        m
+    } else {
+        return false;
+    };
+    meta_list.nested.into_iter().for_each(|meta| match meta {
+        Meta(List(v)) if v.path.is_ident("one_of") => desc.one_of = Some(v),
+
+        Meta(NameValue(MetaNameValue { path, lit, .. })) => {
+            if path.is_ident("min") {
+                desc.min = Some(lit);
+            } else if path.is_ident("max") {
+                desc.max = Some(lit);
+            } else if path.is_ident("env") {
+                desc.env_var = Some(lit);
+            }
+        }
+
+        Meta(Path(v)) if v.is_ident("no_export") => desc.flag_disable_export = true,
+        Meta(Path(v)) if v.is_ident("no_import") => desc.flag_disable_import = true,
+        Meta(Path(v)) if v.is_ident("hidden") => desc.flag_hidden = true,
+
+        Meta(Path(v)) if v.is_ident("transient") => {
+            desc.flag_disable_import = true;
+            desc.flag_disable_export = true
+        }
+
+        _ => {}
     });
 
     true
 }
-
 
 ///
 ///
@@ -151,7 +164,11 @@ fn test_input(input: TokenStream) -> TokenStream {
         let fields = v.fields;
         for (i, f) in (0..fields.len()).zip(fields.iter()) {
             let ty = f.ty.to_token_stream().to_string();
-            let id = if let Some(s) = &f.ident { s.to_string() } else { "<NO_IDENT>".into() };
+            let id = if let Some(s) = &f.ident {
+                s.to_string()
+            } else {
+                "<NO_IDENT>".into()
+            };
             let vis = f.vis.to_token_stream().to_string();
 
             println!("  LN {}: {} {} : {}", i, vis, id, ty);
@@ -160,35 +177,44 @@ fn test_input(input: TokenStream) -> TokenStream {
 
                 println!("    PATH: {}", x.path.to_token_stream().to_string());
                 println!("    TOK: {}", x.tokens.to_token_stream().to_string());
-                use syn::NestedMeta::*;
                 use syn::Meta::*;
+                use syn::NestedMeta::*;
 
                 if let Ok(List(meta)) = x.parse_meta() {
-                    meta.nested.into_iter()
-                        .for_each(
-                            |meta| {
-                                match &meta {
-                                    Meta(NameValue(v)) => {
-                                        println!("      META NAMEVAL: PATH({}) LIT({})", v.path.to_token_stream().to_string(), v.lit.to_token_stream().to_string());
-                                    }
-                                    Meta(Path(v)) => {
-                                        println!("      META PATH ({})", v.to_token_stream().to_string());
-                                    }
-                                    Meta(List(v)) => {
-                                        println!("      META LIST ({}) -> {}", v.path.to_token_stream().to_string(), v.nested.to_token_stream().to_string());
-                                    }
-                                    Lit(v) => {
-                                        println!("      META LIT ({})", v.to_token_stream().to_string());
-                                    }
-                                }
-                            }
-                        )
+                    meta.nested.into_iter().for_each(|meta| match &meta {
+                        Meta(NameValue(v)) => {
+                            println!(
+                                "      META NAMEVAL: PATH({}) LIT({})",
+                                v.path.to_token_stream().to_string(),
+                                v.lit.to_token_stream().to_string()
+                            );
+                        }
+                        Meta(Path(v)) => {
+                            println!("      META PATH ({})", v.to_token_stream().to_string());
+                        }
+                        Meta(List(v)) => {
+                            println!(
+                                "      META LIST ({}) -> {}",
+                                v.path.to_token_stream().to_string(),
+                                v.nested.to_token_stream().to_string()
+                            );
+                        }
+                        Lit(v) => {
+                            println!("      META LIT ({})", v.to_token_stream().to_string());
+                        }
+                    })
                 }
-                println!("    {}", (if let AttrStyle::Inner(b) = x.style { b.to_token_stream().to_string() + "Inner" } else { "Outer".to_string() }));
+                println!(
+                    "    {}",
+                    (if let AttrStyle::Inner(b) = x.style {
+                        b.to_token_stream().to_string() + "Inner"
+                    } else {
+                        "Outer".to_string()
+                    })
+                );
             }
         }
     }
 
     TokenStream::new()
 }
-

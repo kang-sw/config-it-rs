@@ -12,11 +12,10 @@ impl Registry {
     /// Creates new empty registry.
     fn new() -> Self {
         Self {
-            body: Arc::new(RegistryBackend::default())
+            body: Arc::new(RegistryBackend::default()),
         }
     }
 }
-
 
 ///
 ///
@@ -28,4 +27,3 @@ pub struct RegistryBackend {}
 impl RegistryBackend {}
 
 pub trait ObserveRegistry {}
-

@@ -58,19 +58,10 @@
 //! ... // Backend
 //!
 //! ```
-use std::any::{Any, TypeId};
-use std::cell::{Cell, RefCell};
+use crate::__all::*;
 use std::collections::HashMap;
 use std::ops::Deref;
-use std::sync::{Arc};
-use crate::__all::*;
-
-
-pub trait EntityInstance {
-    fn upload_cache(&self, value: ValuePtr);
-    fn get_config_id(&self) -> u64;
-}
-
+use std::sync::Arc;
 
 ///
 ///
@@ -82,39 +73,55 @@ pub trait ReflectCollection {
     }
 }
 
-
 ///
 ///
 /// User will use defined config class as template parameter of `EntityCollection`
 ///
-pub struct EntityCollection<T> {
-    ctx: CollectionContext,
+pub struct ConfigSet<T> {
+    /// Description for this collection instance, which will be shared across
+    /// collection instances.
+    desc: Arc<CollectionDescriptor>,
+
+    /// Used for filtering update targets. Only entities that has larger fence number
+    /// than this can be updated. After update, this number will be set as largest value
+    /// of all updated entities.
+    update_fence: usize,
+    
+    /// 
     body: T,
 }
 
-struct CollectionContext {
+struct CollectionDescriptor {
+    /// Path to owning storage
+    storage: Storage,
+
     /// Provides pointer offset -> index mapping
     offset_index_table: Arc<HashMap<usize, usize>>,
+
+    /// Each field of config set's target struct will be mapped into this.
+    config_base_set: Vec<Arc<EntityBase>>,
 }
 
-impl<T: ReflectCollection> EntityCollection<T> {
+impl<T: ReflectCollection> ConfigSet<T> {
     // TODO: Create collection with storage
-    fn create(s: Storage, prefix: impl Iterator<Item=&str>) {
+    fn create(s: Storage, prefix: impl Iterator<Item = &'static str>) {
         // 1. Create default T, retrieve offset-index mapping
-
-        // 2. Retrieve metadata for each entities
-
-        // 3.
     }
 
     /// Update enclosing contents iteratively.
-    ///
-    /// 1. Check if
-    fn update(&self) {}
+    fn update(&self) -> bool {
+        todo!()
+
+        // 1. Submit update_fence value to storage, then storage returns
+    }
+
+    /// Check if given element
+    fn check_update<U>(&self, elem: &U) -> bool {
+        todo!()
+    }
 }
 
-
-impl<T> Deref for EntityCollection<T> {
+impl<T> Deref for ConfigSet<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -125,6 +132,10 @@ impl<T> Deref for EntityCollection<T> {
 #[cfg(test)]
 mod test_concepts {
     use super::*;
+
+    #[test]
+    fn test_if_compiled() {}
+
+    #[test]
+    fn test_pseudo_automation() {}
 }
-
-
