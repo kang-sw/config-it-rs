@@ -1,8 +1,9 @@
-use crate::__all::JsonObject;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::any::Any;
-use std::sync::{Arc, RwLock};
+use std::any::{Any, TypeId};
+use std::borrow::Borrow;
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::AtomicUsize;
 
 pub type ValuePtr = Arc<dyn EntityValue>;
 
@@ -29,8 +30,8 @@ pub struct Metadata {
 
 impl Metadata {
     pub fn create_base<T>(name: String, init_val: T) -> Self
-    where
-        T: EntityValue,
+        where
+            T: EntityValue,
     {
         Self {
             name,
@@ -50,9 +51,7 @@ impl Metadata {
 pub trait EntityValue: Any + Send + Sync {
     fn as_any(&self) -> &dyn Any;
 
-    fn clone_deep(&self) -> ValuePtr {
-        todo!()
-    }
+    fn clone_to(&self, s: &mut dyn Any);
     fn validate(&mut self, meta: Metadata) -> bool {
         todo!()
     }
@@ -66,11 +65,17 @@ pub trait EntityValue: Any + Send + Sync {
 }
 
 impl<T> EntityValue for T
-where
-    T: Any + Send + Sync + Serialize + DeserializeOwned + Clone,
+    where
+        T: Any + Send + Sync + Serialize + DeserializeOwned + Clone,
 {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn clone_to(&self, s: &mut dyn Any) {
+        if let Some(target) = s.downcast_mut::<T>() {
+            self.clone_into(target);
+        }
     }
 }
 
@@ -79,14 +84,15 @@ where
 /// Basic config object.
 ///
 pub struct EntityBase {
-    unique_id: u64,
-    fence: usize,
-    data: RwLock<ValuePtr>,
-    meta: Arc<Metadata>,
+    pub unique_id: u64,
+    pub fence: AtomicUsize,
+    pub meta: Arc<Metadata>,
+    data: Mutex<ValuePtr>,
 }
 
 impl EntityBase {
-    fn create<T>(meta: Arc<Metadata>) -> Arc<EntityBase> {
+    pub fn create<T>(meta: Arc<Metadata>) -> Arc<EntityBase> {
         todo!()
     }
+    pub fn get_cached_data(&self) -> ValuePtr { self.data.lock().unwrap().clone() }
 }
