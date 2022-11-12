@@ -58,22 +58,59 @@
 //! ... // Backend
 //!
 //! ```
-use std::cell::{Ref, RefCell};
+use std::any::{Any, TypeId};
+use std::cell::{BorrowMutError, Ref, RefCell, RefMut};
 use crate::__all::*;
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use crate::__all::ConfigSetError::AlreadyBorrowed;
 
 ///
-///
-///
+/// Config set reflection implementation for user defined config struct
+/// will automatically be generated using macro.
 ///
 pub trait ConfigSetReflection {
-    fn __get_offset_idx_table(&self) -> Arc<HashMap<usize, usize>>;
+    fn __get_offset_idx_table(&self) -> Arc<OffsetPropTable>;
     fn __entity_get_meta(&self) -> Arc<Vec<Metadata>>;
     fn __entity_update_value(&mut self, index: usize, value: &dyn EntityValue);
 }
+
+pub struct PropDesc {
+    index: usize,
+    type_id: TypeId,
+}
+
+impl From<(usize, TypeId)> for PropDesc {
+    fn from(e: (usize, TypeId)) -> Self {
+        Self {
+            index: e.0,
+            type_id: e.1,
+        }
+    }
+}
+
+pub type OffsetPropTable = HashMap<usize, PropDesc>;
+
+///
+/// Types of available errors
+///
+#[derive(Debug)]
+pub enum ConfigSetError {
+    /// Update may fail if
+    AlreadyBorrowed(BorrowMutError),
+
+    /// Prefix may not contain any
+    InvalidPrefixFormat,
+
+    ///
+    InvalidMemberPointer { offset: isize, type_id: TypeId },
+}
+
+///
+/// Alias to result around config set operation
+///
 
 ///
 ///
@@ -96,30 +133,33 @@ pub struct ConfigSet<T> {
     body: RefCell<T>,
 }
 
+
 struct CollectionDescriptor {
     /// Path to owning storage
     storage: Storage,
 
     /// Provides pointer offset -> index mapping
-    offset_index_table: Arc<HashMap<usize, usize>>,
+    offset_index_table: Arc<OffsetPropTable>,
 
     /// Each field of config set's target struct will be mapped into this.
     config_base_set: Vec<Arc<EntityBase>>,
 }
 
+
 impl<T: ConfigSetReflection + Default> ConfigSet<T> {
     ///
     /// TODO: Create collection with storage
     ///
-    pub fn new(s: Storage, prefix: impl Iterator<Item=&'static str>) -> Self {
+    pub fn new(s: Storage, prefix: impl Iterator<Item=&'static str>) -> Result<Self, ConfigSetError> {
         // 1. Create default T, retrieve offset-index mapping
         let body = T::default();
         let offset_index_table = body.__get_offset_idx_table();
 
         // 2. Create basic entities and collect metadata for them.
-
+        todo!();
 
         // 3. Register entities to storage.
+        todo!();
 
 
         todo!()
@@ -128,22 +168,29 @@ impl<T: ConfigSetReflection + Default> ConfigSet<T> {
     ///
     /// TODO: Update enclosing contents iteratively.
     ///
-    pub fn update(&self) -> bool {
-        // 0. Storage update is performed in background. (By replacing ConfigEntityBase's
-        //     value pointer & update fence). From this operation, config storage's update fence
-        //     value will be updated either.
-
+    pub fn update(&self) -> Result<bool, ConfigSetError> {
+        // 0. Storage update is performed in background continuously. (By replacing
+        //     ConfigEntityBase's value pointer & update fence). From this operation,
+        //     config storage's update fence value will be updated either.
 
         // 1. Compare update fence value in storage level, which performs early drop ...
         if self.desc.storage.update_fence() == self.update_fence {
-            return false;
+            return Ok(false);
         }
 
-        // 2. Iterate each config entities, collect all updates, and apply changes to local cache.
+        // 2.
         let mut fences = self.prop_check_fences.borrow_mut();
-        let mut body = self.body.borrow_mut();
+        let mut body = self.body.try_borrow_mut();
+        if body.is_err() {
+            return Err(AlreadyBorrowed(body.err().unwrap()));
+        }
 
-        for ((index, config_base), fence_val) in (0..fences.len()).zip(&self.desc.config_base_set).zip(fences.iter_mut()) {
+        debug_assert!(fences.len() == self.desc.config_base_set.len(), "Automation code was not correctly generated!");
+        let mut body = body.unwrap();
+
+        // 3. Iterate each config entities, collect all updates, and apply changes to local cache.
+        let iter = (0..fences.len()).zip(&self.desc.config_base_set).zip(fences.iter_mut());
+        for ((index, config_base), fence_val) in iter {
             let target_fence = config_base.fence.load(Ordering::Relaxed);
             if target_fence == *fence_val {
                 continue;
@@ -152,10 +199,10 @@ impl<T: ConfigSetReflection + Default> ConfigSet<T> {
             *fence_val = target_fence;
             let value = config_base.get_cached_data();
 
-            body.__entity_update_value(index, fence_val);
+            body.__entity_update_value(index, &*value);
         }
 
-        todo!()
+        Ok(true)
     }
 
     ///
@@ -166,10 +213,53 @@ impl<T: ConfigSetReflection + Default> ConfigSet<T> {
     }
 
     ///
+    /// Borrows body as mutable
+    ///
+    pub fn borrow_mut(&self) -> RefMut<T> { self.body.borrow_mut() }
+
+    ///
     /// Check if given element has any update
     ///
-    pub fn check_update<U>(&self, elem: &U) -> bool {
-        todo!()
+    pub fn check_update<U: ?Sized + Any>(&self, elem: &U) -> bool { todo!() }
+
+    ///
+    /// Commits updated value to owning entity base.
+    ///
+    pub fn commit<U: ?Sized + Any>(&self, elem: &U) -> bool { todo!() }
+
+    ///
+    /// Commits updated value to owning entity base.
+    ///
+    /// This will not touch host storage's update fence value,
+    ///
+    pub fn commit_silent<U: ?Sized + Any>(&self, elem: &U) -> bool { todo!() }
+
+    ///
+    /// Get reference to owning storage
+    ///
+    pub fn storage(&self) -> &Storage { &self.desc.storage }
+
+    ///
+    /// Gets index of given element
+    ///
+    fn _index_of<U: ?Sized + Any>(&self, elem: &U) -> Result<&PropDesc, ConfigSetError> {
+        let offset = unsafe {
+            let elem = elem as *const U as *const u8;
+            let base = self as *const Self as *const u8;
+
+            elem.offset_from(base)
+        };
+
+        let type_id = TypeId::of::<U>();
+        if offset < 0 {
+            return Err(ConfigSetError::InvalidMemberPointer { offset, type_id });
+        }
+
+        if let Some(node) = self.desc.offset_index_table.get(&(offset as usize)) {
+            Ok(node)
+        } else {
+            Err(ConfigSetError::InvalidMemberPointer { offset, type_id })
+        }
     }
 }
 
@@ -197,16 +287,18 @@ mod test_concepts {
     }
 
     impl ConfigSetReflection for MyTestConfigSet {
-        fn __get_offset_idx_table(&self) -> Arc<HashMap<usize, usize>> {
-            static LAZY_TABLE: OnceCell<Arc<HashMap<usize, usize>>> = OnceCell::new();
+        fn __get_offset_idx_table(&self) -> Arc<OffsetPropTable> {
+            static LAZY_TABLE: OnceCell<Arc<OffsetPropTable>> = OnceCell::new();
             return LAZY_TABLE
                 .get_or_init(|| {
-                    let mut table = <HashMap<usize, usize>>::with_capacity(3);
+                    let mut table = <OffsetPropTable>::with_capacity(3);
+
+                    // Defines conversion from pointer to
                     unsafe {
                         let v = 0 as *const MyTestConfigSet;
-                        table.insert(&(*v).my_ivar as *const i32 as usize, 0);
-                        table.insert(&(*v).my_fvar as *const f32 as usize, 1);
-                        table.insert(&(*v).my_dvar as *const f64 as usize, 2);
+                        table.insert(&(*v).my_ivar as *const i32 as usize, (0, TypeId::of::<i32>()).into());
+                        table.insert(&(*v).my_fvar as *const f32 as usize, (0, TypeId::of::<f32>()).into());
+                        table.insert(&(*v).my_dvar as *const f64 as usize, (0, TypeId::of::<f64>()).into());
                     }
 
                     Arc::new(table)

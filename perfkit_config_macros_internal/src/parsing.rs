@@ -6,6 +6,7 @@ use quote::ToTokens;
 use syn::spanned::Spanned;
 use syn::Data::Struct;
 use syn::{parse2, parse_macro_input, AttrStyle, DeriveInput, MetaNameValue};
+use syn::ReturnType::Default;
 
 ///
 ///
@@ -25,6 +26,8 @@ pub(super) struct FieldDesc {
     pub src_type: syn::Type,
 
     pub docstring: String,
+
+    pub alias: Option<syn::Lit>,
 
     pub default_value: Option<syn::Lit>,
     pub min: Option<syn::Lit>,
@@ -73,6 +76,7 @@ pub(super) fn decompose_input(input: DeriveInput) -> Result<TypeDesc, (Span, Str
             visibility: field.vis,
             default_value: Default::default(),
             docstring: String::with_capacity(200),
+            alias: Default::default(),
             min: Default::default(),
             max: Default::default(),
             one_of: Default::default(),
