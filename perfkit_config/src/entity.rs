@@ -1,6 +1,6 @@
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::any::{Any, TypeId};
+use std::any::{Any};
 use std::borrow::Borrow;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -57,8 +57,9 @@ pub trait EntityValue: Any + Send + Sync {
     }
 
     fn entity_deserialize(&mut self, desrl: &dyn erased_serde::Deserializer) {
-        unimplemented!()
+        unimplemented!();
     }
+
     fn entity_serialize(&self) -> &dyn erased_serde::Serialize {
         unimplemented!()
     }
@@ -85,13 +86,22 @@ impl<T> EntityValue for T
 ///
 pub struct EntityBase {
     pub unique_id: u64,
+
+    pub register_offset_id: usize,
+    pub prefix: Arc<[String]>,
+
     pub fence: AtomicUsize,
     pub meta: Arc<Metadata>,
+
     data: Mutex<ValuePtr>,
 }
 
 impl EntityBase {
-    pub fn create(meta: Arc<Metadata>) -> Arc<EntityBase> {
+    pub(crate) fn create(
+        meta: Arc<Metadata>,
+        register_offset_id: usize,
+        prefix: Arc<[String]>,
+    ) -> Arc<EntityBase> {
         // Gives unique ID to given entity
         static IDGEN: AtomicU64 = AtomicU64::new(1);
 
@@ -99,8 +109,22 @@ impl EntityBase {
             unique_id: IDGEN.fetch_add(1, Ordering::Relaxed),
             fence: AtomicUsize::new(1), // Forcibly triggers initial check_update() invalidation
             data: Mutex::new(meta.v_default.clone()),
+            register_offset_id,
+            prefix,
             meta,
         })
     }
-    pub fn get_cached_data(&self) -> ValuePtr { self.data.lock().unwrap().clone() }
+
+    pub(crate) fn get_cached_data(&self) -> ValuePtr {
+        self.data.lock().unwrap().clone()
+    }
+
+    pub(crate) fn set_cached_data(&self, data: ValuePtr, silent: bool) {
+        let mut locked = self.data.lock().unwrap();
+        *locked = data;
+
+        if silent == false {
+            self.fence.fetch_add(1, Ordering::Relaxed) + 1;
+        }
+    }
 }

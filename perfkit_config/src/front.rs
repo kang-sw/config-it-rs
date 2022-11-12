@@ -59,13 +59,12 @@
 //!
 //! ```
 use std::any::{Any, TypeId};
-use std::cell::{BorrowMutError, Ref, RefCell, RefMut};
+use std::cell::{BorrowMutError, RefCell};
 use crate::__all::*;
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use crate::__all::ConfigSetError::AlreadyBorrowed;
 
 
 ///
@@ -113,10 +112,6 @@ pub enum ConfigSetError {
 }
 
 ///
-/// Alias to result around config set operation
-///
-
-///
 ///
 /// User will use defined config class as template parameter of `EntityCollection`
 ///
@@ -149,7 +144,7 @@ struct ConfigSetBody {
     config_base_set: Vec<Arc<EntityBase>>,
 
     /// Allocated offset ID
-    offset_id: usize,
+    offset_id_base: usize,
 }
 
 
@@ -170,20 +165,16 @@ impl<T: ConfigSetReflection + Default> ConfigSet<T> {
         let num_elems = metadata.len();
 
         // 2. Create basic entities and collect metadata for them.
-        let mut entities = Vec::<Arc<EntityBase>>::with_capacity(metadata.len());
-        for meta in metadata {
-            entities.push(EntityBase::create(meta));
-        }
 
         // 3. Register entities to storage.
-        let offset_id = match s.register(prefix, entities.as_slice()) {
-            Some(offset_id) => offset_id,
+        let (offset_id_base, entities) = match s.__register(prefix, metadata.as_slice()) {
+            Some(retval) => retval,
             None => return Err(ConfigSetError::PrefixDuplicated),
         };
 
 
         let desc = ConfigSetBody {
-            offset_id,
+            offset_id_base,
             offset_index_table,
             config_base_set: entities,
             storage: s,
@@ -206,10 +197,9 @@ impl<T: ConfigSetReflection + Default> ConfigSet<T> {
         //     config storage's update fence value will be updated either.
 
         // 1. Compare update fence value in storage level, which performs early drop ...
-        match self.desc.storage.update_fence() {
-            v if v == self.update_fence => return false,
-            v => self.update_fence = v,
-        };
+        if false == self.desc.storage.__check_update(&mut self.update_fence, self.desc.offset_id_base) {
+            return false;
+        }
 
         // 2. Borrow updates
         let mut fences = self.prop_check_fences.borrow_mut();
@@ -243,14 +233,12 @@ impl<T: ConfigSetReflection + Default> ConfigSet<T> {
         let index = self._index_of(elem).unwrap().index;
         let mut fences = self.prop_check_fences.borrow_mut();
 
-        let source_fence = self.desc.config_base_set[index].fence.load(Ordering::Relaxed);
-        let dst_fence = &mut fences[index];
-
-        if *dst_fence == source_fence {
-            false
-        } else {
-            *dst_fence = source_fence;
-            true
+        match (self.desc.config_base_set[index].fence.load(Ordering::Relaxed), &mut fences[index]) {
+            (src, dst) if src != *dst => {
+                *dst = src;
+                true
+            }
+            _ => false
         }
     }
 
@@ -275,7 +263,7 @@ impl<T: ConfigSetReflection + Default> ConfigSet<T> {
     /// Get index range. Use this with StorageEvent::RemoteUpdate
     ///
     pub fn check_props_in_range(&self, reg_id: &[usize]) -> bool {
-        let min = self.desc.offset_id;
+        let min = self.desc.offset_id_base;
         let max = min + self.desc.config_base_set.len();
 
         match reg_id.binary_search(&min) {
@@ -288,7 +276,7 @@ impl<T: ConfigSetReflection + Default> ConfigSet<T> {
     ///
     /// Check if storage event affects to this config set.
     ///
-    pub fn is_update_for_this(&self, event: &StorageEvent) -> bool {
+    pub fn check_affect_this(&self, event: &StorageEvent) -> bool {
         use StorageEvent::*;
         match event {
             RemoteUpdate(_, arg) => self.check_props_in_range(arg),
@@ -322,7 +310,7 @@ impl<T: ConfigSetReflection + Default> ConfigSet<T> {
 
 impl Drop for ConfigSetBody {
     fn drop(&mut self) {
-        self.storage.unregister(self.offset_id);
+        self.storage.__unregister(self.offset_id_base);
     }
 }
 
@@ -347,7 +335,7 @@ impl<T> Deref for ConfigSet<T> {
 
 impl<T> DerefMut for ConfigSet<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        todo!()
+        &mut self.body
     }
 }
 
@@ -444,7 +432,8 @@ mod test_concepts {
         let mut cfg1 = ConfigSet::<MyTestConfigSet>::new(storage.clone(), &[]).unwrap();
         let mut cfg2 = ConfigSet::<MyTestConfigSet>::new(storage, &["My", "Little", "Pony"]).unwrap();
 
-        assert!(!cfg1.check_update(&cfg1.my_ivar));
+        assert_eq!(true, cfg1.check_update(&cfg1.my_ivar));
+        assert_eq!(false, cfg1.check_update(&cfg1.my_ivar));
         cfg1.my_ivar = 2;
     }
 
