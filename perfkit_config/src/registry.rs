@@ -4,13 +4,14 @@ use std::sync::Arc;
 ///
 /// User interacts with this class
 ///
+#[derive(Clone)]
 pub struct Registry {
     body: Arc<RegistryBackend>,
 }
 
 impl Registry {
     /// Creates new empty registry.
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             body: Arc::new(RegistryBackend::default()),
         }

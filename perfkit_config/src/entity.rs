@@ -92,6 +92,8 @@ pub struct EntityBase {
 
 impl EntityBase {
     pub fn create<T>(meta: Arc<Metadata>) -> Arc<EntityBase> {
+        // Gives unique ID to given entity
+
         todo!()
     }
     pub fn get_cached_data(&self) -> ValuePtr { self.data.lock().unwrap().clone() }

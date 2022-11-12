@@ -12,4 +12,9 @@ serde_json = { version = "1.0" }
 erased-serde = "0.3"
 itertools = "0.10"
 fnv = "1"
+tokio = { version = "1", optional = true, features = ["sync"] }
+
+[features]
+tokio = ["dep:tokio"]
+
 
