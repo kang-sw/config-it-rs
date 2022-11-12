@@ -74,7 +74,7 @@ use crate::__all::ConfigSetError::AlreadyBorrowed;
 ///
 pub trait ConfigSetReflection {
     fn __get_offset_idx_table(&self) -> Arc<OffsetPropTable>;
-    fn __entity_get_meta(&self) -> Arc<Vec<Metadata>>;
+    fn __get_metadata_vec(&self) -> Vec<Arc<Metadata>>;
     fn __entity_update_value(&mut self, index: usize, value: &dyn EntityValue);
 }
 
@@ -105,6 +105,9 @@ pub enum ConfigSetError {
     /// Prefix may not contain any
     InvalidPrefixFormat,
 
+    /// Given prefix string is duplicated
+    PrefixDuplicated,
+
     ///
     InvalidMemberPointer { offset: isize, type_id: TypeId },
 }
@@ -120,7 +123,7 @@ pub enum ConfigSetError {
 pub struct ConfigSet<T> {
     /// Description for this collection instance, which will be shared across
     /// collection instances.
-    desc: Arc<CollectionDescriptor>,
+    desc: Arc<ConfigSetBody>,
 
     /// Used for filtering update targets. Only entities that has larger fence number
     /// than this can be updated. After update, this number will be set as largest value
@@ -135,7 +138,7 @@ pub struct ConfigSet<T> {
 }
 
 
-struct CollectionDescriptor {
+struct ConfigSetBody {
     /// Path to owning storage
     storage: Storage,
 
@@ -155,17 +158,43 @@ impl<T: ConfigSetReflection + Default> ConfigSet<T> {
     /// TODO: Create collection with storage
     ///
     pub fn new(s: Storage, prefix: &[&str]) -> Result<Self, ConfigSetError> {
+        // 0. Validate parameter
+        if prefix.iter().any(|v| v.is_empty()) {
+            return Err(ConfigSetError::InvalidPrefixFormat);
+        }
+
         // 1. Create default T, retrieve offset-index mapping
         let body = T::default();
+        let offset_index_table = body.__get_offset_idx_table();
+        let metadata = body.__get_metadata_vec();
+        let num_elems = metadata.len();
 
         // 2. Create basic entities and collect metadata for them.
-        todo!();
+        let mut entities = Vec::<Arc<EntityBase>>::with_capacity(metadata.len());
+        for meta in metadata {
+            entities.push(EntityBase::create(meta));
+        }
 
         // 3. Register entities to storage.
-        todo!();
+        let offset_id = match s.register(prefix, entities.as_slice()) {
+            Some(offset_id) => offset_id,
+            None => return Err(ConfigSetError::PrefixDuplicated),
+        };
 
 
-        todo!()
+        let desc = ConfigSetBody {
+            offset_id,
+            offset_index_table,
+            config_base_set: entities,
+            storage: s,
+        };
+
+        Ok(Self {
+            desc: Arc::new(desc),
+            update_fence: 0,
+            body,
+            prop_check_fences: RefCell::new(vec![0; num_elems]),
+        })
     }
 
     ///
@@ -274,7 +303,7 @@ impl<T: ConfigSetReflection + Default> ConfigSet<T> {
     fn _index_of<U: ?Sized + Any>(&self, elem: &U) -> Result<&PropDesc, ConfigSetError> {
         let offset = unsafe {
             let elem = elem as *const U as *const u8;
-            let base = self as *const Self as *const u8;
+            let base = &self.body as *const T as *const u8;
 
             elem.offset_from(base)
         };
@@ -288,6 +317,12 @@ impl<T: ConfigSetReflection + Default> ConfigSet<T> {
             Some(node) if node.type_id == type_id => Ok(node),
             _ => Err(ConfigSetError::InvalidMemberPointer { offset, type_id })
         }
+    }
+}
+
+impl Drop for ConfigSetBody {
+    fn drop(&mut self) {
+        self.storage.unregister(self.offset_id);
     }
 }
 
@@ -348,22 +383,23 @@ mod test_concepts {
                 .clone();
         }
 
-        fn __entity_get_meta(&self) -> Arc<Vec<Metadata>> {
-            static LAZY_TABLE: OnceCell<Arc<Vec<Metadata>>> = OnceCell::new();
+        fn __get_metadata_vec(&self) -> Vec<Arc<Metadata>> {
+            static LAZY_TABLE: OnceCell<Vec<Arc<Metadata>>> = OnceCell::new();
             return LAZY_TABLE
                 .get_or_init(|| {
-                    let mut table = Vec::<Metadata>::with_capacity(3);
+                    let mut table = Vec::<Arc<Metadata>>::with_capacity(3);
                     let default = MyTestConfigSet::default();
 
-                    table.push(Metadata::create_base::<i32>("my_ivar".into(), default.my_ivar));
-                    table[0].description = "hello".into();
-                    table[0].hidden = true;
+                    let mut meta = Metadata::create_base::<i32>("my_ivar".into(), default.my_ivar);
+                    meta.description = "hello".into();
+                    meta.hidden = false;
+                    table.push(Arc::new(meta));
 
-                    table.push(Metadata::create_base::<f32>("my_fvar".into(), default.my_fvar));
+                    table.push(Arc::new(Metadata::create_base::<f32>("my_fvar".into(), default.my_fvar)));
                     // ... Manipulate with these ...
 
-                    table.push(Metadata::create_base::<f64>("my_dvar".into(), default.my_dvar));
-                    Arc::new(table)
+                    table.push(Arc::new(Metadata::create_base::<f64>("my_dvar".into(), default.my_dvar)));
+                    table
                 })
                 .clone();
         }

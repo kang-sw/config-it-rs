@@ -3,7 +3,7 @@ use serde::Serialize;
 use std::any::{Any, TypeId};
 use std::borrow::Borrow;
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 pub type ValuePtr = Arc<dyn EntityValue>;
 
@@ -91,10 +91,16 @@ pub struct EntityBase {
 }
 
 impl EntityBase {
-    pub fn create<T>(meta: Arc<Metadata>) -> Arc<EntityBase> {
+    pub fn create(meta: Arc<Metadata>) -> Arc<EntityBase> {
         // Gives unique ID to given entity
+        static IDGEN: AtomicU64 = AtomicU64::new(1);
 
-        todo!()
+        Arc::new(EntityBase {
+            unique_id: IDGEN.fetch_add(1, Ordering::Relaxed),
+            fence: AtomicUsize::new(1), // Forcibly triggers initial check_update() invalidation
+            data: Mutex::new(meta.v_default.clone()),
+            meta,
+        })
     }
     pub fn get_cached_data(&self) -> ValuePtr { self.data.lock().unwrap().clone() }
 }

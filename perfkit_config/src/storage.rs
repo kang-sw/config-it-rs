@@ -37,7 +37,16 @@ impl Storage {
     /// Returns offset id, that each entity will be registered
     ///  as id `[retval ... retval + entities.size()]`
     ///
-    pub(crate) fn register_entities(&self, entities: &[Arc<EntityBase>]) -> usize {
+    pub(crate) fn register(&self, prefix: &[&str], entities: &[Arc<EntityBase>]) -> Option<usize> {
+        return Some(0usize);
+
+        todo!()
+    }
+
+    ///
+    ///
+    ///
+    pub(crate) fn unregister(&self, offset_id: usize) {
         todo!()
     }
 
