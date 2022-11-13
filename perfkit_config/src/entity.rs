@@ -66,8 +66,7 @@ pub trait EntityValue: Any + Send + Sync {
 }
 
 impl<T> EntityValue for T
-    where
-        T: Any + Send + Sync + Serialize + DeserializeOwned + Clone,
+    where T: Any + Send + Sync + Serialize + DeserializeOwned + Clone
 {
     fn as_any(&self) -> &dyn Any {
         self

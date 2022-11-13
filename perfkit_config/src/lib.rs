@@ -1,13 +1,13 @@
-pub mod entity;
-pub mod front;
 pub mod registry;
 pub mod storage;
+pub mod entity;
+pub mod front;
 
 mod __all {
-    pub use super::entity::*;
-    pub use super::front::*;
     pub use super::registry::*;
     pub use super::storage::*;
+    pub use super::entity::*;
+    pub use super::front::*;
 
     pub type JsonObject = serde_json::Value;
 }

@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::Hasher;
-use std::sync;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use crate::entity::{EntityBase, Metadata};
@@ -127,12 +126,12 @@ impl Storage {
     ///
     /// Unregisters given config set with offset_id.
     ///
-    pub(crate) fn __unregister(&self, offset_id: usize) {
+    pub(crate) fn __unregister(&self, set: Arc<ConfigSetContext>) {
         let mut ctx = self.body.ictx.lock().unwrap();
-        let mut elem = ctx.config_sets.remove(&offset_id).unwrap();
-        assert!(ctx.prefix_dup_table.remove(&elem.prefix_hash_cache));
+        assert!(ctx.prefix_dup_table.remove(&set.prefix_hash_cache));
+        assert!(ctx.config_sets.remove(&set.alloc_offset_id).is_some());
 
-        // TODO: Notify removal to registry
+        // TODO: Notify config set removal to registry
     }
 
     ///

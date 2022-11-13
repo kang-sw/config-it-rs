@@ -2,29 +2,38 @@ use std::sync::Arc;
 
 ///
 ///
-/// User interacts with this class
+/// A root registry for multiple config storages.
 ///
-#[derive(Clone)]
-pub struct Registry {
-    body: Arc<RegistryBackend>,
-}
+/// This class simply works as handle to registry instance, as registry itself is vastly shared
+///  across multiple components/classes.
+///
+/// Implementation for `Registry` provides various user-interact methods.
+///
+pub struct Registry(Arc<RegistryBody>);
+
+struct RegistryBody {}
 
 impl Registry {
-    /// Creates new empty registry.
-    pub fn new() -> Self {
-        Self {
-            body: Arc::new(RegistryBackend::default()),
-        }
+    ///
+    /// Creates empty registry instance.
+    ///
+    pub(crate) fn new() -> Self {
+        todo!()
     }
+
+    // TODO: Register event monitor channel (std version ...)
+    // TODO: Register new storage
+    // TODO: Unregister expired storage
 }
 
 ///
 ///
-/// Backend classes interacts with components under this namespace.
+/// Context of single storage registration.
 ///
-#[derive(Default)]
-pub struct RegistryBackend {}
+/// Will be shared between registry and storage.
+///
+pub(crate) struct StorageContext {}
 
-impl RegistryBackend {}
-
-pub trait ObserveRegistry {}
+impl StorageContext {
+    // TODO: Notify config set registration/unregistration (with multiple entities)
+}

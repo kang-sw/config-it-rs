@@ -1,64 +1,38 @@
 //!
-//! 1. Config Entity
-//! 2. Config Set -> NOT a physical concept ... just user-defined struct of various entities!
-//! 3. Config Storage -> Collection of entities. Classes are set of entities with prefix.
-//! 4. Config Registry -> Collection of categories. File save/load root
 //!
-//! Config Entity    --> ConfigBase:1, Data:1:mut
-//! Config Set       --> ConfigStorage:1, ConfigEntity:N
-//! Config Storage   --> w:ConfigBase:N
-//! Config Base      --> Data:1:mut
+//! # Perfkit configs frontend
 //!
-//! Targets following behavior:
+//! Any code interacts with perfkit configs library should utilize below functionalities.
+//!
+//! Firstly user define a config class which derives `ConfigBody` trait class.
+//! > **Warning** `ConfigBody` intended to be used via attribute, not manually implementing
+//! > the trait itself.
 //!
 //! ``` ignore
-//! #[perkfit_config_set]
-//! struct MySet {
-//!   /// Doc comment will be embedded into metadata as entity description
-//!   #[min(3), max(5)]
-//!   element: i32, // Turns into perfkit_config::Entity<i32>
+//! use perfkit_config::macro::ConfigBody
+//! #[derive(ConfigBody)]
+//! struct MyConfig {
+//!   /// This docstring will be saved as entity's description string.
+//!   ///
+//!   /// Any field marked with `perfkit` attribute will be treated as config entity.
+//!   #[perfkit(default=1.21, min=0, max=100)]
+//!   my_double: f64,
 //!
-//!   /// Serde serializable/deserializable user defined structs are allowed
-//!   ///  to be used as config set component
-//!   my_data: UserType,
+//!   /// Any non-perfkit decorated field is ignored by macro parser
+//!   transient_field: f32,
 //!
-//!   /// one_of attribute
+//!   /// There are number of useful traits ... See `ConfigBody` docs.
+//!   #[perfkit(one_of(3, 4, 5, 6, 11), min=3, max=2)]
+//!   my_int: i32,
 //! }
-//!
-//! #[derive(Serialize,Deserialize)]
-//! struct UserType {
-//!   ...
-//! }
-//!
-//! ... // Frontend
-//! let reg = Registry::new();
-//! reg.load(load_json_from_file("file_name.json"), LoadPolicy::);
-//!
-//! let back = perfkit_backend_web::Backend::create(
-//!   perfkit_backend_web::BackendDesc {
-//!     config_registry: reg.clone(),
-//!     trace_registry: ...,
-//!     command_registry: ...,
-//!     binding: (None, parse_env_or<u16>("PF_BK_PORT", 15572)),
-//!     ...
-//!   }
-//! );
-//!
-//! // Create storage
-//! let storage : Arc<Storage> = Storage::find_or_create(reg, "storage_name");
-//!
-//! // Create config set(user defined), by registering given storage.
-//! let cfg = MySet::create(&storage, ["prefix", "path", "goes", "here"]).expect("Config set with same prefix is not allowed!");
-//!
-//! //
-//! cfg.update(); // Searches storage, fetch all updates
-//! if cfg.element.take_update_flag() {
-//!   // Do some heavy work with this ...
-//! }
-//! ... // Backend
-//!
 //! ```
+//!
+//! Any data type inherits `Send + Sync + Clone + DeserializeOwned + Serialize` can be field of
+//!  config body structure. However, since a configuration entity is updated at once always,
+//!  frequent update of *too big* entity structure instance may incur performance issue.
+//!
 use std::any::{Any, TypeId};
+use std::borrow::BorrowMut;
 use std::cell::{BorrowMutError, RefCell};
 use crate::__all::*;
 use std::collections::HashMap;
@@ -115,6 +89,7 @@ pub enum ConfigSetError {
 ///
 /// User will use defined config class as template parameter of `EntityCollection`
 ///
+#[derive(Clone)]
 pub struct ConfigSet<T> {
     /// Context associated with storage
     context: Arc<ConfigSetContext>,
@@ -156,9 +131,7 @@ impl<T: ConfigSetReflection + Default> ConfigSet<T> {
         let metadata = body.__get_metadata_vec();
         let num_elems = metadata.len();
 
-        // 2. Create basic entities and collect metadata for them.
-
-        // 3. Register entities to storage.
+        // 2. Register entities to storage.
         let context = match s.__register(prefix, metadata.as_slice()) {
             Some(retval) => retval,
             None => return Err(ConfigSetError::PrefixDuplicated),
@@ -166,12 +139,12 @@ impl<T: ConfigSetReflection + Default> ConfigSet<T> {
 
         Ok(Self {
             anchor: Arc::new(()),
-            offset_index_table,
             storage: s,
-            context,
             update_fence: 0,
-            body,
             prop_check_fences: RefCell::new(vec![0; num_elems]),
+            offset_index_table,
+            context,
+            body,
         })
     }
 
@@ -210,7 +183,7 @@ impl<T: ConfigSetReflection + Default> ConfigSet<T> {
             has_update = true;
         }
 
-        return has_update;
+        has_update
     }
 
     ///
@@ -295,17 +268,13 @@ impl<T: ConfigSetReflection + Default> ConfigSet<T> {
     }
 }
 
-impl<T: Clone> Clone for ConfigSet<T> {
-    fn clone(&self) -> Self {
-        Self {
-            update_fence: self.update_fence,
-
-            context: self.context.clone(),
-            storage: self.storage.clone(),
-            anchor: self.anchor.clone(),
-            offset_index_table: self.offset_index_table.clone(),
-            prop_check_fences: self.prop_check_fences.clone(),
-            body: self.body.clone(),
+impl<T> Drop for ConfigSet<T> {
+    ///
+    /// Unregisters config set if this was the last active config set.
+    ///
+    fn drop(&mut self) {
+        if 1 == Arc::strong_count(&self.anchor) {
+            self.storage.__unregister(self.context.clone());
         }
     }
 }
@@ -422,6 +391,29 @@ mod test_concepts {
         cfg1.my_ivar = 2;
     }
 
+    #[derive(Default)]
+    struct Inner;
+
+    #[derive(Default)]
+    struct Outer {
+        inner: Inner,
+    }
+
+    impl Drop for Inner {
+        fn drop(&mut self) {
+            println!("Dropping Inner!");
+        }
+    }
+
+    impl Drop for Outer {
+        fn drop(&mut self) {
+            println!("Dropping Outer!");
+        }
+    }
+
     #[test]
-    fn test_pseudo_automation() {}
+    #[ignore]
+    fn test_pseudo_automation() {
+        let s = Outer::default();
+    }
 }
