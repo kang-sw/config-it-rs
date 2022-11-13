@@ -22,9 +22,7 @@ pub(crate) struct StorageBody {
     name: String,
     rg: Registry,
     ictx: Mutex<InternalContext>,
-
     local_offset_id_gen: AtomicUsize,
-    root_update_fence: AtomicUsize,
 }
 
 struct InternalContext {
@@ -32,14 +30,25 @@ struct InternalContext {
     prefix_dup_table: HashSet<u64>,
 
     /// - Key: offset fence, generated from local_offset_id_gen
-    config_sets: HashMap<usize, ConfigSetContext>,
+    config_sets: HashMap<usize, Arc<ConfigSetContext>>,
 }
 
-struct ConfigSetContext {
-    prefix_hash: u64,
-    prefix: Arc<[String]>,
-    entities: Vec<Arc<EntityBase>>,
-    update_fence: usize,
+pub(crate) struct ConfigSetContext {
+    /// Also used as hash-map key
+    pub alloc_offset_id: usize,
+
+    /// List of all contained entities
+    pub entities: Vec<Arc<EntityBase>>,
+
+    /// Cached prefix string sequence
+    pub prefix: Arc<[String]>,
+
+    /// Cached prefix hash calculation. Will be used for removing `prefix_dup_table`
+    ///  on unregister.
+    pub prefix_hash_cache: u64,
+
+    /// Internal context value.
+    update_fence: AtomicUsize,
 }
 
 impl Storage {
@@ -54,22 +63,12 @@ impl Storage {
     }
 
     ///
-    /// Gets current update fence value
-    ///
-    pub(crate) fn __check_update(&self, fence: &mut usize, offset_id: usize) -> bool {
-        let global = self.body.root_update_fence.load(Ordering::Relaxed);
-
-        if *fence == global {}
-        todo!()
-    }
-
-    ///
     /// Registers set of entities
     ///
     /// Returns offset id, that each entity will be registered
     ///  as id `[retval ... retval + entities.size()]`
     ///
-    pub(crate) fn __register(&self, prefix: &[&str], meta_ents: &[Arc<Metadata>]) -> Option<(usize, Vec<Arc<EntityBase>>)> {
+    pub(crate) fn __register(&self, prefix: &[&str], meta_ents: &[Arc<Metadata>]) -> Option<Arc<ConfigSetContext>> {
         // Generate hash string from prefixes
         let prefix_hash = {
             let mut hash = fnv::FnvHasher::default();
@@ -101,11 +100,13 @@ impl Storage {
 
         // Create config set context
         let ctx_set = ConfigSetContext {
-            prefix_hash,
+            alloc_offset_id: offset_id,
+            prefix_hash_cache: prefix_hash,
             prefix: prefix.clone(),
             entities: entities.clone(),
-            update_fence: 0,
+            update_fence: AtomicUsize::new(0),
         };
+        let ctx_set = Arc::new(ctx_set);
 
         // Modify internal state
         {
@@ -116,11 +117,11 @@ impl Storage {
                 return None;
             }
 
-            assert!(ctx.config_sets.insert(offset_id, ctx_set).is_none());
+            assert!(ctx.config_sets.insert(offset_id, ctx_set.clone()).is_none());
         }
 
         // TODO: Access registry's config cache, load initial config values to entities
-        Some((offset_id, entities))
+        Some(ctx_set)
     }
 
     ///
@@ -129,7 +130,7 @@ impl Storage {
     pub(crate) fn __unregister(&self, offset_id: usize) {
         let mut ctx = self.body.ictx.lock().unwrap();
         let mut elem = ctx.config_sets.remove(&offset_id).unwrap();
-        assert!(ctx.prefix_dup_table.remove(&elem.prefix_hash));
+        assert!(ctx.prefix_dup_table.remove(&elem.prefix_hash_cache));
 
         // TODO: Notify removal to registry
     }
@@ -144,6 +145,18 @@ impl Storage {
 
     // TODO: Dump to serializer
     // TODO: Load from deserializer
+}
+
+impl ConfigSetContext {
+    pub fn check_update(&self, local_fence: &mut usize) -> bool {
+        match self.update_fence.load(Ordering::Relaxed) {
+            v if v == *local_fence => false,
+            v => {
+                *local_fence = v;
+                true
+            }
+        }
+    }
 }
 
 impl StorageBody {

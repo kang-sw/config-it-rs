@@ -116,9 +116,14 @@ pub enum ConfigSetError {
 /// User will use defined config class as template parameter of `EntityCollection`
 ///
 pub struct ConfigSet<T> {
-    /// Description for this collection instance, which will be shared across
-    /// collection instances.
-    desc: Arc<ConfigSetBody>,
+    /// Context associated with storage
+    context: Arc<ConfigSetContext>,
+
+    /// Path to owning storage
+    storage: Storage,
+
+    /// Provides pointer offset -> index mapping
+    offset_index_table: Arc<OffsetPropTable>,
 
     /// Used for filtering update targets. Only entities that has larger fence number
     /// than this can be updated. After update, this number will be set as largest value
@@ -128,25 +133,12 @@ pub struct ConfigSet<T> {
     /// Used for checking fence values of properties
     prop_check_fences: RefCell<Vec<usize>>,
 
-    ///
+    /// Anchor automatic unregister
+    anchor: Arc<()>,
+
+    /// Actual user data structure
     body: T,
 }
-
-
-struct ConfigSetBody {
-    /// Path to owning storage
-    storage: Storage,
-
-    /// Provides pointer offset -> index mapping
-    offset_index_table: Arc<OffsetPropTable>,
-
-    /// Each field of config set's target struct will be mapped into this.
-    config_base_set: Vec<Arc<EntityBase>>,
-
-    /// Allocated offset ID
-    offset_id_base: usize,
-}
-
 
 impl<T: ConfigSetReflection + Default> ConfigSet<T> {
     ///
@@ -167,21 +159,16 @@ impl<T: ConfigSetReflection + Default> ConfigSet<T> {
         // 2. Create basic entities and collect metadata for them.
 
         // 3. Register entities to storage.
-        let (offset_id_base, entities) = match s.__register(prefix, metadata.as_slice()) {
+        let context = match s.__register(prefix, metadata.as_slice()) {
             Some(retval) => retval,
             None => return Err(ConfigSetError::PrefixDuplicated),
         };
 
-
-        let desc = ConfigSetBody {
-            offset_id_base,
-            offset_index_table,
-            config_base_set: entities,
-            storage: s,
-        };
-
         Ok(Self {
-            desc: Arc::new(desc),
+            anchor: Arc::new(()),
+            offset_index_table,
+            storage: s,
+            context,
             update_fence: 0,
             body,
             prop_check_fences: RefCell::new(vec![0; num_elems]),
@@ -197,19 +184,19 @@ impl<T: ConfigSetReflection + Default> ConfigSet<T> {
         //     config storage's update fence value will be updated either.
 
         // 1. Compare update fence value in storage level, which performs early drop ...
-        if false == self.desc.storage.__check_update(&mut self.update_fence, self.desc.offset_id_base) {
+        if self.context.check_update(&mut self.update_fence) {
             return false;
         }
 
         // 2. Borrow updates
         let mut fences = self.prop_check_fences.borrow_mut();
-        let mut body = &mut self.body;
+        let body = &mut self.body;
 
-        debug_assert!(fences.len() == self.desc.config_base_set.len(), "Automation code was not correctly generated!");
+        debug_assert!(fences.len() == self.offset_index_table.len(), "Automation code was not correctly generated!");
 
         // 3. Iterate each config entities, collect all updates, and apply changes to local cache.
         let mut has_update = false;
-        let iter = (0..fences.len()).zip(&self.desc.config_base_set).zip(fences.iter_mut());
+        let iter = (0..fences.len()).zip(&self.context.entities).zip(fences.iter_mut());
         for ((index, config_base), fence_val) in iter {
             let target_fence = config_base.fence.load(Ordering::Relaxed);
             if target_fence == *fence_val {
@@ -233,7 +220,7 @@ impl<T: ConfigSetReflection + Default> ConfigSet<T> {
         let index = self._index_of(elem).unwrap().index;
         let mut fences = self.prop_check_fences.borrow_mut();
 
-        match (self.desc.config_base_set[index].fence.load(Ordering::Relaxed), &mut fences[index]) {
+        match (self.context.entities[index].fence.load(Ordering::Relaxed), &mut fences[index]) {
             (src, dst) if src != *dst => {
                 *dst = src;
                 true
@@ -245,26 +232,26 @@ impl<T: ConfigSetReflection + Default> ConfigSet<T> {
     ///
     /// Commits updated value to owning entity base.
     ///
-    pub fn commit<U: ?Sized + Any>(&self, elem: &U) -> bool { todo!() }
+    pub fn commit<U: ?Sized + Any>(&self, _elem: &U) -> bool { todo!() }
 
     ///
     /// Commits updated value to owning entity base.
     ///
     /// This will not touch host storage's update fence value,
     ///
-    pub fn commit_silent<U: ?Sized + Any>(&self, elem: &U) -> bool { todo!() }
+    pub fn commit_silent<U: ?Sized + Any>(&self, _elem: &U) -> bool { todo!() }
 
     ///
     /// Get reference to owning storage
     ///
-    pub fn storage(&self) -> &Storage { &self.desc.storage }
+    pub fn storage(&self) -> &Storage { &self.storage }
 
     ///
     /// Get index range. Use this with StorageEvent::RemoteUpdate
     ///
     pub fn check_props_in_range(&self, reg_id: &[usize]) -> bool {
-        let min = self.desc.offset_id_base;
-        let max = min + self.desc.config_base_set.len();
+        let min = self.context.alloc_offset_id;
+        let max = min + self.offset_index_table.len();
 
         match reg_id.binary_search(&min) {
             Ok(_) => true,
@@ -301,16 +288,10 @@ impl<T: ConfigSetReflection + Default> ConfigSet<T> {
             return Err(ConfigSetError::InvalidMemberPointer { offset, type_id });
         }
 
-        match self.desc.offset_index_table.get(&(offset as usize)) {
+        match self.offset_index_table.get(&(offset as usize)) {
             Some(node) if node.type_id == type_id => Ok(node),
             _ => Err(ConfigSetError::InvalidMemberPointer { offset, type_id })
         }
-    }
-}
-
-impl Drop for ConfigSetBody {
-    fn drop(&mut self) {
-        self.storage.__unregister(self.offset_id_base);
     }
 }
 
@@ -318,8 +299,12 @@ impl<T: Clone> Clone for ConfigSet<T> {
     fn clone(&self) -> Self {
         Self {
             update_fence: self.update_fence,
+
+            context: self.context.clone(),
+            storage: self.storage.clone(),
+            anchor: self.anchor.clone(),
+            offset_index_table: self.offset_index_table.clone(),
             prop_check_fences: self.prop_check_fences.clone(),
-            desc: self.desc.clone(),
             body: self.body.clone(),
         }
     }
