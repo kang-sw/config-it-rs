@@ -2,10 +2,11 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::any::{Any};
 use std::borrow::Borrow;
+use std::ops::DerefMut;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
-pub type ValuePtr = Arc<dyn EntityValue>;
+pub type EntityValuePtr = Arc<dyn EntityValue>;
 
 ///
 ///
@@ -17,113 +18,102 @@ pub struct Metadata {
     pub name: String,
     pub description: String,
 
-    pub v_default: ValuePtr,
-    pub v_min: Option<ValuePtr>,
-    pub v_max: Option<ValuePtr>,
-    pub v_one_of: Vec<ValuePtr>,
+    pub v_default: EntityValuePtr,
+    pub v_min: Option<EntityValuePtr>,
+    pub v_max: Option<EntityValuePtr>,
+    pub v_one_of: Vec<EntityValuePtr>,
 
     pub env_var_name: Option<String>,
     pub disable_write: bool,
     pub disable_read: bool,
     pub hidden: bool,
+
+    pub create_empty: Box<dyn Fn() -> Box<dyn EntityValue>>,
+}
+
+pub struct MetadataValInit<T> {
+    pub v_default: T,
+    pub v_min: Option<T>,
+    pub v_max: Option<T>,
+    pub v_one_of: Vec<T>,
 }
 
 impl Metadata {
-    pub fn create_base<T>(name: String, init_val: T) -> Self
-        where
-            T: EntityValue,
+    pub fn create_base<T>(name: String, init: MetadataValInit<T>) -> Self
+        where T: EntityValue + Default + Clone,
     {
+        let s: &dyn EntityValue = &init.v_default;
+        let retrive_opt_minmax =
+            |val| {
+                if let Some(v) = val {
+                    Some(Arc::new(v) as Arc<dyn EntityValue>)
+                } else {
+                    None
+                }
+            };
+
+        let v_min = retrive_opt_minmax(init.v_min);
+        let v_max = retrive_opt_minmax(init.v_max);
+        let v_one_of: Vec<_> = init.v_one_of.iter().map(|v| Arc::new(v.clone()) as Arc<dyn EntityValue>).collect();
+
         Self {
             name,
             description: Default::default(),
-            v_default: Arc::new(init_val),
-            v_min: Default::default(),
-            v_max: Default::default(),
-            v_one_of: Default::default(),
+            v_default: Arc::new(init.v_default),
+            v_min,
+            v_max,
+            v_one_of,
             env_var_name: Default::default(),
             disable_write: false,
             disable_read: false,
             hidden: false,
+            create_empty: Box::new(|| Box::new(T::default())),
         }
     }
 }
 
+///
+///
+/// Every field of config set must satisfy `EntityValue` trait
+///
 pub trait EntityValue: Any + Send + Sync {
     fn as_any(&self) -> &dyn Any;
 
-    fn clone_to(&self, s: &mut dyn Any);
-    fn validate(&mut self, meta: Metadata) -> bool {
-        todo!()
-    }
-
-    fn entity_deserialize(&mut self, desrl: &dyn erased_serde::Deserializer) {
-        unimplemented!();
-    }
-
-    fn entity_serialize(&self) -> &dyn erased_serde::Serialize {
-        unimplemented!()
-    }
+    // TODO: deserialize_from(),
+    // TODO: serialize_into(),
 }
 
-impl<T> EntityValue for T
-    where T: Any + Send + Sync + Serialize + DeserializeOwned + Clone
-{
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn clone_to(&self, s: &mut dyn Any) {
-        if let Some(target) = s.downcast_mut::<T>() {
-            self.clone_into(target);
-        }
-    }
-}
 
 ///
 ///
-/// Basic config object.
+/// Events are two directional ...
 ///
-pub struct EntityBase {
-    pub unique_id: u64,
+/// 1. Remote commit entity / Local commit entity
+///     - 'on update' user observer hooked
+///     - 'any value update' observer hooked
+///
+/// 2. Local commit entity silent
+///     - 'any value update' observer hooked
+///
+/// 3. Local set retrieves entity update
+///
+pub struct EntityData {
+    /// Unique entity id for program run-time
+    id: u64,
 
-    pub register_offset_id: usize,
-    pub prefix: Arc<[String]>,
-
-    pub fence: AtomicUsize,
-    pub meta: Arc<Metadata>,
-
-    data: Mutex<ValuePtr>,
+    hook: Box<dyn EntityEventHook>,
+    meta: Arc<Metadata>,
+    fence: AtomicUsize,
+    value: Mutex<EntityValuePtr>,
 }
 
-impl EntityBase {
-    pub(crate) fn create(
-        meta: Arc<Metadata>,
-        register_offset_id: usize,
-        prefix: Arc<[String]>,
-    ) -> Arc<EntityBase> {
-        // Gives unique ID to given entity
-        static IDGEN: AtomicU64 = AtomicU64::new(1);
+impl EntityData {
+    // TODO: get_value() -> EntityValuePtr
+    // TODO: try_commit(value_ptr) -> bool; validates type / etc
+    // TODO: try_commit_silent(value_ptr) -> bool; same as above / does not trigger on_commit event.
+}
 
-        Arc::new(EntityBase {
-            unique_id: IDGEN.fetch_add(1, Ordering::Relaxed),
-            fence: AtomicUsize::new(1), // Forcibly triggers initial check_update() invalidation
-            data: Mutex::new(meta.v_default.clone()),
-            register_offset_id,
-            prefix,
-            meta,
-        })
-    }
-
-    pub(crate) fn get_cached_data(&self) -> ValuePtr {
-        self.data.lock().unwrap().clone()
-    }
-
-    pub(crate) fn set_cached_data(&self, data: ValuePtr, silent: bool) {
-        let mut locked = self.data.lock().unwrap();
-        *locked = data;
-
-        if silent == false {
-            self.fence.fetch_add(1, Ordering::Relaxed) + 1;
-        }
-    }
+pub(crate) trait EntityEventHook {
+    fn on_committed(&self, data: &Arc<EntityData>);
+    fn on_value_changed(&self, data: &Arc<EntityData>);
 }
