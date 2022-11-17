@@ -26,9 +26,10 @@
 //! }
 //! ```
 
+use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicU64, AtomicUsize};
 use smol_str::SmolStr;
 use crate::entity::{EntityData, Metadata};
 
@@ -39,6 +40,15 @@ use crate::entity::{EntityData, Metadata};
 pub trait CollectPropMeta: Default + Clone {
     /// Returns table mapping to <offset_from_base:property_metadata>
     fn impl_prop_desc_table__() -> Arc<HashMap<usize, PropData>>;
+
+    /// Returns element at index as Any
+    fn elem_at_mut__(&mut self, index: usize) -> &mut dyn Any;
+
+    /// Convenient wrapper for element value update
+    fn update_elem_at__(&mut self, index: usize, value: &dyn Any, meta: &Metadata) {
+        let mut data = self.elem_at_mut__(index);
+        (meta.fn_copy_to)(value, data);
+    }
 }
 
 pub struct PropData {
@@ -49,10 +59,10 @@ pub struct PropData {
 ///
 /// May storage implement this
 ///
-pub struct SetCoreContext {
-    register_id: u64,
-    sources: Vec<Arc<EntityData>>,
-    source_update_fence: AtomicUsize,
+pub(crate) struct SetCoreContext {
+    pub(crate) register_id: u64,
+    pub(crate) sources: Vec<Arc<EntityData>>,
+    pub(crate) source_update_fence: AtomicU64,
 }
 
 ///
