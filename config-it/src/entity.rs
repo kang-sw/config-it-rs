@@ -54,7 +54,7 @@ pub struct MetadataValInit<T> {
 }
 
 impl Metadata {
-    pub fn create_base<T>(name: String, init: MetadataValInit<T>) -> Self
+    pub fn create_for_base_type<T>(name: String, init: MetadataValInit<T>) -> Self
         where T: Any + Default + Clone + serde::de::DeserializeOwned + serde::ser::Serialize,
     {
         let s: &dyn Any = &init.v_default;
