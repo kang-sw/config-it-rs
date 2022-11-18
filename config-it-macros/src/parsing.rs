@@ -66,7 +66,10 @@ pub(super) fn decompose_input(input: DeriveInput) -> Result<TypeDesc, (Span, Str
         let identifier = if let Some(ident) = field.ident {
             ident
         } else {
-            return Err((field.span(), "Identifier must exist".into()));
+            return Err((
+                field.span(),
+                "Identifier must exist".into(),
+            ));
         };
 
         let mut desc = FieldDesc {
@@ -100,7 +103,10 @@ pub(super) fn decompose_input(input: DeriveInput) -> Result<TypeDesc, (Span, Str
     Ok(out)
 }
 
-fn decompose_attribute(desc: &mut FieldDesc, attr: syn::Attribute) -> bool {
+fn decompose_attribute(
+    desc: &mut FieldDesc,
+    attr: syn::Attribute,
+) -> bool {
     // Simply ignores non-perfkit attribute
     if attr.path.is_ident("doc") {
         if let Ok(NameValue(v)) = attr.parse_meta() {
@@ -159,8 +165,14 @@ fn test_input(input: TokenStream) -> TokenStream {
     let i: DeriveInput = parse2(input).unwrap();
 
     println!("-- 0: {}", i.ident.to_string());
-    println!("-- 1: {}", i.generics.params.to_token_stream().to_string());
-    println!("-- 2: {}", i.vis.to_token_stream().to_string());
+    println!(
+        "-- 1: {}",
+        i.generics.params.to_token_stream().to_string()
+    );
+    println!(
+        "-- 2: {}",
+        i.vis.to_token_stream().to_string()
+    );
     println!("-- 3: FIELDS");
 
     if let Struct(v) = i.data {
@@ -178,8 +190,14 @@ fn test_input(input: TokenStream) -> TokenStream {
             for x in &f.attrs {
                 x.path.span();
 
-                println!("    PATH: {}", x.path.to_token_stream().to_string());
-                println!("    TOK: {}", x.tokens.to_token_stream().to_string());
+                println!(
+                    "    PATH: {}",
+                    x.path.to_token_stream().to_string()
+                );
+                println!(
+                    "    TOK: {}",
+                    x.tokens.to_token_stream().to_string()
+                );
                 use syn::Meta::*;
                 use syn::NestedMeta::*;
 
@@ -193,7 +211,10 @@ fn test_input(input: TokenStream) -> TokenStream {
                             );
                         }
                         Meta(Path(v)) => {
-                            println!("      META PATH ({})", v.to_token_stream().to_string());
+                            println!(
+                                "      META PATH ({})",
+                                v.to_token_stream().to_string()
+                            );
                         }
                         Meta(List(v)) => {
                             println!(
@@ -203,7 +224,10 @@ fn test_input(input: TokenStream) -> TokenStream {
                             );
                         }
                         Lit(v) => {
-                            println!("      META LIT ({})", v.to_token_stream().to_string());
+                            println!(
+                                "      META LIT ({})",
+                                v.to_token_stream().to_string()
+                            );
                         }
                     })
                 }

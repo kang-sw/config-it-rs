@@ -1,5 +1,5 @@
-pub mod entity;
 pub mod config;
+pub mod entity;
 pub mod storage;
 
 use config::*;

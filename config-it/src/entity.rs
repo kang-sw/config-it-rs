@@ -1,7 +1,7 @@
-use std::any::{Any};
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicUsize};
 use erased_serde::{Deserializer, Serialize, Serializer};
+use std::any::Any;
+use std::sync::atomic::AtomicUsize;
+use std::sync::{Arc, Mutex};
 
 ///
 ///
@@ -44,22 +44,29 @@ pub struct MetadataValInit<T> {
 }
 
 impl Metadata {
-    pub fn create_for_base_type<T>(name: String, init: MetadataValInit<T>) -> Self
-        where T: Any + Default + Clone + serde::de::DeserializeOwned + serde::ser::Serialize,
+    pub fn create_for_base_type<T>(
+        name: String,
+        init: MetadataValInit<T>,
+    ) -> Self
+    where
+        T: Any + Default + Clone + serde::de::DeserializeOwned + serde::ser::Serialize,
     {
         let s: &dyn Any = &init.v_default;
-        let retrive_opt_minmax =
-            |val| {
-                if let Some(v) = val {
-                    Some(Box::new(v) as Box<dyn Any>)
-                } else {
-                    None
-                }
-            };
+        let retrive_opt_minmax = |val| {
+            if let Some(v) = val {
+                Some(Box::new(v) as Box<dyn Any>)
+            } else {
+                None
+            }
+        };
 
         let v_min = retrive_opt_minmax(init.v_min);
         let v_max = retrive_opt_minmax(init.v_max);
-        let v_one_of: Vec<_> = init.v_one_of.iter().map(|v| Box::new(v.clone()) as Box<dyn Any>).collect();
+        let v_one_of: Vec<_> = init
+            .v_one_of
+            .iter()
+            .map(|v| Box::new(v.clone()) as Box<dyn Any>)
+            .collect();
 
         Self {
             name,
@@ -126,6 +133,13 @@ impl EntityData {
 }
 
 pub(crate) trait EntityEventHook {
-    fn on_committed(&self, data: &Arc<EntityData>);
-    fn on_value_changed(&self, data: &Arc<EntityData>);
+    fn on_committed(
+        &self,
+        data: &Arc<EntityData>,
+    );
+
+    fn on_value_changed(
+        &self,
+        data: &Arc<EntityData>,
+    );
 }

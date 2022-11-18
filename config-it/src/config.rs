@@ -26,11 +26,11 @@
 //! }
 //! ```
 
+use crate::entity::{EntityData, Metadata};
 use std::any::Any;
 use std::collections::HashMap;
+use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64};
-use crate::entity::{EntityData, Metadata};
 
 ///
 ///
@@ -41,10 +41,18 @@ pub trait CollectPropMeta: Default + Clone {
     fn impl_prop_desc_table__() -> Arc<HashMap<usize, PropData>>;
 
     /// Returns element at index as Any
-    fn elem_at_mut__(&mut self, index: usize) -> &mut dyn Any;
+    fn elem_at_mut__(
+        &mut self,
+        index: usize,
+    ) -> &mut dyn Any;
 
     /// Convenient wrapper for element value update
-    fn update_elem_at__(&mut self, index: usize, value: &dyn Any, meta: &Metadata) {
+    fn update_elem_at__(
+        &mut self,
+        index: usize,
+        value: &dyn Any,
+        meta: &Metadata,
+    ) {
         let mut data = self.elem_at_mut__(index);
         (meta.fn_copy_to)(value, data);
     }
@@ -95,7 +103,10 @@ struct PropLocalContext {
 }
 
 impl<T: CollectPropMeta> Set<T> {
-    pub(crate) fn create_with__(core: Arc<SetCoreContext>, hook: Arc<dyn Drop>) -> Self {
+    pub(crate) fn create_with__(
+        core: Arc<SetCoreContext>,
+        hook: Arc<dyn Drop>,
+    ) -> Self {
         Self {
             core,
             body: T::default(),
@@ -107,6 +118,3 @@ impl<T: CollectPropMeta> Set<T> {
     // TODO: Check update from entity address
     // TODO: Commit (silently) entity address
 }
-
-
-

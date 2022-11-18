@@ -14,14 +14,20 @@ impl Storage {
     ///
     /// Creates new config set from storage.
     ///
+    /// # Parameters
+    ///
+    /// - `category`:
+    ///
     pub fn create_set<T: config::CollectPropMeta>(
         &self,
-        category: SmolStr,
-        prefix: Vec<SmolStr>,
+        category: Vec<SmolStr>,
     ) -> config::Set<T> {
         todo!()
     }
 
     // TODO: Dump all contents I/O from/to Serializer/Deserializer
-    // TODO: 
+
+    // TODO: Install change notification hook
+
+    // dfdlskaj
 }
