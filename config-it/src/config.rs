@@ -93,7 +93,7 @@ pub struct Set<T> {
     ///
     /// It will unregister this config set from owner storage automatically, when all
     ///  instances of config set disposed.
-    _unregister_hook: Arc<dyn Drop>,
+    _unregister_hook: Arc<dyn Any>,
 }
 
 #[derive(Default, Clone)]
@@ -105,7 +105,7 @@ struct PropLocalContext {
 impl<T: CollectPropMeta> Set<T> {
     pub(crate) fn create_with__(
         core: Arc<SetCoreContext>,
-        hook: Arc<dyn Drop>,
+        hook: Arc<dyn Any>,
     ) -> Self {
         Self {
             core,
