@@ -34,12 +34,3 @@ impl StorageBackendIface {
         self.tx.send(ControlDirective::Backend(evt)).await
     }
 }
-
-async fn __test_compiled() {
-    let (storage, fut) = storage::Storage::new();
-    let backend = StorageBackendIface::new(storage.clone());
-    match backend.send_event(BackendEvent::NotifyUpdate).await {
-        Ok(_) => {}
-        Err(e) => print!("{e:?}"),
-    }
-}
