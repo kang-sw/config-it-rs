@@ -29,8 +29,7 @@
 use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, AtomicUsize};
-use smol_str::SmolStr;
+use std::sync::atomic::{AtomicU64};
 use crate::entity::{EntityData, Metadata};
 
 ///
@@ -81,6 +80,12 @@ pub struct Set<T> {
 
     /// List of managed properties. This act as source container
     core: Arc<SetCoreContext>,
+
+    /// Unregistration hook anchor.
+    ///
+    /// It will unregister this config set from owner storage automatically, when all
+    ///  instances of config set disposed.
+    _unregister_hook: Arc<dyn Drop>,
 }
 
 #[derive(Default, Clone)]
@@ -90,11 +95,12 @@ struct PropLocalContext {
 }
 
 impl<T: CollectPropMeta> Set<T> {
-    pub(crate) fn create_with__(core: Arc<SetCoreContext>) -> Self {
+    pub(crate) fn create_with__(core: Arc<SetCoreContext>, hook: Arc<dyn Drop>) -> Self {
         Self {
             core,
             body: T::default(),
             local: vec![PropLocalContext::default(); T::impl_prop_desc_table__().len()],
+            _unregister_hook: hook,
         }
     }
 

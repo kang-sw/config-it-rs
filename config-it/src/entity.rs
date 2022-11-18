@@ -1,7 +1,6 @@
 use std::any::{Any};
-use std::marker::PhantomData;
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize};
 use erased_serde::{Deserializer, Serialize, Serializer};
 
 ///
@@ -28,22 +27,10 @@ pub struct Metadata {
     pub fn_copy_to: fn(&dyn Any, &mut dyn Any),
     pub fn_serialize_to: fn(&dyn Any, &mut dyn Serializer) -> Result<(), erased_serde::Error>,
     pub fn_deserialize_from: fn(&mut dyn Any, &mut dyn Deserializer) -> Result<(), erased_serde::Error>,
-    pub fn_validate: fn(&Metadata, &mut dyn Any) -> Result<ValidationError, ValidationError>,
-}
 
-#[derive(thiserror::Error, Debug)]
-pub enum ValidationError {
-    #[error("Successfully parsed")]
-    Okay,
-
-    #[error("Given value was smaller than minimum")]
-    LessThanMin,
-
-    #[error("Given value was larger than maximum")]
-    LargerThanMax,
-
-    #[error("Given value is not listed within 'OneOf' list")]
-    NotOneOfCandidate,
+    /// Returns None if validation failed. Some(false) when source value was corrected.
+    ///  Some(true) when value was correct.
+    pub fn_validate: fn(&Metadata, &mut dyn Any) -> Option<bool>,
 }
 
 pub struct MetadataValInit<T> {
@@ -51,6 +38,9 @@ pub struct MetadataValInit<T> {
     pub v_min: Option<T>,
     pub v_max: Option<T>,
     pub v_one_of: Vec<T>,
+
+    // Should be generated through proc macro
+    pub fn_validate: fn(&Metadata, &mut dyn Any) -> Option<bool>,
 }
 
 impl Metadata {
@@ -101,17 +91,7 @@ impl Metadata {
 
                 Ok(())
             },
-            fn_validate: |meta, test| {
-                use ValidationError::*;
-                let to: &mut T = test.downcast_mut().unwrap();
-
-                // TODO:
-                //  - How to make constexpr branch by determining if `T` implments `PartialOrd`?
-
-                // TODO: Implement OneOf validation
-
-                Ok(Okay)
-            },
+            fn_validate: init.fn_validate,
         }
     }
 }

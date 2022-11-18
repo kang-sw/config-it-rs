@@ -3,5 +3,5 @@
 members = [
     "backends/web",
     "config-it",
-    "perfkit_config_macros_internal",
+    "config-it-macros",
 ]

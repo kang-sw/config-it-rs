@@ -6,7 +6,6 @@ use quote::ToTokens;
 use syn::spanned::Spanned;
 use syn::Data::Struct;
 use syn::{parse2, parse_macro_input, AttrStyle, DeriveInput, MetaNameValue};
-use syn::ReturnType::Default;
 
 ///
 ///
