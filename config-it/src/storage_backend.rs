@@ -22,7 +22,7 @@ impl StorageBackendIface {
         }
     }
 
-    // TODO: Request new backend event receive channel
+    // TODO: Request new backend event receiver
 
     ///
     /// Send backend event to storage driver.

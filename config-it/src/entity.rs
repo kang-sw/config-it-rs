@@ -4,6 +4,13 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 
 ///
+/// Config entity type must satisfy this constraint
+///
+pub trait EntityTrait: Send + Sync + Any {
+    fn as_any(&self) -> &dyn Any;
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+}
+///
 ///
 /// Metadata for configuration entity. This can be used as template for multiple config entity
 ///  instances.
@@ -13,10 +20,10 @@ pub struct Metadata {
     pub name: String,
     pub description: String,
 
-    pub v_default: Box<dyn Any>,
-    pub v_min: Option<Box<dyn Any>>,
-    pub v_max: Option<Box<dyn Any>>,
-    pub v_one_of: Vec<Box<dyn Any>>,
+    pub v_default: Box<dyn EntityTrait>,
+    pub v_min: Option<Box<dyn EntityTrait>>,
+    pub v_max: Option<Box<dyn EntityTrait>>,
+    pub v_one_of: Vec<Box<dyn EntityTrait>>,
 
     pub env_var_name: Option<String>,
     pub disable_write: bool,
@@ -26,7 +33,8 @@ pub struct Metadata {
     pub fn_default: fn() -> Box<dyn Any>,
     pub fn_copy_to: fn(&dyn Any, &mut dyn Any),
     pub fn_serialize_to: fn(&dyn Any, &mut dyn Serializer) -> Result<(), erased_serde::Error>,
-    pub fn_deserialize_from: fn(&mut dyn Any, &mut dyn Deserializer) -> Result<(), erased_serde::Error>,
+    pub fn_deserialize_from:
+        fn(&mut dyn Any, &mut dyn Deserializer) -> Result<(), erased_serde::Error>,
 
     /// Returns None if validation failed. Some(false) when source value was corrected.
     ///  Some(true) when value was correct.
@@ -44,17 +52,14 @@ pub struct MetadataValInit<T> {
 }
 
 impl Metadata {
-    pub fn create_for_base_type<T>(
-        name: String,
-        init: MetadataValInit<T>,
-    ) -> Self
+    pub fn create_for_base_type<T>(name: String, init: MetadataValInit<T>) -> Self
     where
-        T: Any + Default + Clone + serde::de::DeserializeOwned + serde::ser::Serialize,
+        T: EntityTrait + Default + Clone + serde::de::DeserializeOwned + serde::ser::Serialize,
     {
         let s: &dyn Any = &init.v_default;
         let retrive_opt_minmax = |val| {
             if let Some(v) = val {
-                Some(Box::new(v) as Box<dyn Any>)
+                Some(Box::new(v) as Box<dyn EntityTrait>)
             } else {
                 None
             }
@@ -65,7 +70,7 @@ impl Metadata {
         let v_one_of: Vec<_> = init
             .v_one_of
             .iter()
-            .map(|v| Box::new(v.clone()) as Box<dyn Any>)
+            .map(|v| Box::new(v.clone()) as Box<dyn EntityTrait>)
             .collect();
 
         Self {
@@ -133,13 +138,7 @@ impl EntityData {
 }
 
 pub(crate) trait EntityEventHook {
-    fn on_committed(
-        &self,
-        data: &Arc<EntityData>,
-    );
+    fn on_committed(&self, data: &Arc<EntityData>);
 
-    fn on_value_changed(
-        &self,
-        data: &Arc<EntityData>,
-    );
+    fn on_value_changed(&self, data: &Arc<EntityData>);
 }

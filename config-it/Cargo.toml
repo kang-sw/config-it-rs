@@ -13,7 +13,9 @@ erased-serde = "*"
 smartstring = { version = "*", features = ["serde"] }
 thiserror = "*"
 async-channel = "*"
+async-mutex = "*"
+async-broadcast = "*"
 oneshot = "*"
 log = "*"
-async-mutex = "*"
 smallvec = { version = "*", features = ["serde", "write", "union"] }
+lazy_static = "*"

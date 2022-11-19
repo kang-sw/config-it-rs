@@ -68,7 +68,9 @@ impl Storage {
 }
 
 ///
+/// Drives storage internal events.
 ///
+/// - Receives update request}
 ///
 struct StorageDriveContext {}
 

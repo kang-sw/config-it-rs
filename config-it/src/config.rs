@@ -41,18 +41,10 @@ pub trait CollectPropMeta: Default + Clone {
     fn impl_prop_desc_table__() -> Arc<HashMap<usize, PropData>>;
 
     /// Returns element at index as Any
-    fn elem_at_mut__(
-        &mut self,
-        index: usize,
-    ) -> &mut dyn Any;
+    fn elem_at_mut__(&mut self, index: usize) -> &mut dyn Any;
 
     /// Convenient wrapper for element value update
-    fn update_elem_at__(
-        &mut self,
-        index: usize,
-        value: &dyn Any,
-        meta: &Metadata,
-    ) {
+    fn update_elem_at__(&mut self, index: usize, value: &dyn Any, meta: &Metadata) {
         let mut data = self.elem_at_mut__(index);
         (meta.fn_copy_to)(value, data);
     }
@@ -70,6 +62,9 @@ pub(crate) struct SetCoreContext {
     pub(crate) register_id: u64,
     pub(crate) sources: Vec<Arc<EntityData>>,
     pub(crate) source_update_fence: AtomicU64,
+
+    /// Broadcast subscriber to receive updates from backend.
+    pub(crate) update_receiver_channel: async_mutex::Mutex<async_broadcast::Receiver<()>>,
 }
 
 ///
@@ -103,10 +98,7 @@ struct PropLocalContext {
 }
 
 impl<T: CollectPropMeta> Set<T> {
-    pub(crate) fn create_with__(
-        core: Arc<SetCoreContext>,
-        hook: Arc<dyn Any>,
-    ) -> Self {
+    pub(crate) fn create_with__(core: Arc<SetCoreContext>, hook: Arc<dyn Any>) -> Self {
         Self {
             core,
             body: T::default(),
@@ -116,5 +108,44 @@ impl<T: CollectPropMeta> Set<T> {
     }
 
     // TODO: Check update from entity address
+    pub fn check_update<U>(&mut self, e: &mut U) {}
+
     // TODO: Commit (silently) entity address
+
+    // TODO: Get update receiver
+}
+
+#[cfg(test)]
+mod tests {
+    use lazy_static::lazy_static;
+
+    use super::*;
+
+    #[derive(Default, Clone)]
+    struct MyStruct {
+        my_int: i32,
+        my_string: String,
+    }
+
+    impl CollectPropMeta for MyStruct {
+        fn impl_prop_desc_table__() -> Arc<HashMap<usize, PropData>> {
+            lazy_static! {
+                static ref TABLE: Arc<HashMap<usize, PropData>> = { Default::default() };
+            }
+            const R: u32 = 3;
+
+            TABLE.clone()
+        }
+
+        fn elem_at_mut__(&mut self, index: usize) -> &mut dyn Any {
+            match index {
+                0 => &mut self.my_int,
+                1 => &mut self.my_string,
+                _ => panic!(),
+            }
+        }
+    }
+
+    #[test]
+    fn try_compile() {}
 }
