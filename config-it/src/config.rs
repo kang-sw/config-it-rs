@@ -28,6 +28,7 @@
 
 use crate::entity::{EntityData, Metadata};
 use std::any::Any;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
@@ -79,7 +80,7 @@ pub struct Set<T> {
     body: T,
 
     /// Collects each property context.
-    local: Vec<PropLocalContext>,
+    local: RefCell<Vec<PropLocalContext>>,
 
     /// List of managed properties. This act as source container
     core: Arc<SetCoreContext>,
@@ -102,24 +103,57 @@ impl<T: CollectPropMeta> Set<T> {
         Self {
             core,
             body: T::default(),
-            local: vec![PropLocalContext::default(); T::impl_prop_desc_table__().len()],
+            local: RefCell::new(vec![
+                PropLocalContext::default();
+                T::impl_prop_desc_table__().len()
+            ]),
             _unregister_hook: hook,
         }
     }
 
-    // TODO: Check update from entity address
-    pub fn check_update<U>(&mut self, e: &mut U) {}
+    /// Update this storage
+    pub fn update(&mut self) {
+        todo!()
+    }
 
-    // TODO: Commit (silently) entity address
+    /// Check update from entity address
+    pub fn check_elem_update<U>(&self, e: &U) {
+        todo!()
+    }
 
-    // TODO: Get update receiver
+    /// Commit (silently) entity address
+    pub fn commit_elem<U>(&self, e: &U, notify: bool) {
+        todo!()
+    }
+
+    // Get update receiver
+    pub async fn subscribe_update(&self) -> async_broadcast::Receiver<()> {
+        self.core.update_receiver_channel.lock().await.clone()
+    }
+}
+
+impl<T> std::ops::Deref for Set<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.body
+    }
+}
+
+impl<T> std::ops::DerefMut for Set<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.body
+    }
 }
 
 #[cfg(test)]
-mod tests {
+mod simulate_generation {
     use lazy_static::lazy_static;
+    use std::thread;
 
     use super::*;
+    use crate::entity::MetadataValInit;
+    use crate::Storage;
 
     #[derive(Default, Clone)]
     struct MyStruct {
@@ -130,9 +164,35 @@ mod tests {
     impl CollectPropMeta for MyStruct {
         fn impl_prop_desc_table__() -> Arc<HashMap<usize, PropData>> {
             lazy_static! {
-                static ref TABLE: Arc<HashMap<usize, PropData>> = { Default::default() };
+                static ref TABLE: Arc<HashMap<usize, PropData>> = {
+                    let mut s = HashMap::new();
+
+                    let init = MetadataValInit::<i32> {
+                        fn_validate: |meta, target| -> Option<bool> { todo!() },
+                        v_default: 13,
+                        v_one_of: Default::default(),
+                        v_max: Default::default(),
+                        v_min: Default::default(),
+                    };
+
+                    let mut meta = Metadata::create_for_base_type("hello".into(), init);
+                    meta.name = "override-if-exist".into();
+                    meta.description = "Docstring may placed here".into();
+                    meta.hidden = false;
+                    meta.disable_import = false;
+                    meta.disable_export = false;
+
+                    s.insert(
+                        0usize,
+                        PropData {
+                            index: 0,
+                            meta: Arc::new(meta),
+                        },
+                    );
+
+                    Arc::new(s)
+                };
             }
-            const R: u32 = 3;
 
             TABLE.clone()
         }
@@ -147,5 +207,17 @@ mod tests {
     }
 
     #[test]
-    fn try_compile() {}
+    fn try_compile() {
+        print!("{}", std::env::var("MY_VAR").unwrap());
+        let (st, work) = Storage::new();
+        thread::spawn(move || futures::executor::block_on(work));
+
+        let mut set: Set<MyStruct> = st.create_set(
+            "RootCategory".into(),
+            Default::default(),
+        );
+
+        set.check_elem_update(&set.my_string);
+        set.update();
+    }
 }

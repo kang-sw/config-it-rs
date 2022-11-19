@@ -79,10 +79,7 @@ impl StorageDriveContext {
         todo!()
     }
 
-    async fn handle_once(
-        &mut self,
-        msg: ControlDirective,
-    ) {
+    async fn handle_once(&mut self, msg: ControlDirective) {
         match msg {
             _ => todo!(),
         }

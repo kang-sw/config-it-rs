@@ -1,4 +1,5 @@
 use erased_serde::{Deserializer, Serialize, Serializer};
+use serde::de::DeserializeOwned;
 use std::any::Any;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
@@ -10,6 +11,20 @@ pub trait EntityTrait: Send + Sync + Any {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }
+
+impl<T> EntityTrait for T
+where
+    T: Send + Sync + Any + Serialize + DeserializeOwned,
+{
+    fn as_any(&self) -> &dyn Any {
+        self as &dyn Any
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self as &mut dyn Any
+    }
+}
+
 ///
 ///
 /// Metadata for configuration entity. This can be used as template for multiple config entity
@@ -17,7 +32,11 @@ pub trait EntityTrait: Send + Sync + Any {
 ///
 ///
 pub struct Metadata {
+    /// Identifier for this config entity.
     pub name: String,
+
+    /// Source variable name. Usually same as 'name' unless another name is specified for it.
+    pub varname: String,
     pub description: String,
 
     pub v_default: Box<dyn EntityTrait>,
@@ -25,9 +44,8 @@ pub struct Metadata {
     pub v_max: Option<Box<dyn EntityTrait>>,
     pub v_one_of: Vec<Box<dyn EntityTrait>>,
 
-    pub env_var_name: Option<String>,
-    pub disable_write: bool,
-    pub disable_read: bool,
+    pub disable_export: bool,
+    pub disable_import: bool,
     pub hidden: bool,
 
     pub fn_default: fn() -> Box<dyn Any>,
@@ -43,11 +61,12 @@ pub struct Metadata {
 
 pub struct MetadataValInit<T> {
     pub v_default: T,
+
     pub v_min: Option<T>,
     pub v_max: Option<T>,
     pub v_one_of: Vec<T>,
 
-    // Should be generated through proc macro
+    // Should be generated through derive macro
     pub fn_validate: fn(&Metadata, &mut dyn Any) -> Option<bool>,
 }
 
@@ -74,15 +93,15 @@ impl Metadata {
             .collect();
 
         Self {
+            varname: name.clone(),
             name,
             description: Default::default(),
             v_default: Box::new(init.v_default),
             v_min,
             v_max,
             v_one_of,
-            env_var_name: Default::default(),
-            disable_write: false,
-            disable_read: false,
+            disable_export: false,
+            disable_import: false,
             hidden: false,
             fn_default: || Box::new(T::default()),
             fn_copy_to: |from, to| {
