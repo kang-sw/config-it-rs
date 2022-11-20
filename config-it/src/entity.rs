@@ -1,8 +1,9 @@
+use async_mutex::Mutex;
 use erased_serde::{Deserializer, Serialize, Serializer};
 use serde::de::DeserializeOwned;
 use std::any::Any;
-use std::sync::atomic::AtomicUsize;
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 ///
 /// Config entity type must satisfy this constraint
@@ -75,7 +76,6 @@ impl Metadata {
     where
         T: EntityTrait + Default + Clone + serde::de::DeserializeOwned + serde::ser::Serialize,
     {
-        let s: &dyn Any = &init.v_default;
         let retrive_opt_minmax = |val| {
             if let Some(v) = val {
                 Some(Box::new(v) as Box<dyn EntityTrait>)
@@ -128,6 +128,50 @@ impl Metadata {
 }
 
 ///
+/// Helper methods for proc macro generated code
+///
+pub mod gen_helper {
+    use std::any::Any;
+
+    use crate::entity::Metadata;
+
+    pub fn validate_min_max<T: 'static + Clone + Ord>(meta: &Metadata, val: &mut dyn Any) -> bool {
+        let to: &mut T = val.downcast_mut().unwrap();
+        let mut was_in_range = true;
+
+        if let Some(val) = &meta.v_min {
+            let from: &T = val.as_any().downcast_ref().unwrap();
+            if *to < *from {
+                was_in_range = false;
+                *to = from.clone();
+            }
+        }
+
+        if let Some(val) = &meta.v_max {
+            let from: &T = val.as_any().downcast_ref().unwrap();
+            if *from < *to {
+                was_in_range = false;
+                *to = from.clone();
+            }
+        }
+
+        was_in_range
+    }
+
+    pub fn verify_one_of<T: 'static + Eq>(meta: &Metadata, val: &dyn Any) -> bool {
+        if meta.v_one_of.is_empty() {
+            return true;
+        }
+
+        let to: &T = val.downcast_ref().unwrap();
+        meta.v_one_of
+            .iter()
+            .map(|v| v.as_any().downcast_ref::<T>().unwrap())
+            .any(|v| *v == *to)
+    }
+}
+
+///
 ///
 /// Events are two directional ...
 ///
@@ -144,13 +188,22 @@ pub struct EntityData {
     /// Unique entity id for program run-time
     id: u64,
 
-    hook: Box<dyn EntityEventHook>,
     meta: Arc<Metadata>,
     fence: AtomicUsize,
     value: Mutex<Arc<dyn Any>>,
+
+    hook: Box<dyn EntityEventHook>,
 }
 
 impl EntityData {
+    pub fn update_fence(&self) -> usize {
+        self.fence.load(Ordering::Relaxed)
+    }
+
+    pub async fn with_values(&self, pred: impl FnOnce(&Arc<Metadata>, Arc<dyn Any>)) {
+        pred(&self.meta, self.value.lock().await.clone());
+    }
+
     // TODO: get_value() -> EntityValuePtr
     // TODO: try_commit(value_ptr) -> bool; validates type / etc
     // TODO: try_commit_silent(value_ptr) -> bool; same as above / does not trigger on_commit event.

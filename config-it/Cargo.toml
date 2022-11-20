@@ -19,6 +19,4 @@ oneshot = "0.1"
 log = "0.4"
 smallvec = { version = "1", features = ["serde", "write", "union"] }
 lazy_static = "1"
-
-[dev-dependencies]
 futures = "0.3"

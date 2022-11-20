@@ -27,10 +27,7 @@ impl StorageBackendIface {
     ///
     /// Send backend event to storage driver.
     ///
-    pub async fn send_event(
-        &self,
-        evt: BackendEvent,
-    ) -> Result<(), impl Error> {
+    pub async fn send_event(&self, evt: BackendEvent) -> Result<(), impl Error> {
         self.tx.send(ControlDirective::Backend(evt)).await
     }
 }

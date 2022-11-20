@@ -27,10 +27,13 @@
 //! ```
 
 use crate::entity::{EntityData, Metadata};
-use std::any::Any;
+use futures::executor;
+use std::any::{Any, TypeId};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
-use std::sync::atomic::AtomicU64;
+use std::iter::zip;
+use std::mem::replace;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 ///
@@ -39,7 +42,7 @@ use std::sync::Arc;
 ///
 pub trait CollectPropMeta: Default + Clone {
     /// Returns table mapping to <offset_from_base:property_metadata>
-    fn impl_prop_desc_table__() -> Arc<HashMap<usize, PropData>>;
+    fn prop_desc_table__() -> &'static HashMap<usize, PropData>;
 
     /// Returns element at index as Any
     fn elem_at_mut__(&mut self, index: usize) -> &mut dyn Any;
@@ -53,6 +56,7 @@ pub trait CollectPropMeta: Default + Clone {
 
 pub struct PropData {
     index: usize,
+    type_id: TypeId,
     meta: Arc<Metadata>,
 }
 
@@ -61,8 +65,8 @@ pub struct PropData {
 ///
 pub(crate) struct SetCoreContext {
     pub(crate) register_id: u64,
-    pub(crate) sources: Vec<Arc<EntityData>>,
-    pub(crate) source_update_fence: AtomicU64,
+    pub(crate) sources: Arc<Vec<EntityData>>,
+    pub(crate) source_update_fence: AtomicUsize,
 
     /// Broadcast subscriber to receive updates from backend.
     pub(crate) update_receiver_channel: async_mutex::Mutex<async_broadcast::Receiver<()>>,
@@ -79,13 +83,16 @@ pub struct Set<T> {
     /// Cached local content
     body: T,
 
+    /// Cached update fence
+    fence: usize,
+
     /// Collects each property context.
     local: RefCell<Vec<PropLocalContext>>,
 
     /// List of managed properties. This act as source container
     core: Arc<SetCoreContext>,
 
-    /// Unregistration hook anchor.
+    /// Unregister hook anchor.
     ///
     /// It will unregister this config set from owner storage automatically, when all
     ///  instances of config set disposed.
@@ -95,7 +102,10 @@ pub struct Set<T> {
 #[derive(Default, Clone)]
 struct PropLocalContext {
     /// Locally cached update fence.
-    update_fence: u64,
+    update_fence: usize,
+
+    /// Updated recently
+    dirty_flag: bool,
 }
 
 impl<T: CollectPropMeta> Set<T> {
@@ -103,30 +113,109 @@ impl<T: CollectPropMeta> Set<T> {
         Self {
             core,
             body: T::default(),
-            local: RefCell::new(vec![
-                PropLocalContext::default();
-                T::impl_prop_desc_table__().len()
-            ]),
+            fence: 0,
+            local: RefCell::new(vec![PropLocalContext::default(); T::prop_desc_table__().len()]),
             _unregister_hook: hook,
         }
     }
 
+    ///
     /// Update this storage
-    pub fn update(&mut self) {
-        todo!()
+    ///
+    pub async fn update_async(&mut self) -> bool {
+        // Perform quick check: Does update fence value changed?
+        match self.core.source_update_fence.load(Ordering::Relaxed) {
+            v if v == self.fence => return false,
+            v => self.fence = v,
+        }
+
+        debug_assert_eq!(
+            self.local.borrow().len(),
+            self.core.sources.len(),
+            "Logic Error: set was not correctly initialized!"
+        );
+
+        let mut has_update = false;
+
+        for ((index, local), source) in zip(
+            zip(0..self.local.borrow().len(), &mut *self.local.borrow_mut()),
+            &*self.core.sources,
+        ) {
+            // Perform quick check to see if given config entity has any update.
+            match source.update_fence() {
+                v if v == local.update_fence => continue,
+                v => local.update_fence = v,
+            }
+
+            has_update = true;
+            local.dirty_flag = true;
+
+            source
+                .with_values(|meta, value_any| {
+                    self.body.update_elem_at__(index, &*value_any, &*meta)
+                })
+                .await;
+        }
+
+        has_update
     }
 
+    ///
+    /// Synchronously call update_async
+    ///
+    pub fn update(&mut self) -> bool {
+        executor::block_on(self.update_async())
+    }
+
+    ///
     /// Check update from entity address
-    pub fn check_elem_update<U>(&self, e: &U) {
-        todo!()
+    ///
+    pub fn check_elem_update<U: 'static>(&self, e: &U) -> bool {
+        let Some(index) = self.get_index(e) else { return false };
+        let ref_dirty_flag = &mut (*self.local.borrow_mut())[index].dirty_flag;
+
+        replace(ref_dirty_flag, false)
     }
 
-    /// Commit (silently) entity address
+    ///
+    /// Get index of element
+    ///
+    pub fn get_index<U: 'static>(&self, e: &U) -> Option<usize> {
+        let ptr = e as *const _ as *const u8 as isize;
+        let base = &self.body as *const _ as *const u8 as isize;
+
+        match ptr - base {
+            v if v < 0 => None,
+            v if v >= std::mem::size_of::<T>() as isize => None,
+            v => {
+                if let Some(prop) = T::prop_desc_table__().get(&(v as usize)) {
+                    debug_assert_eq!(prop.type_id, TypeId::of::<U>());
+                    debug_assert!(prop.index < self.local.borrow().len());
+                    Some(prop.index)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    ///
+    /// Commit entity value to storage (silently)
+    ///
     pub fn commit_elem<U>(&self, e: &U, notify: bool) {
+        // Create new value pointer from input argument.
+
+        // Replace source argument with created ptr
+
+        // If `notify` option is active, increase config set and source argument's fence
+        //  by 1, to make self and other instances of config set which shares the same core
+        //  be aware of this change.
         todo!()
     }
 
-    // Get update receiver
+    ///
+    /// Get update receiver
+    ///
     pub async fn subscribe_update(&self) -> async_broadcast::Receiver<()> {
         self.core.update_receiver_channel.lock().await.clone()
     }
@@ -147,7 +236,7 @@ impl<T> std::ops::DerefMut for Set<T> {
 }
 
 #[cfg(test)]
-mod simulate_generation {
+mod emulate_generation {
     use lazy_static::lazy_static;
     use std::thread;
 
@@ -162,7 +251,7 @@ mod simulate_generation {
     }
 
     impl CollectPropMeta for MyStruct {
-        fn impl_prop_desc_table__() -> Arc<HashMap<usize, PropData>> {
+        fn prop_desc_table__() -> &'static HashMap<usize, PropData> {
             lazy_static! {
                 static ref TABLE: Arc<HashMap<usize, PropData>> = {
                     let mut s = HashMap::new();
@@ -186,6 +275,7 @@ mod simulate_generation {
                         0usize,
                         PropData {
                             index: 0,
+                            type_id: TypeId::of::<i32>(),
                             meta: Arc::new(meta),
                         },
                     );
@@ -194,7 +284,7 @@ mod simulate_generation {
                 };
             }
 
-            TABLE.clone()
+            &*TABLE
         }
 
         fn elem_at_mut__(&mut self, index: usize) -> &mut dyn Any {
@@ -208,16 +298,15 @@ mod simulate_generation {
 
     #[test]
     fn try_compile() {
-        print!("{}", std::env::var("MY_VAR").unwrap());
+        println!("{}", std::env::var("MY_VAR").unwrap());
         let (st, work) = Storage::new();
         thread::spawn(move || futures::executor::block_on(work));
 
-        let mut set: Set<MyStruct> = st.create_set(
-            "RootCategory".into(),
-            Default::default(),
-        );
+        let mut set: Set<MyStruct> = st.create_set("RootCategory".into(), Default::default());
 
-        set.check_elem_update(&set.my_string);
-        set.update();
+        assert!(set.update());
+        assert!(!set.update());
+        assert!(set.check_elem_update(&set.my_string));
+        assert!(!set.check_elem_update(&set.my_string));
     }
 }
