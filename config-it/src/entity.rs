@@ -2,7 +2,7 @@ use async_mutex::Mutex;
 use erased_serde::{Deserializer, Serialize, Serializer};
 use serde::de::DeserializeOwned;
 use std::any::Any;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 ///
@@ -40,7 +40,7 @@ pub struct Metadata {
     pub varname: String,
     pub description: String,
 
-    pub v_default: Box<dyn EntityTrait>,
+    pub v_default: Arc<dyn EntityTrait>,
     pub v_min: Option<Box<dyn EntityTrait>>,
     pub v_max: Option<Box<dyn EntityTrait>>,
     pub v_one_of: Vec<Box<dyn EntityTrait>>,
@@ -49,7 +49,7 @@ pub struct Metadata {
     pub disable_import: bool,
     pub hidden: bool,
 
-    pub fn_default: fn() -> Box<dyn Any>,
+    pub fn_default: fn() -> Box<dyn EntityTrait>,
     pub fn_copy_to: fn(&dyn Any, &mut dyn Any),
     pub fn_serialize_to: fn(&dyn Any, &mut dyn Serializer) -> Result<(), erased_serde::Error>,
     pub fn_deserialize_from:
@@ -96,7 +96,7 @@ impl Metadata {
             varname: name.clone(),
             name,
             description: Default::default(),
-            v_default: Box::new(init.v_default),
+            v_default: Arc::new(init.v_default),
             v_min,
             v_max,
             v_one_of,
@@ -190,27 +190,62 @@ pub struct EntityData {
 
     meta: Arc<Metadata>,
     fence: AtomicUsize,
-    value: Mutex<Arc<dyn Any>>,
+    value: Mutex<Arc<dyn EntityTrait>>,
 
-    hook: Box<dyn EntityEventHook>,
+    hook: Arc<dyn EntityEventHook>,
 }
 
 impl EntityData {
+    pub(crate) fn new(meta: Arc<Metadata>, hook: Arc<dyn EntityEventHook>) -> Self {
+        static ID_GEN: AtomicU64 = AtomicU64::new(0);
+
+        Self {
+            id: 1 + ID_GEN.fetch_add(1, Ordering::Relaxed),
+            fence: AtomicUsize::new(0),
+            value: Mutex::new(meta.v_default.clone()),
+            meta,
+            hook,
+        }
+    }
+
+    pub fn get_id(&self) -> u64 {
+        self.id
+    }
+
+    pub fn get_meta(&self) -> &Arc<Metadata> {
+        &self.meta
+    }
+
     pub fn update_fence(&self) -> usize {
         self.fence.load(Ordering::Relaxed)
     }
 
-    pub async fn with_values(&self, pred: impl FnOnce(&Arc<Metadata>, Arc<dyn Any>)) {
-        pred(&self.meta, self.value.lock().await.clone());
+    pub async fn access_value(&self) -> (&Arc<Metadata>, Arc<dyn EntityTrait>) {
+        (&self.meta, self.value.lock().await.clone())
     }
 
-    // TODO: get_value() -> EntityValuePtr
-    // TODO: try_commit(value_ptr) -> bool; validates type / etc
-    // TODO: try_commit_silent(value_ptr) -> bool; same as above / does not trigger on_commit event.
+    /// If `silent` option is disabled, increase config set and source argument's fence
+    ///  by 1, to make self and other instances of config set which shares the same core
+    ///  be aware of this change.
+    pub async fn update_value(&self, value: Arc<dyn EntityTrait>, silent: bool) {
+        {
+            let mut lock = self.value.lock().await;
+            *lock = value;
+
+            if !silent {
+                self.fence.fetch_add(1, Ordering::Release);
+            }
+        }
+
+        self.hook.on_value_changed(self);
+
+        if !silent {
+            self.hook.on_committed(self);
+        }
+    }
 }
 
 pub(crate) trait EntityEventHook {
-    fn on_committed(&self, data: &Arc<EntityData>);
-
-    fn on_value_changed(&self, data: &Arc<EntityData>);
+    fn on_committed(&self, data: &EntityData);
+    fn on_value_changed(&self, data: &EntityData);
 }

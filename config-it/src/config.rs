@@ -2,10 +2,10 @@
 //!
 //! Usage example:
 //!
-//! ``` ignore
+//! ``` text
 //! #[derive(ConfigDataReflect)]
 //! struct MyConfigData {
-//!   #[perfkit(one_of(3,4,5,6,7)
+//!   #[perfkit(one_of(3,4,5,6,7)]
 //!   value1: i32,
 //!
 //!   #[perfkit(min=2, max=5)]
@@ -26,14 +26,15 @@
 //! }
 //! ```
 
-use crate::entity::{EntityData, Metadata};
+use crate::entity::{EntityData, EntityTrait, Metadata};
 use futures::executor;
+use smartstring::alias::CompactString;
 use std::any::{Any, TypeId};
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::iter::zip;
 use std::mem::replace;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 ///
@@ -49,15 +50,15 @@ pub trait CollectPropMeta: Default + Clone {
 
     /// Convenient wrapper for element value update
     fn update_elem_at__(&mut self, index: usize, value: &dyn Any, meta: &Metadata) {
-        let mut data = self.elem_at_mut__(index);
+        let data = self.elem_at_mut__(index);
         (meta.fn_copy_to)(value, data);
     }
 }
 
 pub struct PropData {
-    index: usize,
-    type_id: TypeId,
-    meta: Arc<Metadata>,
+    pub index: usize,
+    pub type_id: TypeId,
+    pub meta: Arc<Metadata>,
 }
 
 ///
@@ -67,6 +68,7 @@ pub(crate) struct SetCoreContext {
     pub(crate) register_id: u64,
     pub(crate) sources: Arc<Vec<EntityData>>,
     pub(crate) source_update_fence: AtomicUsize,
+    pub(crate) path: Arc<Vec<CompactString>>,
 
     /// Broadcast subscriber to receive updates from backend.
     pub(crate) update_receiver_channel: async_mutex::Mutex<async_broadcast::Receiver<()>>,
@@ -109,13 +111,16 @@ struct PropLocalContext {
 }
 
 impl<T: CollectPropMeta> Set<T> {
-    pub(crate) fn create_with__(core: Arc<SetCoreContext>, hook: Arc<dyn Any>) -> Self {
+    pub(crate) fn create_with__(
+        core: Arc<SetCoreContext>,
+        unregister_anchor: Arc<dyn Any>,
+    ) -> Self {
         Self {
             core,
             body: T::default(),
             fence: 0,
             local: RefCell::new(vec![PropLocalContext::default(); T::prop_desc_table__().len()]),
-            _unregister_hook: hook,
+            _unregister_hook: unregister_anchor,
         }
     }
 
@@ -150,11 +155,8 @@ impl<T: CollectPropMeta> Set<T> {
             has_update = true;
             local.dirty_flag = true;
 
-            source
-                .with_values(|meta, value_any| {
-                    self.body.update_elem_at__(index, &*value_any, &*meta)
-                })
-                .await;
+            let (meta, value) = source.access_value().await;
+            self.body.update_elem_at__(index, value.as_any(), &*meta);
         }
 
         has_update
@@ -171,7 +173,7 @@ impl<T: CollectPropMeta> Set<T> {
     /// Check update from entity address
     ///
     pub fn check_elem_update<U: 'static>(&self, e: &U) -> bool {
-        let Some(index) = self.get_index(e) else { return false };
+        let Some(index) = self.get_index_by_ptr(e) else { return false };
         let ref_dirty_flag = &mut (*self.local.borrow_mut())[index].dirty_flag;
 
         replace(ref_dirty_flag, false)
@@ -180,7 +182,7 @@ impl<T: CollectPropMeta> Set<T> {
     ///
     /// Get index of element
     ///
-    pub fn get_index<U: 'static>(&self, e: &U) -> Option<usize> {
+    pub fn get_index_by_ptr<U: 'static>(&self, e: &U) -> Option<usize> {
         let ptr = e as *const _ as *const u8 as isize;
         let base = &self.body as *const _ as *const u8 as isize;
 
@@ -202,15 +204,14 @@ impl<T: CollectPropMeta> Set<T> {
     ///
     /// Commit entity value to storage (silently)
     ///
-    pub fn commit_elem<U>(&self, e: &U, notify: bool) {
+    pub async fn commit_elem<U: Clone + EntityTrait + Send>(&self, e: &U, notify: bool) {
         // Create new value pointer from input argument.
+        let cloned_value = Arc::new(e.clone()) as Arc<dyn EntityTrait>;
 
         // Replace source argument with created ptr
-
-        // If `notify` option is active, increase config set and source argument's fence
-        //  by 1, to make self and other instances of config set which shares the same core
-        //  be aware of this change.
-        todo!()
+        (*self.core.sources)[self.get_index_by_ptr(e).unwrap()]
+            .update_value(cloned_value, !notify)
+            .await;
     }
 
     ///
@@ -257,7 +258,7 @@ mod emulate_generation {
                     let mut s = HashMap::new();
 
                     let init = MetadataValInit::<i32> {
-                        fn_validate: |meta, target| -> Option<bool> { todo!() },
+                        fn_validate: |_, _| -> Option<bool> { Some(true) },
                         v_default: 13,
                         v_one_of: Default::default(),
                         v_max: Default::default(),
@@ -302,7 +303,7 @@ mod emulate_generation {
         let (st, work) = Storage::new();
         thread::spawn(move || futures::executor::block_on(work));
 
-        let mut set: Set<MyStruct> = st.create_set("RootCategory".into(), Default::default());
+        let mut set: Set<MyStruct> = st.create_set(["RootCategory".into()].to_vec());
 
         assert!(set.update());
         assert!(!set.update());
