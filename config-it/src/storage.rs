@@ -1,4 +1,5 @@
 use std::{
+    error::Error,
     future::Future,
     sync::{
         atomic::{AtomicU64, AtomicUsize, Ordering},
@@ -9,10 +10,10 @@ use std::{
 use crate::{
     config::{self, SetCoreContext},
     entity::{self, EntityEventHook},
-    storage_core::ControlDirective,
+    storage_core::{self, ControlDirective, Error as ConfigError},
 };
-use log::debug;
-use smartstring::alias::CompactString;
+use log::{debug, warn};
+use smartstring::{alias::CompactString, Compact};
 
 ///
 /// Storage manages multiple sets registered by preset key.
@@ -59,10 +60,10 @@ impl Storage {
     ///
     /// If path is duplicated for existing config set, the program will panic.
     ///
-    pub fn create_set<T: config::CollectPropMeta>(
+    pub async fn create_set<T: config::CollectPropMeta>(
         &self,
         path: Vec<CompactString>,
-    ) -> config::Set<T> {
+    ) -> Result<config::Set<T>, ConfigError> {
         assert!(!path.is_empty(), "First argument that will be used as category, must exist!");
         assert!(path.iter().all(|x| !x.is_empty()), "Empty path argument is not allowed!");
 
@@ -94,15 +95,39 @@ impl Storage {
             path: path.clone(),
         });
 
-        // TODO: Send 'OnRegisterConfigSet' to worker.
+        let (tx, rx) = oneshot::channel();
+        match self
+            .tx
+            .send(ControlDirective::OnRegisterConfigSet(
+                storage_core::ConfigSetRegisterDesc {
+                    register_id,
+                    context: core.clone(),
+                    reply_success: tx,
+                    event_broadcast: broad_tx,
+                }
+                .into(),
+            ))
+            .await
+        {
+            Ok(_) => {}
+            Err(_) => return Err(ConfigError::ExpiredStorage),
+        };
 
-        crate::Set::<T>::create_with__(
+        match rx.await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => return Err(e),
+            Err(_) => return Err(ConfigError::ExpiredStorage),
+        };
+
+        let set = crate::Set::<T>::create_with__(
             core,
             Arc::new(SetUnregisterHook {
                 register_id,
                 tx: self.tx.clone(),
             }),
-        )
+        );
+
+        Ok(set)
     }
 
     // TODO: Dump all contents I/O from/to Serializer/Deserializer

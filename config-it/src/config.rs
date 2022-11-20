@@ -303,7 +303,8 @@ mod emulate_generation {
         let (st, work) = Storage::new();
         thread::spawn(move || futures::executor::block_on(work));
 
-        let mut set: Set<MyStruct> = st.create_set(["RootCategory".into()].to_vec());
+        let mut set: Set<MyStruct> =
+            executor::block_on(st.create_set(["RootCategory".into()].to_vec())).unwrap();
 
         assert!(set.update());
         assert!(!set.update());

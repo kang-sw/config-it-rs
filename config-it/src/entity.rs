@@ -245,7 +245,7 @@ impl EntityData {
     }
 }
 
-pub(crate) trait EntityEventHook {
+pub(crate) trait EntityEventHook: Send + Sync {
     fn on_committed(&self, data: &EntityData);
     fn on_value_changed(&self, data: &EntityData);
 }
