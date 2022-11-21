@@ -1,5 +1,4 @@
 use std::{
-    error::Error,
     future::Future,
     sync::{
         atomic::{AtomicU64, AtomicUsize, Ordering},
@@ -8,12 +7,13 @@ use std::{
 };
 
 use crate::{
-    config::{self, SetCoreContext},
+    backend::StorageBackendChannel,
+    config::{self, SetContext},
+    core::{self, ControlDirective, Error as ConfigError},
     entity::{self, EntityEventHook},
-    storage_core::{self, ControlDirective, Error as ConfigError},
 };
-use log::{debug, warn};
-use smartstring::{alias::CompactString, Compact};
+use log::debug;
+use smartstring::alias::CompactString;
 
 ///
 /// Storage manages multiple sets registered by preset key.
@@ -37,7 +37,7 @@ impl Storage {
         let (tx, rx) = async_channel::unbounded();
         let driver = {
             async move {
-                let mut context = StorageDriveContext::new();
+                let mut context = detail::StorageDriveContext::new();
                 loop {
                     match rx.recv().await {
                         Ok(msg) => {
@@ -87,7 +87,7 @@ impl Storage {
 
         // Create core config set context with reflected target metadata set
         let (broad_tx, broad_rx) = async_broadcast::broadcast::<()>(1);
-        let core = Arc::new(SetCoreContext {
+        let core = Arc::new(SetContext {
             register_id,
             sources: Arc::new(sources),
             source_update_fence: AtomicUsize::new(0),
@@ -99,7 +99,7 @@ impl Storage {
         match self
             .tx
             .send(ControlDirective::OnRegisterConfigSet(
-                storage_core::ConfigSetRegisterDesc {
+                core::ConfigSetRegisterDesc {
                     register_id,
                     context: core.clone(),
                     reply_success: tx,
@@ -131,7 +131,12 @@ impl Storage {
     }
 
     // TODO: Dump all contents I/O from/to Serializer/Deserializer
-    // NOTE:
+
+    pub fn create_backend(&self) -> StorageBackendChannel {
+        StorageBackendChannel {
+            tx: self.tx.clone(),
+        }
+    }
 }
 
 struct SetUnregisterHook {
@@ -141,7 +146,11 @@ struct SetUnregisterHook {
 
 impl Drop for SetUnregisterHook {
     fn drop(&mut self) {
-        todo!("Send 'SetUnregister' event to tx")
+        // Just ignore result. If channel was closed before the set is unregistered,
+        //  it's ok to ignore this operation silently.
+        let _ = self
+            .tx
+            .try_send(ControlDirective::OnUnregisterConfigSet(self.register_id));
     }
 }
 
@@ -152,29 +161,89 @@ struct EntityHookImpl {
 
 impl EntityEventHook for EntityHookImpl {
     fn on_committed(&self, data: &entity::EntityData) {
-        todo!("Send 'EntityNotifyCommit' event to tx")
+        // Update notification is transient, thus when storage driver is busy, it can
+        //  just be dropped.
+        let _ = self.tx.try_send(ControlDirective::EntityNotifyCommit {
+            register_id: self.register_id,
+            item_id: data.get_id(),
+        });
     }
 
     fn on_value_changed(&self, data: &entity::EntityData) {
-        todo!("Send 'EntityValueUpdate' event to tx")
+        // Update notification is transient, thus when storage driver is busy, it can
+        //  just be dropped.
+        let _ = self.tx.try_send(ControlDirective::EntityValueUpdate {
+            register_id: self.register_id,
+            item_id: data.get_id(),
+        });
     }
 }
 
-///
-/// Drives storage internal events.
-///
-/// - Receives update request
-///
-struct StorageDriveContext {}
+mod detail {
+    use crate::core::{BackendEvent, BackendReplicateEvent, ConfigSetRegisterDesc};
 
-impl StorageDriveContext {
-    fn new() -> Self {
-        todo!()
+    use super::*;
+    use std::collections::HashMap;
+
+    ///
+    /// Drives storage internal events.
+    ///
+    /// - Receives update request
+    ///
+    #[derive(Default)]
+    pub(super) struct StorageDriveContext {
+        /// List of all config sets registered in this storage.
+        all_sets: HashMap<u64, Arc<SetContext>>,
+
+        /// List of all registered backends within this storage.
+        ///
+        /// On every backend event, storage driver will iterate each session channels
+        ///  and will try replication.
+        backend_sessions: Vec<async_channel::Sender<BackendReplicateEvent>>,
     }
 
-    async fn handle_once(&mut self, msg: ControlDirective) {
-        match msg {
-            _ => todo!(),
+    impl StorageDriveContext {
+        pub fn new() -> Self {
+            Self {
+                ..Default::default()
+            }
         }
+
+        pub async fn handle_once(&mut self, msg: ControlDirective) {
+            use ControlDirective::*;
+
+            match msg {
+                Backend(msg) => {
+                    // handles backend event in separate routine.
+                    self.on_backend_event_(msg)
+                }
+
+                OnRegisterConfigSet(msg) => {
+                    todo!("Register config set to `all_sets` table, and publish replication event")
+                }
+
+                OnUnregisterConfigSet(id) => {
+                    todo!("")
+                }
+
+                EntityNotifyCommit {
+                    register_id,
+                    item_id,
+                } => {
+                    todo!()
+                }
+
+                EntityValueUpdate {
+                    register_id,
+                    item_id,
+                } => {
+                    todo!()
+                }
+
+                _ => unimplemented!(),
+            }
+        }
+
+        fn on_backend_event_(&mut self, msg: BackendEvent) {}
     }
 }

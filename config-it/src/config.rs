@@ -64,11 +64,11 @@ pub struct PropData {
 ///
 /// May storage implement this
 ///
-pub(crate) struct SetCoreContext {
-    pub(crate) register_id: u64,
-    pub(crate) sources: Arc<Vec<EntityData>>,
+pub struct SetContext {
+    pub register_id: u64,
+    pub sources: Arc<Vec<EntityData>>,
+    pub path: Arc<Vec<CompactString>>,
     pub(crate) source_update_fence: AtomicUsize,
-    pub(crate) path: Arc<Vec<CompactString>>,
 
     /// Broadcast subscriber to receive updates from backend.
     pub(crate) update_receiver_channel: async_mutex::Mutex<async_broadcast::Receiver<()>>,
@@ -92,7 +92,7 @@ pub struct Set<T> {
     local: RefCell<Vec<PropLocalContext>>,
 
     /// List of managed properties. This act as source container
-    core: Arc<SetCoreContext>,
+    core: Arc<SetContext>,
 
     /// Unregister hook anchor.
     ///
@@ -111,10 +111,7 @@ struct PropLocalContext {
 }
 
 impl<T: CollectPropMeta> Set<T> {
-    pub(crate) fn create_with__(
-        core: Arc<SetCoreContext>,
-        unregister_anchor: Arc<dyn Any>,
-    ) -> Self {
+    pub(crate) fn create_with__(core: Arc<SetContext>, unregister_anchor: Arc<dyn Any>) -> Self {
         Self {
             core,
             body: T::default(),

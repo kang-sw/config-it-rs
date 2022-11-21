@@ -1,18 +1,18 @@
 use std::error::Error;
 
 use crate::{
+    core::{BackendEvent, BackendReplicateEvent, ControlDirective},
     storage,
-    storage_core::{BackendEvent, ControlDirective},
 };
 
 ///
 /// Backend interface for storage
 ///
-pub struct StorageBackendIface {
-    tx: async_channel::Sender<ControlDirective>,
+pub struct StorageBackendChannel {
+    pub(crate) tx: async_channel::Sender<ControlDirective>,
 }
 
-impl StorageBackendIface {
+impl StorageBackendChannel {
     ///
     /// Creates new backend interface from storage
     ///
@@ -22,7 +22,12 @@ impl StorageBackendIface {
         }
     }
 
-    // TODO: Request new backend event receiver
+    // Request new backend event receiver
+    pub fn open_channel(
+        &self,
+    ) -> Result<async_channel::Sender<BackendReplicateEvent>, crate::core::Error> {
+        todo!("Request new backend event receive channel")
+    }
 
     ///
     /// Send backend event to storage driver.

@@ -1,8 +1,8 @@
+pub mod backend;
 pub mod config;
+pub mod core;
 pub mod entity;
 pub mod storage;
-pub mod storage_backend;
-pub mod storage_core;
 
 pub use smartstring::alias::CompactString;
 

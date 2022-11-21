@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use smartstring::alias::CompactString;
 
-use crate::config::SetCoreContext;
+use crate::{config::SetContext, entity::Metadata};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -20,28 +20,28 @@ pub enum Error {
 pub(crate) enum ControlDirective {
     Backend(BackendEvent),
 
-    ///
-    /// Try registering config set to backend driver. Result will be delivered
-    ///
     OnRegisterConfigSet(Box<ConfigSetRegisterDesc>),
+
+    OnUnregisterConfigSet(u64),
+
+    EntityNotifyCommit { register_id: u64, item_id: u64 },
+
+    EntityValueUpdate { register_id: u64, item_id: u64 },
+
+    // TODO: Perform initial replication on open.
+    NewSessionOpen {},
 }
 
 pub(crate) struct ConfigSetRegisterDesc {
     pub register_id: u64,
-    pub context: Arc<SetCoreContext>,
+    pub context: Arc<SetContext>,
     pub event_broadcast: async_broadcast::Sender<()>,
     pub reply_success: oneshot::Sender<Result<(), Error>>,
 }
 
-const G: usize = std::mem::size_of::<ControlDirective>();
-#[test]
-fn print_size() {
-    dbg!(G);
-}
-
 pub enum BackendEvent {
     /// TODO:
-    NotifyValueUpdate,
+    ValueUpdateRequest,
 }
 
 ///
@@ -50,22 +50,11 @@ pub enum BackendEvent {
 ///
 /// TODO: Fill appropriate values with these.
 ///
-pub(crate) enum BackendReplicateEvent {
-    /// TODO:
+pub enum BackendReplicateEvent {
     InitInfo,
-
-    /// TODO:
     CategoryAdded,
-
-    /// TODO:
     CategoryRemoved,
-
-    /// TODO:
     SetAdded,
-
-    /// TODO:
     SetRemoved,
-
-    /// TODO:
     EntityValueUpdated,
 }
