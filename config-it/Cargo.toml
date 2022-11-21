@@ -13,10 +13,10 @@ erased-serde = "0.3"
 smartstring = { version = "1", features = ["serde"] }
 thiserror = "1"
 async-channel = "1"
-async-mutex = "1"
 async-broadcast = "0.4"
 oneshot = "0.1"
 log = "0.4"
 smallvec = { version = "1", features = ["serde", "write", "union"] }
 lazy_static = "1"
 futures = "0.3"
+arc-swap = "1"

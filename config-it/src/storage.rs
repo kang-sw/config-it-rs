@@ -2,7 +2,7 @@ use std::{
     future::Future,
     sync::{
         atomic::{AtomicU64, AtomicUsize, Ordering},
-        Arc,
+        Arc, Mutex,
     },
 };
 
@@ -91,7 +91,7 @@ impl Storage {
             register_id,
             sources: Arc::new(sources),
             source_update_fence: AtomicUsize::new(0),
-            update_receiver_channel: async_mutex::Mutex::new(broad_rx),
+            update_receiver_channel: Mutex::new(broad_rx),
             path: path.clone(),
         });
 

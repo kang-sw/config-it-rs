@@ -1,9 +1,9 @@
-use async_mutex::Mutex;
+use arc_swap::ArcSwap;
 use erased_serde::{Deserializer, Serialize, Serializer};
 use serde::de::DeserializeOwned;
 use std::any::Any;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 ///
 /// Config entity type must satisfy this constraint
@@ -220,16 +220,16 @@ impl EntityData {
         self.fence.load(Ordering::Relaxed)
     }
 
-    pub async fn access_value(&self) -> (&Arc<Metadata>, Arc<dyn EntityTrait>) {
-        (&self.meta, self.value.lock().await.clone())
+    pub fn access_value(&self) -> (&Arc<Metadata>, Arc<dyn EntityTrait>) {
+        (&self.meta, self.value.lock().unwrap().clone())
     }
 
     /// If `silent` option is disabled, increase config set and source argument's fence
     ///  by 1, to make self and other instances of config set which shares the same core
     ///  be aware of this change.
-    pub async fn update_value(&self, value: Arc<dyn EntityTrait>, silent: bool) {
+    pub fn update_value(&self, value: Arc<dyn EntityTrait>, silent: bool) {
         {
-            let mut lock = self.value.lock().await;
+            let mut lock = self.value.lock().unwrap();
             *lock = value;
 
             if !silent {

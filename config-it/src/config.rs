@@ -27,7 +27,6 @@
 //! ```
 
 use crate::entity::{EntityData, EntityTrait, Metadata};
-use futures::executor;
 use smartstring::alias::CompactString;
 use std::any::{Any, TypeId};
 use std::cell::RefCell;
@@ -35,7 +34,7 @@ use std::collections::HashMap;
 use std::iter::zip;
 use std::mem::replace;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 ///
 ///
@@ -71,7 +70,7 @@ pub struct SetContext {
     pub(crate) source_update_fence: AtomicUsize,
 
     /// Broadcast subscriber to receive updates from backend.
-    pub(crate) update_receiver_channel: async_mutex::Mutex<async_broadcast::Receiver<()>>,
+    pub(crate) update_receiver_channel: Mutex<async_broadcast::Receiver<()>>,
 }
 
 ///
@@ -124,7 +123,7 @@ impl<T: CollectPropMeta> Set<T> {
     ///
     /// Update this storage
     ///
-    pub async fn update_async(&mut self) -> bool {
+    pub fn update(&mut self) -> bool {
         // Perform quick check: Does update fence value changed?
         match self.core.source_update_fence.load(Ordering::Relaxed) {
             v if v == self.fence => return false,
@@ -152,18 +151,11 @@ impl<T: CollectPropMeta> Set<T> {
             has_update = true;
             local.dirty_flag = true;
 
-            let (meta, value) = source.access_value().await;
+            let (meta, value) = source.access_value();
             self.body.update_elem_at__(index, value.as_any(), &*meta);
         }
 
         has_update
-    }
-
-    ///
-    /// Synchronously call update_async
-    ///
-    pub fn update(&mut self) -> bool {
-        executor::block_on(self.update_async())
     }
 
     ///
@@ -201,21 +193,19 @@ impl<T: CollectPropMeta> Set<T> {
     ///
     /// Commit entity value to storage (silently)
     ///
-    pub async fn commit_elem<U: Clone + EntityTrait + Send>(&self, e: &U, notify: bool) {
+    pub fn commit_elem<U: Clone + EntityTrait + Send>(&self, e: &U, notify: bool) {
         // Create new value pointer from input argument.
         let cloned_value = Arc::new(e.clone()) as Arc<dyn EntityTrait>;
 
         // Replace source argument with created ptr
-        (*self.core.sources)[self.get_index_by_ptr(e).unwrap()]
-            .update_value(cloned_value, !notify)
-            .await;
+        (*self.core.sources)[self.get_index_by_ptr(e).unwrap()].update_value(cloned_value, !notify);
     }
 
     ///
     /// Get update receiver
     ///
     pub async fn subscribe_update(&self) -> async_broadcast::Receiver<()> {
-        self.core.update_receiver_channel.lock().await.clone()
+        self.core.update_receiver_channel.lock().unwrap().clone()
     }
 }
 
@@ -235,6 +225,7 @@ impl<T> std::ops::DerefMut for Set<T> {
 
 #[cfg(test)]
 mod emulate_generation {
+    use futures::executor;
     use lazy_static::lazy_static;
     use std::thread;
 
