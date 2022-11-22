@@ -1,1 +1,44 @@
 mod utils;
+use quote::ToTokens;
+use syn::parse2;
+use utils::*;
+
+use crate::utils::parsing::decompose_input;
+
+#[test]
+fn test_macro() {
+    let raw = r###"
+        #[derive(config_it::CollectPropMeta)]
+        pub struct MyStruct<T, Y> {
+          #[config_it(default=34, min=0, max=154,  env="MY_ENV_VAR_NAME", no_import, no_export, hidden)]
+          my_var : i32,
+
+          pub my_var_2 : f32,
+
+          /// My elels dsa 1
+          /// My elels dsa 2
+          /// My elels dsa 3
+          /// My elels dsa 4
+          #[config_it()]
+          pub my_var_emp : f32,
+
+          #[config_it(no_import)]
+          pub my_var_4 : f32,
+
+          ///
+          /// Hello, world!
+          ///
+          #[config_it(one_of(1,2,3,4))]
+          pub my_var_3 : f64
+        }
+    "###;
+
+    let d = parse2::<syn::DeriveInput>(raw.parse().unwrap()).unwrap();
+    for attr in d.attrs.iter() {
+        println!("OutermostAttr: {:?}", attr.tokens)
+    }
+
+    // println!("{}", test_input(raw.parse().unwrap()).to_string());
+    let r = decompose_input(parse2(raw.parse().unwrap()).unwrap()).unwrap();
+    println!("{}", generate(r).unwrap());
+}

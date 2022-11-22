@@ -1,9 +1,12 @@
 use config_it::CollectPropMeta;
 
 #[derive(CollectPropMeta)]
-struct MyStruct {}
+struct MyStruct {
+    #[config_it(min = 3)]
+    minimal: i32,
+}
 
 #[test]
 fn fewew() {
-    hello_world();
+    // println!("{}", hello_world());
 }

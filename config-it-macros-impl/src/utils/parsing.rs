@@ -106,7 +106,7 @@ fn decompose_attribute(desc: &mut FieldDesc, attr: syn::Attribute) -> bool {
         return false;
     }
 
-    if false == attr.path.is_ident("perfkit") {
+    if false == attr.path.is_ident("config_it") {
         return false;
     };
 
