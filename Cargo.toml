@@ -4,4 +4,5 @@ members = [
     "backends/web",
     "config-it",
     "config-it-macros",
+    "config-it-macros-impl",
 ]
