@@ -10,4 +10,4 @@ pub use config::CollectPropMeta;
 pub use config::Set;
 pub use storage::Storage;
 
-// TODO: Use macro
+pub use macros::CollectPropMeta;

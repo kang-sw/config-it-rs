@@ -1,17 +1,15 @@
-use proc_macro::{TokenStream, TokenTree};
-use proc_macro2 as proc_macro;
 use proc_macro2::Span;
 use quote::ToTokens;
 
 use syn::spanned::Spanned;
 use syn::Data::Struct;
-use syn::{parse2, parse_macro_input, AttrStyle, DeriveInput, MetaNameValue};
+use syn::{DeriveInput, MetaNameValue};
 
 ///
 ///
 /// Type information
 ///
-pub(super) struct TypeDesc {
+pub struct TypeDesc {
     pub type_visibility: syn::Visibility,
     pub identifier: syn::Ident,
     pub generics: syn::Generics,
@@ -19,7 +17,7 @@ pub(super) struct TypeDesc {
     pub fields: Vec<FieldDesc>,
 }
 
-pub(super) struct FieldDesc {
+pub struct FieldDesc {
     pub visibility: syn::Visibility,
     pub identifier: syn::Ident,
     pub src_type: syn::Type,
@@ -46,7 +44,7 @@ pub(super) struct FieldDesc {
 ///
 /// Parses incoming derive input, then publish it as
 ///
-pub(super) fn decompose_input(input: DeriveInput) -> Result<TypeDesc, (Span, String)> {
+pub fn decompose_input(input: DeriveInput) -> Result<TypeDesc, (Span, String)> {
     let data = if let Struct(data) = input.data {
         data
     } else {
@@ -157,8 +155,15 @@ fn decompose_attribute(desc: &mut FieldDesc, attr: syn::Attribute) -> bool {
 ///
 /// Concept test below
 ///
+///
 #[cfg(test)]
+#[cfg(feature = "is_proc_macro_impl")]
+use proc_macro2::{TokenStream, TokenTree};
+
+#[cfg(test)]
+#[cfg(feature = "is_proc_macro_impl")]
 fn test_input(input: TokenStream) -> TokenStream {
+    use syn::{parse2, parse_macro_input, AttrStyle};
     let i: DeriveInput = parse2(input).unwrap();
 
     println!("-- 0: {}", i.ident.to_string());
