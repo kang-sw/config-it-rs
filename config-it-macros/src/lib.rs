@@ -9,7 +9,7 @@ mod utils;
 ///
 /// Generates required properties for config set properties
 /// 
-#[proc_macro_derive(CollectPropMeta, attributes(config_it))]
+#[proc_macro_derive(ConfigGroupData, attributes(config_it))]
 pub fn derive_collect_fn(item: TokenStream) -> TokenStream {
     let Ok(result) = syn::parse::<DeriveInput>(item) else { 
         panic!("Failed to parse syntax!")
@@ -24,10 +24,18 @@ pub fn derive_collect_fn(item: TokenStream) -> TokenStream {
         }
     };
     
-    match utils::generate(parse_result).into() {
+    let generated = match utils::generate(parse_result).into() {
         Ok(r) => r,
         Err((span, str)) => quote_spanned!(
                 span => compile_error!(#str)
             )
+    };
+    
+    let generated = generated.to_string();
+    
+    quote!{
+        fn hello() -> &'static str {
+            #generated
+        }
     }.into()
 }

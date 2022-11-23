@@ -8,7 +8,7 @@ use std::{
 
 use crate::{
     backend::StorageBackendChannel,
-    config::{self, SetContext},
+    config::{self, GroupContext},
     core::{self, ControlDirective, Error as ConfigError},
     entity::{self, EntityEventHook},
 };
@@ -60,10 +60,10 @@ impl Storage {
     ///
     /// If path is duplicated for existing config set, the program will panic.
     ///
-    pub async fn create_set<T: config::CollectPropMeta>(
+    pub async fn create_group<T: config::ConfigGroupData>(
         &self,
         path: Vec<CompactString>,
-    ) -> Result<config::Set<T>, ConfigError> {
+    ) -> Result<config::Group<T>, ConfigError> {
         assert!(!path.is_empty(), "First argument that will be used as category, must exist!");
         assert!(path.iter().all(|x| !x.is_empty()), "Empty path argument is not allowed!");
 
@@ -87,7 +87,7 @@ impl Storage {
 
         // Create core config set context with reflected target metadata set
         let (broad_tx, broad_rx) = async_broadcast::broadcast::<()>(1);
-        let core = Arc::new(SetContext {
+        let core = Arc::new(GroupContext {
             register_id,
             sources: Arc::new(sources),
             source_update_fence: AtomicUsize::new(0),
@@ -98,8 +98,8 @@ impl Storage {
         let (tx, rx) = oneshot::channel();
         match self
             .tx
-            .send(ControlDirective::OnRegisterConfigSet(
-                core::ConfigSetRegisterDesc {
+            .send(ControlDirective::OnRegisterConfigGroup(
+                core::ConfigGroupRegisterDesc {
                     register_id,
                     context: core.clone(),
                     reply_success: tx,
@@ -119,15 +119,15 @@ impl Storage {
             Err(_) => return Err(ConfigError::ExpiredStorage),
         };
 
-        let set = crate::Set::<T>::create_with__(
+        let group = crate::Group::<T>::create_with__(
             core,
-            Arc::new(SetUnregisterHook {
+            Arc::new(GroupUnregisterHook {
                 register_id,
                 tx: self.tx.clone(),
             }),
         );
 
-        Ok(set)
+        Ok(group)
     }
 
     // TODO: Dump all contents I/O from/to Serializer/Deserializer
@@ -139,18 +139,18 @@ impl Storage {
     }
 }
 
-struct SetUnregisterHook {
+struct GroupUnregisterHook {
     register_id: u64,
     tx: async_channel::Sender<ControlDirective>,
 }
 
-impl Drop for SetUnregisterHook {
+impl Drop for GroupUnregisterHook {
     fn drop(&mut self) {
         // Just ignore result. If channel was closed before the set is unregistered,
         //  it's ok to ignore this operation silently.
         let _ = self
             .tx
-            .try_send(ControlDirective::OnUnregisterConfigSet(self.register_id));
+            .try_send(ControlDirective::OnUnregisterConfigGroup(self.register_id));
     }
 }
 
@@ -180,7 +180,7 @@ impl EntityEventHook for EntityHookImpl {
 }
 
 mod detail {
-    use crate::core::{BackendEvent, BackendReplicateEvent, ConfigSetRegisterDesc};
+    use crate::core::{BackendEvent, BackendReplicateEvent, ConfigGroupRegisterDesc};
 
     use super::*;
     use std::collections::HashMap;
@@ -193,7 +193,7 @@ mod detail {
     #[derive(Default)]
     pub(super) struct StorageDriveContext {
         /// List of all config sets registered in this storage.
-        all_sets: HashMap<u64, Arc<SetContext>>,
+        all_groups: HashMap<u64, Arc<GroupContext>>,
 
         /// List of all registered backends within this storage.
         ///
@@ -218,11 +218,11 @@ mod detail {
                     self.on_backend_event_(msg)
                 }
 
-                OnRegisterConfigSet(msg) => {
+                OnRegisterConfigGroup(msg) => {
                     todo!("Register config set to `all_sets` table, and publish replication event")
                 }
 
-                OnUnregisterConfigSet(id) => {
+                OnUnregisterConfigGroup(id) => {
                     todo!("")
                 }
 

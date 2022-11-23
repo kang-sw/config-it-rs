@@ -40,7 +40,7 @@ use std::sync::{Arc, Mutex};
 ///
 /// Base trait that is automatically generated
 ///
-pub trait CollectPropMeta: Default + Clone {
+pub trait ConfigGroupData: Default + Clone {
     /// Returns table mapping to <offset_from_base:property_metadata>
     fn prop_desc_table__() -> &'static HashMap<usize, PropData>;
 
@@ -63,7 +63,7 @@ pub struct PropData {
 ///
 /// May storage implement this
 ///
-pub struct SetContext {
+pub struct GroupContext {
     pub register_id: u64,
     pub sources: Arc<Vec<EntityData>>,
     pub path: Arc<Vec<CompactString>>,
@@ -80,7 +80,7 @@ pub struct SetContext {
 /// Wrap `ReflectData` derivative like `Set<MyData>`
 ///
 #[derive(Clone)]
-pub struct Set<T> {
+pub struct Group<T> {
     /// Cached local content
     body: T,
 
@@ -91,7 +91,7 @@ pub struct Set<T> {
     local: RefCell<Vec<PropLocalContext>>,
 
     /// List of managed properties. This act as source container
-    core: Arc<SetContext>,
+    core: Arc<GroupContext>,
 
     /// Unregister hook anchor.
     ///
@@ -109,8 +109,8 @@ struct PropLocalContext {
     dirty_flag: bool,
 }
 
-impl<T: CollectPropMeta> Set<T> {
-    pub(crate) fn create_with__(core: Arc<SetContext>, unregister_anchor: Arc<dyn Any>) -> Self {
+impl<T: ConfigGroupData> Group<T> {
+    pub(crate) fn create_with__(core: Arc<GroupContext>, unregister_anchor: Arc<dyn Any>) -> Self {
         Self {
             core,
             body: T::default(),
@@ -209,7 +209,7 @@ impl<T: CollectPropMeta> Set<T> {
     }
 }
 
-impl<T> std::ops::Deref for Set<T> {
+impl<T> std::ops::Deref for Group<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -217,7 +217,7 @@ impl<T> std::ops::Deref for Set<T> {
     }
 }
 
-impl<T> std::ops::DerefMut for Set<T> {
+impl<T> std::ops::DerefMut for Group<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.body
     }
@@ -239,7 +239,7 @@ mod emulate_generation {
         my_string: String,
     }
 
-    impl CollectPropMeta for MyStruct {
+    impl ConfigGroupData for MyStruct {
         fn prop_desc_table__() -> &'static HashMap<usize, PropData> {
             lazy_static! {
                 static ref TABLE: Arc<HashMap<usize, PropData>> = {
@@ -291,12 +291,12 @@ mod emulate_generation {
         let (st, work) = Storage::new();
         thread::spawn(move || futures::executor::block_on(work));
 
-        let mut set: Set<MyStruct> =
-            executor::block_on(st.create_set(["RootCategory".into()].to_vec())).unwrap();
+        let mut group: Group<MyStruct> =
+            executor::block_on(st.create_group(["RootCategory".into()].to_vec())).unwrap();
 
-        assert!(set.update());
-        assert!(!set.update());
-        assert!(set.check_elem_update(&set.my_string));
-        assert!(!set.check_elem_update(&set.my_string));
+        assert!(group.update());
+        assert!(!group.update());
+        assert!(group.check_elem_update(&group.my_string));
+        assert!(!group.check_elem_update(&group.my_string));
     }
 }

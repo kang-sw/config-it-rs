@@ -6,8 +6,8 @@ pub mod storage;
 
 pub use smartstring::alias::CompactString;
 
-pub use config::CollectPropMeta;
-pub use config::Set;
+pub use config::ConfigGroupData;
+pub use config::Group;
 pub use storage::Storage;
 
-pub use macros::CollectPropMeta;
+pub use macros::ConfigGroupData;

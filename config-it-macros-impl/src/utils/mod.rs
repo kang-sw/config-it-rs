@@ -20,8 +20,42 @@ pub fn generate(ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
     });
 
     Ok(quote! {
-        fn hello_world() {
-            println!("hello, world!")
+        #vis impl #generics ConfigGroupData for #identifier #generics {
+            fn prop_desc_table__() -> &'static HashMap<usize, PropData> {
+                lazy_static! {
+                    static ref TABLE: Arc<HashMap<usize, PropData>> = {
+                        let mut s = HashMap::new();
+
+                        let init = MetadataValInit::<i32> {
+                            fn_validate: |_, _| -> Option<bool> { Some(true) },
+                            v_default: 13,
+                            v_one_of: Default::default(),
+                            v_max: Default::default(),
+                            v_min: Default::default(),
+                        };
+
+                        let mut meta = Metadata::create_for_base_type("hello".into(), init);
+                        meta.name = "override-if-exist".into();
+                        meta.description = "Docstring may placed here".into();
+                        meta.hidden = false;
+                        meta.disable_import = false;
+                        meta.disable_export = false;
+
+                        s.insert(
+                            0usize,
+                            PropData {
+                                index: 0,
+                                type_id: TypeId::of::<i32>(),
+                                meta: Arc::new(meta),
+                            },
+                        );
+
+                        Arc::new(s)
+                    };
+                }
+
+                &*TABLE
+            }
         }
     })
 }

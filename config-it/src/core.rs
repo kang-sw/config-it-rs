@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use smartstring::alias::CompactString;
 
-use crate::{config::SetContext, entity::Metadata};
+use crate::{config::GroupContext, entity::Metadata};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -10,7 +10,7 @@ pub enum Error {
     ExpiredStorage,
 
     #[error("Config name is duplicated {0:?}")]
-    SetCreationFailed(Arc<Vec<CompactString>>),
+    GroupCreationFailed(Arc<Vec<CompactString>>),
 }
 
 ///
@@ -20,9 +20,9 @@ pub enum Error {
 pub(crate) enum ControlDirective {
     Backend(BackendEvent),
 
-    OnRegisterConfigSet(Box<ConfigSetRegisterDesc>),
+    OnRegisterConfigGroup(Box<ConfigGroupRegisterDesc>),
 
-    OnUnregisterConfigSet(u64),
+    OnUnregisterConfigGroup(u64),
 
     EntityNotifyCommit { register_id: u64, item_id: u64 },
 
@@ -32,9 +32,9 @@ pub(crate) enum ControlDirective {
     NewSessionOpen {},
 }
 
-pub(crate) struct ConfigSetRegisterDesc {
+pub(crate) struct ConfigGroupRegisterDesc {
     pub register_id: u64,
-    pub context: Arc<SetContext>,
+    pub context: Arc<GroupContext>,
     pub event_broadcast: async_broadcast::Sender<()>,
     pub reply_success: oneshot::Sender<Result<(), Error>>,
 }
@@ -54,7 +54,7 @@ pub enum BackendReplicateEvent {
     InitInfo,
     CategoryAdded,
     CategoryRemoved,
-    SetAdded,
-    SetRemoved,
+    GroupAdded,
+    GroupRemoved,
     EntityValueUpdated,
 }
