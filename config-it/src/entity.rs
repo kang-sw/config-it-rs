@@ -34,20 +34,14 @@ where
 ///
 pub struct Metadata {
     /// Identifier for this config entity.
-    pub name: String,
-
-    /// Source variable name. Usually same as 'name' unless another name is specified for it.
-    pub varname: String,
-    pub description: String,
+    pub name: &'static str,
 
     pub v_default: Arc<dyn EntityTrait>,
     pub v_min: Option<Box<dyn EntityTrait>>,
     pub v_max: Option<Box<dyn EntityTrait>>,
     pub v_one_of: Vec<Box<dyn EntityTrait>>,
 
-    pub disable_export: bool,
-    pub disable_import: bool,
-    pub hidden: bool,
+    pub props: MetadataProps,
 
     pub fn_default: fn() -> Box<dyn EntityTrait>,
     pub fn_copy_to: fn(&dyn Any, &mut dyn Any),
@@ -71,8 +65,22 @@ pub struct MetadataValInit<T> {
     pub fn_validate: fn(&Metadata, &mut dyn Any) -> Option<bool>,
 }
 
+pub struct MetadataProps {
+    pub disable_export: bool,
+    pub disable_import: bool,
+    pub hidden: bool,
+
+    /// Source variable name. Usually same as 'name' unless another name is specified for it.
+    pub varname: &'static str,
+    pub description: &'static str,
+}
+
 impl Metadata {
-    pub fn create_for_base_type<T>(name: String, init: MetadataValInit<T>) -> Self
+    pub fn create_for_base_type<T>(
+        name: &'static str,
+        init: MetadataValInit<T>,
+        props: MetadataProps,
+    ) -> Self
     where
         T: EntityTrait + Default + Clone + serde::de::DeserializeOwned + serde::ser::Serialize,
     {
@@ -93,16 +101,12 @@ impl Metadata {
             .collect();
 
         Self {
-            varname: name.clone(),
             name,
-            description: Default::default(),
             v_default: Arc::new(init.v_default),
             v_min,
             v_max,
             v_one_of,
-            disable_export: false,
-            disable_import: false,
-            hidden: false,
+            props,
             fn_default: || Box::new(T::default()),
             fn_copy_to: |from, to| {
                 let from: &T = from.downcast_ref().unwrap();

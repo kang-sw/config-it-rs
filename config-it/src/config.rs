@@ -230,8 +230,7 @@ mod emulate_generation {
     use std::thread;
 
     use super::*;
-    use crate::entity::MetadataValInit;
-    use crate::Storage;
+    use crate::*;
 
     #[derive(Default, Clone)]
     struct MyStruct {
@@ -241,33 +240,47 @@ mod emulate_generation {
 
     impl ConfigGroupData for MyStruct {
         fn prop_desc_table__() -> &'static HashMap<usize, PropData> {
+            use entity::{MetadataProps, MetadataValInit};
+
             lazy_static! {
                 static ref TABLE: Arc<HashMap<usize, PropData>> = {
                     let mut s = HashMap::new();
 
-                    let init = MetadataValInit::<i32> {
-                        fn_validate: |_, _| -> Option<bool> { Some(true) },
-                        v_default: 13,
-                        v_one_of: Default::default(),
-                        v_max: Default::default(),
-                        v_min: Default::default(),
-                    };
+                    {
+                        type Type = i32;
 
-                    let mut meta = Metadata::create_for_base_type("hello".into(), init);
-                    meta.name = "override-if-exist".into();
-                    meta.description = "Docstring may placed here".into();
-                    meta.hidden = false;
-                    meta.disable_import = false;
-                    meta.disable_export = false;
+                        let identifier = "#ident_as_string";
+                        let varname = "#varname_or_ident";
+                        let doc_string = "#doc_str";
+                        let index = 1;
+                        let default_value: Type = 13;
 
-                    s.insert(
-                        0usize,
-                        PropData {
-                            index: 0,
-                            type_id: TypeId::of::<i32>(),
+                        let init = MetadataValInit::<Type> {
+                            fn_validate: |_, _| -> Option<bool> { Some(true) },
+                            v_default: default_value,
+                            v_one_of: Default::default(),
+                            v_max: Default::default(),
+                            v_min: Default::default(),
+                        };
+
+                        let props = MetadataProps {
+                            description: doc_string,
+                            varname,
+                            disable_import: false,
+                            disable_export: false,
+                            hidden: false,
+                        };
+
+                        let meta = Metadata::create_for_base_type(identifier, init, props);
+
+                        let prop_data = PropData {
+                            index,
+                            type_id: TypeId::of::<Type>(),
                             meta: Arc::new(meta),
-                        },
-                    );
+                        };
+
+                        s.insert(0usize, prop_data);
+                    }
 
                     Arc::new(s)
                 };
