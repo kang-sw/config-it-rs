@@ -8,7 +8,7 @@ use crate::utils::parsing::decompose_input;
 #[test]
 fn test_macro() {
     let raw = r###"
-        #[derive(config_it::ConfigGroupData)]
+        #[derive(Debug, config_it::ConfigGroupData, Clone, Serialize)]
         pub struct MyStruct<T, Y> {
           #[config_it(default=34, min=0, max=154,  env="MY_ENV_VAR_NAME", no_import, no_export, hidden)]
           my_var : i32,
@@ -35,10 +35,10 @@ fn test_macro() {
 
     let d = parse2::<syn::DeriveInput>(raw.parse().unwrap()).unwrap();
     for attr in d.attrs.iter() {
-        println!("OutermostAttr: {:?}", attr.tokens)
+        //   println!("OutermostAttr: {:?}", attr.tokens)
     }
 
     // println!("{}", test_input(raw.parse().unwrap()).to_string());
     let r = decompose_input(parse2(raw.parse().unwrap()).unwrap()).unwrap();
-    println!("{}", generate(r).unwrap());
+    // println!("{}", generate(r).unwrap());
 }

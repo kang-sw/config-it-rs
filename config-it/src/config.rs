@@ -249,6 +249,10 @@ mod emulate_generation {
                     {
                         type Type = i32;
 
+                        let offset = unsafe {
+                            let owner = 0 as *const MyStruct;
+                            &(*owner).my_int as *const _ as *const u8 as usize;
+                        };
                         let identifier = "#ident_as_string";
                         let varname = "#varname_or_ident";
                         let doc_string = "#doc_str";
@@ -279,7 +283,7 @@ mod emulate_generation {
                             meta: Arc::new(meta),
                         };
 
-                        s.insert(0usize, prop_data);
+                        s.insert(offset, prop_data);
                     }
 
                     Arc::new(s)

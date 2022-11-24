@@ -1,15 +1,17 @@
-use proc_macro2::Span;
+use proc_macro2::{Span, TokenTree};
 use quote::ToTokens;
 
 use syn::spanned::Spanned;
 use syn::Data::Struct;
-use syn::{DeriveInput, MetaNameValue};
+use syn::{Attribute, DeriveInput, MetaNameValue};
 
 ///
 ///
 /// Type information
 ///
 pub struct TypeDesc {
+    pub config_it_namespace: Option<TokenTree>,
+
     pub type_visibility: syn::Visibility,
     pub identifier: syn::Ident,
     pub generics: syn::Generics,
@@ -51,7 +53,9 @@ pub fn decompose_input(input: DeriveInput) -> Result<TypeDesc, (Span, String)> {
         return Err((input.ident.span(), "Non-struct type is not permitted".into()));
     };
 
+    // Retrieve specified namespace of config_it, since user may alias config_it module
     let mut out = TypeDesc {
+        config_it_namespace: retrieve_namespace(input.attrs),
         type_visibility: input.vis,
         identifier: input.ident,
         generics: input.generics,
@@ -95,6 +99,63 @@ pub fn decompose_input(input: DeriveInput) -> Result<TypeDesc, (Span, String)> {
     }
 
     Ok(out)
+}
+
+fn retrieve_namespace(attrs: Vec<Attribute>) -> Option<TokenTree> {
+    let puncts: Vec<_> = attrs
+        .into_iter()
+        // Select 'derive' attribute
+        .filter(|x| x.path.is_ident("derive"))
+        .map(|x| {
+            // Flatten all derivatives that are included in derive(...)
+            x.tokens
+                .into_iter()
+                .filter_map(|x| match x {
+                    TokenTree::Group(s) => Some(s),
+                    _ => None,
+                })
+                .map(|x| x.stream())
+                .flatten()
+                .collect::<Vec<_>>()
+        })
+        .flatten()
+        .collect();
+
+    let Some(pos) = puncts.iter().position(|x| {
+            let TokenTree::Ident(id) = x else { return false};
+            id == "ConfigGroupData"
+        }) else {
+            return None;
+        };
+
+    // From 'pos' trace reversely, find first ':' or ','
+    let first_punct = (0..pos).rev().find_map(|idx| {
+        let TokenTree::Punct(p) = &puncts[idx] else { return None };
+
+        if p.as_char() == ':' || p.as_char() == ',' {
+            Some(p)
+        } else {
+            None
+        }
+    });
+
+    if first_punct.is_none() || first_punct.unwrap().as_char() == ',' {
+        // No namespace specfied
+        return None;
+    }
+
+    // It seems our 'ConfigGroupData' specified with namespace ...
+    // Find its name.
+    let comma_pos = (0..pos)
+        .rev()
+        .find(|idx| {
+            let TokenTree::Punct(punc) = &puncts[*idx] else { return false };
+            punc.as_char() == ','
+        })
+        .map_or(0, |x| x + 1);
+
+    let mut puncts = puncts;
+    Some(puncts.swap_remove(comma_pos))
 }
 
 fn decompose_attribute(desc: &mut FieldDesc, attr: syn::Attribute) -> bool {
@@ -158,7 +219,7 @@ fn decompose_attribute(desc: &mut FieldDesc, attr: syn::Attribute) -> bool {
 ///
 #[cfg(test)]
 #[cfg(feature = "is_proc_macro_impl")]
-use proc_macro2::{TokenStream, TokenTree};
+use proc_macro2::TokenStream;
 
 #[cfg(test)]
 #[cfg(feature = "is_proc_macro_impl")]

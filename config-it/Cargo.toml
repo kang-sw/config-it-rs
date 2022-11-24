@@ -20,4 +20,7 @@ smallvec = { version = "1", features = ["serde", "write", "union"] }
 lazy_static = "1"
 futures = "0.3"
 arc-swap = "1"
-macros = { package = "config-it-macros", path = "../config-it-macros", version = "*" }
+macros = { package = "config-it-macros", path = "../config-it-macros", version = "*", optional = true }
+
+[features]
+derive = ["dep:macros"]
