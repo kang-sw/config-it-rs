@@ -12,7 +12,7 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
 
     let fields = replace(&mut ty.fields, Default::default());
     let num_fields = fields.len();
-    let mut indexer = -1;
+    let mut indexer: usize = 0;
     
     let fields = fields.into_iter().map(|x| {
         let ident_str = x.identifier.to_string();
@@ -26,14 +26,15 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
         let default = x.default_value.map_or(quote!(Default::default()), |x| x.into_token_stream());
         let min = x.min.map_or(quote!(None), |x| quote!{Some(#x)} );
         let max = x.max.map_or(quote!(None), |x| quote!(Some(#x)) );
-        let one_of = x.one_of.map_or(quote!(), |x| x.nested.to_token_stream() );
+        let one_of = x.one_of.map_or(quote!(), |x| { 
+            let args = x.nested.into_iter().map(|x| quote!(#x.into(), ));
+            quote!(#(#args)*)
+        });
 
         let disable_import = x.flag_disable_import;
         let disable_export = x.flag_disable_export;
         
         let hidden = x.flag_hidden;
-
-        indexer += 1;
 
         let meta_gen = quote! {
             {
@@ -77,9 +78,10 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
             }
         };
 
-        let index = indexer as usize;
+        indexer += 1;
+        
         let elem_at = quote!{
-            #index => &mut self.#ident,
+            #indexer => &mut self.#ident,
         };
         
         (meta_gen, elem_at)

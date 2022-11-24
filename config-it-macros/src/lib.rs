@@ -39,6 +39,6 @@ pub fn derive_collect_fn(item: TokenStream) -> TokenStream {
             #generated_str
         }
         
-        #generated
+        // #generated
     }.into()
 }

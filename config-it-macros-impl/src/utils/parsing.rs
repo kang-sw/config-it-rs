@@ -23,9 +23,7 @@ pub struct FieldDesc {
     pub src_type: syn::Type,
 
     pub docstring: String,
-
     pub alias: Option<syn::Lit>,
-    pub prefix: Option<syn::Lit>,
 
     pub default_value: Option<syn::Lit>,
     pub min: Option<syn::Lit>,
@@ -72,7 +70,6 @@ pub fn decompose_input(input: DeriveInput) -> Result<TypeDesc, (Span, String)> {
             visibility: field.vis,
             default_value: Default::default(),
             docstring: String::with_capacity(200),
-            prefix: Default::default(),
             alias: Default::default(),
             min: Default::default(),
             max: Default::default(),
@@ -180,17 +177,21 @@ fn decompose_attribute(desc: &mut FieldDesc, attr: syn::Attribute) -> bool {
         Meta(List(v)) if v.path.is_ident("one_of") => desc.one_of = Some(v),
 
         Meta(NameValue(MetaNameValue { path, lit, .. })) => {
-            if path.is_ident("min") {
-                desc.min = Some(lit);
+            let dst = if path.is_ident("min") {
+                &mut desc.min
             } else if path.is_ident("max") {
-                desc.max = Some(lit);
+                &mut desc.max
+            } else if path.is_ident("default") {
+                &mut desc.default_value
             } else if path.is_ident("env") {
-                desc.env_var = Some(lit);
-            } else if path.is_ident("prefix") {
-                desc.prefix = Some(lit);
+                &mut desc.env_var
             } else if path.is_ident("alias") {
-                desc.alias = Some(lit);
-            }
+                &mut desc.alias
+            } else {
+                return;
+            };
+
+            *dst = Some(lit);
         }
 
         Meta(Path(v)) if v.is_ident("no_export") => desc.flag_disable_export = true,
