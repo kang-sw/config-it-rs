@@ -31,11 +31,14 @@ pub fn derive_collect_fn(item: TokenStream) -> TokenStream {
             )
     };
     
-    let generated = generated.to_string();
+    
+    let generated_str = generated.to_string();
     
     quote!{
         fn hello() -> &'static str {
-            #generated
+            #generated_str
         }
+        
+        #generated
     }.into()
 }

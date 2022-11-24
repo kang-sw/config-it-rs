@@ -10,8 +10,6 @@ use syn::{Attribute, DeriveInput, MetaNameValue};
 /// Type information
 ///
 pub struct TypeDesc {
-    pub config_it_namespace: Option<TokenTree>,
-
     pub type_visibility: syn::Visibility,
     pub identifier: syn::Ident,
     pub generics: syn::Generics,
@@ -55,7 +53,6 @@ pub fn decompose_input(input: DeriveInput) -> Result<TypeDesc, (Span, String)> {
 
     // Retrieve specified namespace of config_it, since user may alias config_it module
     let mut out = TypeDesc {
-        config_it_namespace: retrieve_namespace(input.attrs),
         type_visibility: input.vis,
         identifier: input.ident,
         generics: input.generics,

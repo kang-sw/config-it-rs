@@ -251,7 +251,7 @@ mod emulate_generation {
 
                         let offset = unsafe {
                             let owner = 0 as *const MyStruct;
-                            &(*owner).my_int as *const _ as *const u8 as usize;
+                            &(*owner).my_int as *const _ as *const u8 as usize
                         };
                         let identifier = "#ident_as_string";
                         let varname = "#varname_or_ident";
