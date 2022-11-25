@@ -10,7 +10,7 @@ use crate::{
     config::{self, GroupContext},
     core::{self, ControlDirective, Error as ConfigError},
     entity::{self, EntityEventHook},
-    monitor::StorageMonitorChannel,
+    monitor::StorageMonitor,
 };
 use log::debug;
 use smartstring::alias::CompactString;
@@ -98,8 +98,8 @@ impl Storage {
         let (tx, rx) = oneshot::channel();
         match self
             .tx
-            .send(ControlDirective::OnRegisterConfigGroup(
-                core::ConfigGroupRegisterDesc {
+            .send(ControlDirective::TryGroupRegister(
+                core::GroupRegisterParam {
                     register_id,
                     context: core.clone(),
                     reply_success: tx,
@@ -178,8 +178,8 @@ impl Storage {
         todo!() // Create 'LoadedStorage' from deserializer.
     }
 
-    pub fn create_monitor(&self) -> StorageMonitorChannel {
-        StorageMonitorChannel {
+    pub fn create_monitor(&self) -> StorageMonitor {
+        StorageMonitor {
             tx: self.tx.clone(),
         }
     }
@@ -196,7 +196,7 @@ impl Drop for GroupUnregisterHook {
         //  it's ok to ignore this operation silently.
         let _ = self
             .tx
-            .try_send(ControlDirective::OnUnregisterConfigGroup(self.register_id));
+            .try_send(ControlDirective::GroupDisposal(self.register_id));
     }
 }
 
@@ -226,7 +226,7 @@ impl EntityEventHook for EntityHookImpl {
 }
 
 mod detail {
-    use crate::core::{MonitorEvent, MonitorReplication};
+    use crate::core::{MonitorEvent, ReplicationEvent};
 
     use super::*;
     use std::{
@@ -248,7 +248,7 @@ mod detail {
         ///
         /// On every monitor event, storage driver will iterate each session channels
         ///  and will try replication.
-        monitor_sessions: Vec<async_channel::Sender<MonitorReplication>>,
+        monitor_sessions: Vec<async_channel::Sender<ReplicationEvent>>,
 
         /// Registered path hashes
         path_hashes: HashSet<u64>,
@@ -279,7 +279,7 @@ mod detail {
                 }
 
                 // Registers config set to `all_sets` table, and publish replication event
-                OnRegisterConfigGroup(msg) => {
+                TryGroupRegister(msg) => {
                     // Check if same named group exists inside of this storage
                     let mut hasher = DefaultHasher::new();
                     msg.context.path.hash(&mut hasher);
@@ -308,7 +308,7 @@ mod detail {
                     // TODO: Send 'new group' message to active monitors
                 }
 
-                OnUnregisterConfigGroup(id) => {
+                GroupDisposal(id) => {
                     // TODO: Send 'deleted group' message to active monitors
 
                     // Erase from regist
@@ -330,7 +330,7 @@ mod detail {
                     todo!("propagate-event-to-subs")
                 }
 
-                NewSessionOpen {} => {
+                MonitorRegister {} => {
                     // TODO:
                 }
 

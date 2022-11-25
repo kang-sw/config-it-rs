@@ -1,18 +1,20 @@
 use std::error::Error;
 
 use crate::{
-    core::{ControlDirective, MonitorEvent, MonitorReplication},
+    core::{ControlDirective, MonitorEvent, ReplicationEvent},
     storage,
 };
+
+type ReplicationChannel = async_channel::Sender<ReplicationEvent>;
 
 ///
 /// monitor interface for storage
 ///
-pub struct StorageMonitorChannel {
+pub struct StorageMonitor {
     pub(crate) tx: async_channel::Sender<ControlDirective>,
 }
 
-impl StorageMonitorChannel {
+impl StorageMonitor {
     ///
     /// Creates new monitor interface from storage
     ///
@@ -23,9 +25,7 @@ impl StorageMonitorChannel {
     }
 
     // Request new monitor event receiver
-    pub fn open_channel(
-        &self,
-    ) -> Result<async_channel::Sender<MonitorReplication>, crate::core::Error> {
+    pub fn open_channel(&self) -> Result<ReplicationChannel, crate::core::Error> {
         todo!("Request new monitor event receive channel")
     }
 

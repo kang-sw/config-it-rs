@@ -20,19 +20,19 @@ pub enum Error {
 pub(crate) enum ControlDirective {
     FromMonitor(MonitorEvent),
 
-    OnRegisterConfigGroup(Box<ConfigGroupRegisterDesc>),
+    TryGroupRegister(Box<GroupRegisterParam>),
 
-    OnUnregisterConfigGroup(u64),
+    GroupDisposal(u64),
 
     EntityNotifyCommit { register_id: u64, item_id: u64 },
 
     EntityValueUpdate { register_id: u64, item_id: u64 },
 
     // TODO: Perform initial replication on open.
-    NewSessionOpen {},
+    MonitorRegister {},
 }
 
-pub(crate) struct ConfigGroupRegisterDesc {
+pub(crate) struct GroupRegisterParam {
     pub register_id: u64,
     pub context: Arc<GroupContext>,
     pub event_broadcast: async_broadcast::Sender<()>,
@@ -50,7 +50,7 @@ pub enum MonitorEvent {
 ///
 /// TODO: Fill appropriate values with these.
 ///
-pub enum MonitorReplication {
+pub enum ReplicationEvent {
     InitInfo,
     CategoryAdded,
     CategoryRemoved,
