@@ -18,7 +18,7 @@ pub enum Error {
 /// Message type to drive storage
 ///
 pub(crate) enum ControlDirective {
-    Backend(BackendEvent),
+    FromMonitor(MonitorEvent),
 
     OnRegisterConfigGroup(Box<ConfigGroupRegisterDesc>),
 
@@ -39,7 +39,7 @@ pub(crate) struct ConfigGroupRegisterDesc {
     pub reply_success: oneshot::Sender<Result<(), Error>>,
 }
 
-pub enum BackendEvent {
+pub enum MonitorEvent {
     /// TODO:
     ValueUpdateRequest,
 }
@@ -50,7 +50,7 @@ pub enum BackendEvent {
 ///
 /// TODO: Fill appropriate values with these.
 ///
-pub enum BackendReplicateEvent {
+pub enum MonitorReplication {
     InitInfo,
     CategoryAdded,
     CategoryRemoved,

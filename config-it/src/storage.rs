@@ -7,10 +7,10 @@ use std::{
 };
 
 use crate::{
-    backend::StorageBackendChannel,
     config::{self, GroupContext},
     core::{self, ControlDirective, Error as ConfigError},
     entity::{self, EntityEventHook},
+    monitor::StorageMonitorChannel,
 };
 use log::debug;
 use smartstring::alias::CompactString;
@@ -147,8 +147,39 @@ impl Storage {
 
     // TODO: Dump all contents I/O from/to Serializer/Deserializer
 
-    pub fn create_backend(&self) -> StorageBackendChannel {
-        StorageBackendChannel {
+    ///
+    /// # Arguments
+    ///
+    ///  * `data` -
+    ///
+    /// # Data serialization rule:
+    ///  - The first path component is root component, which is written as-is.
+    ///  - Any path component after the first must be prefixed with `#:` characters.
+    ///    - Otherwise, they are treated as field element of enclosing path component.
+    ///  - Any '#:' prefixed key
+    ///
+    /// ```json
+    /// {
+    ///     "root_path": {
+    ///         "#:path_component": {
+    ///             "field_name": "value",
+    ///             "other_field": {
+    ///                 "#:this_does_not_treated"
+    ///             }
+    ///         },
+    ///         "#:another_path_component": {},
+    ///         "field_name_of_root_path": "yay"
+    ///     },
+    ///     "another_root_path": {}
+    /// }
+    /// ```
+    ///
+    pub async fn load_data<'a>(&self, data: &dyn erased_serde::Deserializer<'a>) {
+        todo!() // Create 'LoadedStorage' from deserializer.
+    }
+
+    pub fn create_monitor(&self) -> StorageMonitorChannel {
+        StorageMonitorChannel {
             tx: self.tx.clone(),
         }
     }
@@ -195,7 +226,7 @@ impl EntityEventHook for EntityHookImpl {
 }
 
 mod detail {
-    use crate::core::{BackendEvent, BackendReplicateEvent, ConfigGroupRegisterDesc};
+    use crate::core::{MonitorEvent, MonitorReplication};
 
     use super::*;
     use std::{
@@ -211,13 +242,13 @@ mod detail {
     #[derive(Default)]
     pub(super) struct StorageDriveContext {
         /// List of all config sets registered in this storage.
-        all_groups: HashMap<u64, Arc<GroupContext>>,
+        all_groups: HashMap<u64, GroupRegistration>,
 
-        /// List of all registered backends within this storage.
+        /// List of all registered monitors within this storage.
         ///
-        /// On every backend event, storage driver will iterate each session channels
+        /// On every monitor event, storage driver will iterate each session channels
         ///  and will try replication.
-        backend_sessions: Vec<async_channel::Sender<BackendReplicateEvent>>,
+        monitor_sessions: Vec<async_channel::Sender<MonitorReplication>>,
 
         /// Registered path hashes
         path_hashes: HashSet<u64>,
@@ -242,49 +273,71 @@ mod detail {
             use ControlDirective::*;
 
             match msg {
-                Backend(msg) => {
-                    // handles backend event in separate routine.
-                    self.on_backend_event_(msg)
+                FromMonitor(msg) => {
+                    // handles monitor event in separate routine.
+                    self.on_monitor_event_(msg)
                 }
 
+                // Registers config set to `all_sets` table, and publish replication event
                 OnRegisterConfigGroup(msg) => {
-                    // Register config set to `all_sets` table, and publish replication event
-
                     // Check if same named group exists inside of this storage
                     let mut hasher = DefaultHasher::new();
                     msg.context.path.hash(&mut hasher);
 
                     let path_hash = hasher.finish();
-                    if self.path_hashes.contains(&path_hash) {
+                    if !self.path_hashes.insert(path_hash) {
                         let _ = msg
                             .reply_success
                             .send(Err(ConfigError::GroupCreationFailed(msg.context.path.clone())));
                         return;
                     }
+
+                    let rg = GroupRegistration {
+                        context: msg.context,
+                        path_hash,
+                        evt_on_update: msg.event_broadcast,
+                    };
+
+                    // TODO: Apply initial update
+                    //  - If any data is loaded previously, and could be found with
+
+                    let prev = self.all_groups.insert(msg.register_id, rg);
+                    assert!(prev.is_none(), "Key never duplicates");
+                    let _ = msg.reply_success.send(Ok(()));
+
+                    // TODO: Send 'new group' message to active monitors
                 }
 
                 OnUnregisterConfigGroup(id) => {
-                    todo!("")
+                    // TODO: Send 'deleted group' message to active monitors
+
+                    // Erase from regist
+                    let rg = self.all_groups.remove(&id).expect("Key must exist");
+                    assert!(self.path_hashes.remove(&rg.path_hash));
                 }
 
                 EntityNotifyCommit {
                     register_id,
                     item_id,
                 } => {
-                    todo!()
+                    todo!("propagate-event-to-users")
                 }
 
                 EntityValueUpdate {
                     register_id,
                     item_id,
                 } => {
-                    todo!()
+                    todo!("propagate-event-to-subs")
+                }
+
+                NewSessionOpen {} => {
+                    // TODO:
                 }
 
                 _ => unimplemented!(),
             }
         }
 
-        fn on_backend_event_(&mut self, msg: BackendEvent) {}
+        fn on_monitor_event_(&mut self, msg: MonitorEvent) {}
     }
 }
