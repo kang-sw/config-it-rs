@@ -77,7 +77,7 @@ pub struct GroupContext {
 ///
 /// Primary interface that end user may interact with
 ///
-/// Wrap `ReflectData` derivative like `Set<MyData>`
+/// Wrap `ReflectData` derivative like `Group<MyData>`
 ///
 #[derive(Clone)]
 pub struct Group<T> {

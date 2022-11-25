@@ -1,10 +1,10 @@
+#![allow(unused)]
 pub mod parsing;
 
 use parsing::*;
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
-use std::{mem::replace};
-
+use std::mem::replace;
 
 pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
     let identifier = ty.identifier;
@@ -13,7 +13,7 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
     let fields = replace(&mut ty.fields, Default::default());
     let num_fields = fields.len();
     let mut indexer: usize = 0;
-    
+
     let fields = fields.into_iter().map(|x| {
         let ident_str = x.identifier.to_string();
         let ident = &x.identifier;
@@ -23,18 +23,56 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
             .map_or_else(|| ident_str.clone(), |x| x.into_token_stream().to_string());
         let doc = x.docstring;
 
-        let default = x.default_value.map_or(quote!(Default::default()), |x| x.into_token_stream());
-        let min = x.min.map_or(quote!(None), |x| quote!{Some(#x)} );
-        let max = x.max.map_or(quote!(None), |x| quote!(Some(#x)) );
-        let one_of = x.one_of.map_or(quote!(), |x| { 
-            let args = x.nested.into_iter().map(|x| quote!(#x.into(), ));
-            quote!(#(#args)*)
+        let default = x.default_value.map_or(quote!{Default::default()}, |x| x.into_token_stream());
+        let min = x.min.clone().map_or(quote!{None}, |x| quote!{Some(#x)} );
+        let max = x.max.clone().map_or(quote!{None}, |x| quote!(Some(#x)) );
+        let one_of = x.one_of.clone().map_or(quote!(), |x| {
+            let args = x.nested.into_iter().map(|x| quote!{#x.into(), });
+            quote!{#(#args)*}
         });
 
         let disable_import = x.flag_disable_import;
         let disable_export = x.flag_disable_export;
         
         let hidden = x.flag_hidden;
+        
+        let func_min = x.min.map_or(quote!{}, |x| {
+            quote! {
+                if *to < #x {
+                    *to = (#x).into();
+                    result = Some(false);
+                }
+            }
+        });
+        
+        let func_max = x.max.map_or(quote!{}, |x| {
+            quote! {
+                if *to > #x {
+                    *to = (#x).into();
+                    result = Some(false);
+                }
+            }
+        });
+        
+        let func_one_of = if let Some(v) = x.one_of {
+            let args =v.nested.into_iter().map(
+                |x| quote! {
+                    x if *x == #x => true,
+                });
+                
+            quote! {
+                let matches_one_of = match to {
+                    #(#args)*                    
+                    _ => false,
+                };
+                
+                if !matches_one_of {
+                    result = None;
+                }
+            }
+        } else { 
+            quote!()
+        };
 
         let meta_gen = quote! {
             {
@@ -45,13 +83,23 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
                     &(*owner).#ident as *const _ as *const u8 as usize
                 };
 
-                let identifier = #ident_str;
-                let varname = #alias;
+                let identifier = #alias;
+                let varname = #ident_str;
                 let doc_string = #doc;
                 let index = #indexer as usize;
 
                 let init = config_it::entity::MetadataValInit::<Type> {
-                    fn_validate: |_, _| -> Option<bool> { Some(true) }, // TODO: Validation Here!
+                    fn_validate: |_meta, to| -> Option<bool> { 
+                        
+                        let to: &mut Type = to.downcast_mut().unwrap();
+                        let mut result = Some(true);
+                        
+                        #func_min
+                        #func_max
+                        #func_one_of
+                        
+                        result
+                    }, 
                     v_default: #default,
                     v_one_of: [#one_of].into(),
                     v_max: #min,
@@ -96,6 +144,7 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
     });
 
     Ok(quote! {
+        #[allow(unused)]
         impl #generics config_it::ConfigGroupData for #identifier #generics {
             fn prop_desc_table__() -> &'static std::collections::HashMap<usize, config_it::config::PropData> {
                 use config_it::lazy_static;

@@ -1,12 +1,11 @@
 mod utils;
-use quote::ToTokens;
-use syn::parse2;
-use utils::*;
-
-use crate::utils::parsing::decompose_input;
 
 #[test]
 fn test_macro() {
+    use syn::parse2;
+
+    use crate::utils::parsing::decompose_input;
+
     let raw = r###"
         #[derive(Debug, config_it::ConfigGroupData, Clone, Serialize)]
         pub struct MyStruct<T, Y> {
@@ -34,11 +33,11 @@ fn test_macro() {
     "###;
 
     let d = parse2::<syn::DeriveInput>(raw.parse().unwrap()).unwrap();
-    for attr in d.attrs.iter() {
+    for _attr in d.attrs.iter() {
         //   println!("OutermostAttr: {:?}", attr.tokens)
     }
 
     // println!("{}", test_input(raw.parse().unwrap()).to_string());
-    let r = decompose_input(parse2(raw.parse().unwrap()).unwrap()).unwrap();
+    let _r = decompose_input(parse2(raw.parse().unwrap()).unwrap()).unwrap();
     // println!("{}", generate(r).unwrap());
 }

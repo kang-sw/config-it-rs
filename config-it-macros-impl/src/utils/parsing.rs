@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use proc_macro2::{Span, TokenTree};
 use quote::ToTokens;
 
@@ -8,6 +10,7 @@ use syn::{Attribute, DeriveInput, MetaNameValue};
 ///
 ///
 /// Type information
+///
 ///
 pub struct TypeDesc {
     pub type_visibility: syn::Visibility,

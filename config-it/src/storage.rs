@@ -60,7 +60,7 @@ impl Storage {
     ///
     /// If path is duplicated for existing config set, the program will panic.
     ///
-    pub async fn create_group<T: config::ConfigGroupData>(
+    pub async fn create_group_ex<T: config::ConfigGroupData>(
         &self,
         path: Vec<CompactString>,
     ) -> Result<config::Group<T>, ConfigError> {
@@ -130,6 +130,21 @@ impl Storage {
         Ok(group)
     }
 
+    pub async fn create_group<T>(
+        &self,
+        path: impl IntoIterator<Item = &str>,
+    ) -> Result<config::Group<T>, ConfigError>
+    where
+        T: config::ConfigGroupData,
+    {
+        self.create_group_ex::<T>(
+            path.into_iter()
+                .map(|x| -> CompactString { x.into() })
+                .collect::<Vec<_>>(),
+        )
+        .await
+    }
+
     // TODO: Dump all contents I/O from/to Serializer/Deserializer
 
     pub fn create_backend(&self) -> StorageBackendChannel {
@@ -183,7 +198,10 @@ mod detail {
     use crate::core::{BackendEvent, BackendReplicateEvent, ConfigGroupRegisterDesc};
 
     use super::*;
-    use std::collections::HashMap;
+    use std::{
+        collections::{hash_map::DefaultHasher, HashMap, HashSet},
+        hash::{Hash, Hasher},
+    };
 
     ///
     /// Drives storage internal events.
@@ -200,6 +218,17 @@ mod detail {
         /// On every backend event, storage driver will iterate each session channels
         ///  and will try replication.
         backend_sessions: Vec<async_channel::Sender<BackendReplicateEvent>>,
+
+        /// Registered path hashes
+        path_hashes: HashSet<u64>,
+    }
+
+    struct GroupRegistration {
+        /// Category string array. Never empty.
+        path_hash: u64,
+
+        context: Arc<GroupContext>,
+        evt_on_update: async_broadcast::Sender<()>,
     }
 
     impl StorageDriveContext {
@@ -219,7 +248,19 @@ mod detail {
                 }
 
                 OnRegisterConfigGroup(msg) => {
-                    todo!("Register config set to `all_sets` table, and publish replication event")
+                    // Register config set to `all_sets` table, and publish replication event
+
+                    // Check if same named group exists inside of this storage
+                    let mut hasher = DefaultHasher::new();
+                    msg.context.path.hash(&mut hasher);
+
+                    let path_hash = hasher.finish();
+                    if self.path_hashes.contains(&path_hash) {
+                        let _ = msg
+                            .reply_success
+                            .send(Err(ConfigError::GroupCreationFailed(msg.context.path.clone())));
+                        return;
+                    }
                 }
 
                 OnUnregisterConfigGroup(id) => {
