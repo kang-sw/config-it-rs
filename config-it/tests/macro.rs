@@ -57,8 +57,8 @@ fn create_config_set() {
 
     let group_2 = storage.create_group::<MyStruct>(["hello", "world!"]);
     assert!(block_on(group_2).is_err());
-    assert!(group.update());
     assert!(!group.update());
-    assert!(group.check_elem_update(&group.data));
     assert!(!group.check_elem_update(&group.data));
+
+    // TODO: Try load value from json
 }

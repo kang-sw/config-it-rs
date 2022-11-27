@@ -1,4 +1,4 @@
-#![allow(unused)]
+#![allow(dead_code)]
 pub mod parsing;
 
 use parsing::*;
@@ -143,6 +143,8 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
         vec_idents.push(b);
     });
 
+    // TODO: Implement Default for generated struct
+    
     Ok(quote! {
         #[allow(unused)]
         impl #generics config_it::ConfigGroupData for #identifier #generics {

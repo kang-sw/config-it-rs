@@ -24,16 +24,18 @@ pub(crate) enum ControlDirective {
 
     GroupDisposal(u64),
 
-    EntityNotifyCommit { register_id: u64, item_id: u64 },
-
-    EntityValueUpdate { register_id: u64, item_id: u64 },
+    EntityValueUpdate {
+        group_id: u64,
+        item_id: u64,
+        silent_mode: bool,
+    },
 
     // TODO: Perform initial replication on open.
     MonitorRegister {},
 }
 
 pub(crate) struct GroupRegisterParam {
-    pub register_id: u64,
+    pub group_id: u64,
     pub context: Arc<GroupContext>,
     pub event_broadcast: async_broadcast::Sender<()>,
     pub reply_success: oneshot::Sender<Result<(), Error>>,
@@ -51,10 +53,8 @@ pub enum MonitorEvent {
 /// TODO: Fill appropriate values with these.
 ///
 pub enum ReplicationEvent {
-    InitInfo,
-    CategoryAdded,
-    CategoryRemoved,
-    GroupAdded,
-    GroupRemoved,
-    EntityValueUpdated,
+    InitialGroups(Vec<(u64, Arc<GroupContext>)>),
+    GroupAdded(u64, Arc<GroupContext>),
+    GroupRemoved(u64),
+    EntityValueUpdated { group_id: u64, item_id: u64 },
 }

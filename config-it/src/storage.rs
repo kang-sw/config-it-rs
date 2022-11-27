@@ -100,7 +100,7 @@ impl Storage {
             .tx
             .send(ControlDirective::TryGroupRegister(
                 core::GroupRegisterParam {
-                    register_id,
+                    group_id: register_id,
                     context: core.clone(),
                     reply_success: tx,
                     event_broadcast: broad_tx,
@@ -148,34 +148,42 @@ impl Storage {
     // TODO: Dump all contents I/O from/to Serializer/Deserializer
 
     ///
+    /// Deserializes data
+    ///
     /// # Arguments
     ///
-    ///  * `data` -
+    /// * `de` - Deserializer
+    /// * `merge` - True if loaded archive should merge onto existing one. Otherwise, it'll replace
+    ///             currently loaded archive data.
     ///
     /// # Data serialization rule:
     ///  - The first path component is root component, which is written as-is.
-    ///  - Any path component after the first must be prefixed with `#:` characters.
+    ///  - Any path component after the first must be prefixed with `~` character.
     ///    - Otherwise, they are treated as field element of enclosing path component.
-    ///  - Any '#:' prefixed key
+    ///  - Any '~' prefixed key inside of existing field
     ///
     /// ```json
     /// {
     ///     "root_path": {
-    ///         "#:path_component": {
+    ///         "~path_component": {
     ///             "field_name": "value",
     ///             "other_field": {
-    ///                 "#:this_does_not_treated"
+    ///                 "~this_is_not_treated_as_path"
     ///             }
     ///         },
-    ///         "#:another_path_component": {},
+    ///         "~another_path_component": {},
     ///         "field_name_of_root_path": "yay"
     ///     },
     ///     "another_root_path": {}
     /// }
     /// ```
     ///
-    pub async fn load_data<'a>(&self, data: &dyn erased_serde::Deserializer<'a>) {
-        todo!() // Create 'LoadedStorage' from deserializer.
+    pub async fn load_merge<'de>(
+        &self,
+        de: &dyn erased_serde::Deserializer<'de>,
+        merge: bool,
+    ) -> Result<(), core::Error> {
+        todo!() // Create 'LoadedStorage' from deserializer, then send to loader thread.
     }
 
     pub fn create_monitor(&self) -> StorageMonitor {
@@ -206,21 +214,13 @@ struct EntityHookImpl {
 }
 
 impl EntityEventHook for EntityHookImpl {
-    fn on_committed(&self, data: &entity::EntityData) {
-        // Update notification is transient, thus when storage driver is busy, it can
-        //  just be dropped.
-        let _ = self.tx.try_send(ControlDirective::EntityNotifyCommit {
-            register_id: self.register_id,
-            item_id: data.get_id(),
-        });
-    }
-
-    fn on_value_changed(&self, data: &entity::EntityData) {
+    fn on_value_changed(&self, data: &entity::EntityData, silent: bool) {
         // Update notification is transient, thus when storage driver is busy, it can
         //  just be dropped.
         let _ = self.tx.try_send(ControlDirective::EntityValueUpdate {
-            register_id: self.register_id,
+            group_id: self.register_id,
             item_id: data.get_id(),
+            silent_mode: silent,
         });
     }
 }
@@ -298,10 +298,10 @@ mod detail {
                         evt_on_update: msg.event_broadcast,
                     };
 
-                    // TODO: Apply initial update
+                    // TODO: Apply initial update from loaded value
                     //  - If any data is loaded previously, and could be found with
 
-                    let prev = self.all_groups.insert(msg.register_id, rg);
+                    let prev = self.all_groups.insert(msg.group_id, rg);
                     assert!(prev.is_none(), "Key never duplicates");
                     let _ = msg.reply_success.send(Ok(()));
 
@@ -316,22 +316,21 @@ mod detail {
                     assert!(self.path_hashes.remove(&rg.path_hash));
                 }
 
-                EntityNotifyCommit {
-                    register_id,
-                    item_id,
-                } => {
-                    todo!("propagate-event-to-users")
-                }
-
                 EntityValueUpdate {
-                    register_id,
+                    group_id,
                     item_id,
+                    silent_mode,
                 } => {
                     todo!("propagate-event-to-subs")
+
+                    // - Notify monitors value change
+                    // - If it's silent mode, do not step group update fence forward.
+                    //   Thus, this update will not trigger all group's update.
+                    //   Otherwise, step group update fence, and propagate group update event
                 }
 
                 MonitorRegister {} => {
-                    // TODO:
+                    // TODO: Create new unbounded reflection channel, flush all current state into it.
                 }
 
                 _ => unimplemented!(),

@@ -236,20 +236,11 @@ impl EntityData {
             let mut lock = self.value.lock().unwrap();
             *lock = value;
 
-            if !silent {
-                self.fence.fetch_add(1, Ordering::Release);
-            }
-        }
-
-        self.hook.on_value_changed(self);
-
-        if !silent {
-            self.hook.on_committed(self);
+            self.fence.fetch_add(1, Ordering::Release);
         }
     }
 }
 
 pub(crate) trait EntityEventHook: Send + Sync {
-    fn on_committed(&self, data: &EntityData);
-    fn on_value_changed(&self, data: &EntityData);
+    fn on_value_changed(&self, data: &EntityData, silent: bool);
 }

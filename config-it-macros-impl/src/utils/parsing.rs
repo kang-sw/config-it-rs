@@ -1,4 +1,4 @@
-#![allow(unused)]
+#![allow(dead_code)]
 
 use proc_macro2::{Span, TokenTree};
 use quote::ToTokens;
