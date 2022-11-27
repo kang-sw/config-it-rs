@@ -12,7 +12,7 @@ pub struct MyStruct {
     #[config_it(min = 0, min = 3)]
     minimal: i32,
 
-    #[config_it(max = 3, one_of(1, 2, 3, 4, 5))]
+    #[config_it(default = 2, max = 3, one_of(1, 2, 3, 4, 5))]
     maximum: i32,
 
     #[config_it(one_of("a"))]
@@ -49,17 +49,29 @@ fn fewew() {
 
 // #[cfg(none)]
 #[test]
-fn create_config_set() {
-    let (storage, worker) = config_it::Storage::new();
-    thread::spawn(move || block_on(worker));
+fn config_set_valid_operations() {
+    let async_op = async {
+        let (storage, worker) = config_it::Storage::new();
+        thread::spawn(move || block_on(worker));
 
-    let group = storage.create_group::<MyStruct>(["hello", "world!"]);
-    let mut group: Group<_> = block_on(group).unwrap();
+        let mut group = storage
+            .create_group::<MyStruct>(["hello", "world!"])
+            .await
+            .unwrap();
 
-    let group_2 = storage.create_group::<MyStruct>(["hello", "world!"]);
-    assert!(block_on(group_2).is_err());
-    assert!(!group.update());
-    assert!(!group.check_elem_update(&group.data));
+        assert!(
+            storage
+                .create_group::<MyStruct>(["hello", "world!"])
+                .await
+                .is_err(),
+            "Assert key duplication handled correctly"
+        );
 
-    // TODO: Try load value from json
+        assert!(!group.update(), "Assert initial empty group update handles 0 correctly");
+        assert!(!group.check_elem_update(&group.data));
+
+        // TODO: Create json value
+    };
+
+    block_on(async_op);
 }
