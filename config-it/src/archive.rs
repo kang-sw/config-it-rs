@@ -41,6 +41,26 @@ impl Archive {
 
         node
     }
+
+    pub fn merge(&mut self, other: Self) {
+        for (k, v) in other.content {
+            self.content.entry(k).or_default().merge(v);
+        }
+    }
+}
+
+impl Node {
+    pub fn merge(&mut self, other: Self) {
+        // Recursively merge p
+        for (k, v) in other.paths {
+            self.paths.entry(k).or_default().merge(v);
+        }
+
+        // Value merge is done with simple replace
+        for (k, v) in other.values {
+            self.values.insert(k, v);
+        }
+    }
 }
 
 ///

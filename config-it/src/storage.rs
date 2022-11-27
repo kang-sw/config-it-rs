@@ -13,9 +13,7 @@ use crate::{
     entity::{self, EntityEventHook},
     monitor::StorageMonitor,
 };
-use futures::TryFutureExt;
 use log::debug;
-use serde::Deserialize;
 use smartstring::alias::CompactString;
 
 ///
@@ -67,7 +65,7 @@ impl Storage {
         &self,
         path: Vec<CompactString>,
     ) -> Result<config::Group<T>, ConfigError> {
-        assert!(!path.is_empty(), "First argument that will be used as category, must exist!");
+        assert!(!path.is_empty(), "First argument must exist!");
         assert!(path.iter().all(|x| !x.is_empty()), "Empty path argument is not allowed!");
 
         static ID_GEN: AtomicU64 = AtomicU64::new(0);
@@ -91,7 +89,7 @@ impl Storage {
         // Create core config set context with reflected target metadata set
         let (broad_tx, broad_rx) = async_broadcast::broadcast::<()>(1);
         let core = Arc::new(GroupContext {
-            register_id,
+            group_id: register_id,
             sources: Arc::new(sources),
             source_update_fence: AtomicUsize::new(0),
             update_receiver_channel: Mutex::new(broad_rx),
@@ -148,7 +146,26 @@ impl Storage {
         .await
     }
 
-    // TODO: Dump all contents I/O from/to Serializer/Deserializer
+    ///
+    /// Dump all  configs from storage.
+    ///
+    /// # Arguments
+    ///
+    /// * `merge_onto_exist` - If false, only active archive contents will be collected.
+    ///   Otherwise, result will contain merge result of previously loaded archive.
+    ///
+    pub async fn export(&self, merge_onto_exist: bool) -> Result<archive::Archive, core::Error> {
+        let (tx, rx) = oneshot::channel();
+        self.tx
+            .send(ControlDirective::Export {
+                destination: tx,
+                merge_onto_exist,
+            })
+            .await
+            .map_err(|_| core::Error::ExpiredStorage)?;
+
+        rx.await.map_err(|_| core::Error::ExpiredStorage)
+    }
 
     ///
     /// Deserializes data
@@ -181,11 +198,7 @@ impl Storage {
     /// }
     /// ```
     ///
-    pub async fn load_merge(
-        &self,
-        archive: archive::Archive,
-        merge: bool,
-    ) -> Result<(), core::Error> {
+    pub async fn import(&self, archive: archive::Archive, merge: bool) -> Result<(), core::Error> {
         self.tx
             .send(ControlDirective::Import {
                 body: archive,
@@ -272,10 +285,11 @@ mod detail {
         archive: archive::Archive,
     }
 
+    type MonitorList = Vec<async_channel::Sender<ReplicationEvent>>;
+
     struct GroupRegistration {
         /// Category string array. Never empty.
         path_hash: u64,
-
         context: Arc<GroupContext>,
         evt_on_update: async_broadcast::Sender<()>,
     }
@@ -322,20 +336,24 @@ mod detail {
                         .find_path(msg.context.path.iter().map(|x| x.as_str()))
                     {
                         // Apply node values to newly generated context.
-                        Self::load_node_(&*rg.context, node);
+                        Self::load_node_(&*rg.context, node, &mut self.monitors);
                     }
 
                     let prev = self.all_groups.insert(msg.group_id, rg);
                     assert!(prev.is_none(), "Key never duplicates");
                     let _ = msg.reply_success.send(Ok(()));
 
-                    self.send_repl_event_(ReplicationEvent::GroupAdded(msg.group_id, msg.context));
+                    Self::send_repl_event_(
+                        &mut self.monitors,
+                        ReplicationEvent::GroupAdded(msg.group_id, msg.context),
+                    );
                 }
 
                 GroupDisposal(id) => {
-                    self.send_repl_event_(ReplicationEvent::GroupRemoved(id));
+                    // TODO: Before disposal, dump config contents to archive.
+                    Self::send_repl_event_(&mut self.monitors, ReplicationEvent::GroupRemoved(id));
 
-                    // Erase from regist
+                    // Erase from registry
                     let rg = self.all_groups.remove(&id).expect("Key must exist");
                     assert!(self.path_hashes.remove(&rg.path_hash));
                 }
@@ -353,18 +371,32 @@ mod detail {
                     //   Otherwise, step group update fence, and propagate group update event
                 }
 
-                MonitorRegister {} => {
+                MonitorRegister { reply_to } => {
                     // TODO: Create new unbounded reflection channel, flush all current state into it.
                 }
 
-                Import { body, merged } => todo!(),
+                Import { body, merged } => {
+                    if merged {
+                        self.archive.merge(body);
+                    } else {
+                        self.archive = body;
+                    }
+
+                    for (_id, group) in &self.all_groups {
+                        let path = &group.context.path;
+                        let path = path.iter().map(|x| x.as_str());
+                        let Some(node) = self.archive.find_path(path) else { continue };
+
+                        if Self::load_node_(&group.context, node, &mut self.monitors) {
+                            let _ = group.evt_on_update.broadcast(()).await;
+                        }
+                    }
+                }
 
                 Export {
                     destination,
-                    merged,
+                    merge_onto_exist: merged,
                 } => todo!(),
-
-                _ => unimplemented!(),
             }
         }
 
@@ -372,11 +404,11 @@ mod detail {
             todo!()
         }
 
-        fn send_repl_event_(&mut self, msg: ReplicationEvent) {
-            self.monitors.retain(|x| x.try_send(msg.clone()).is_ok());
+        fn send_repl_event_(noti: &mut MonitorList, msg: ReplicationEvent) {
+            noti.retain(|x| x.try_send(msg.clone()).is_ok());
         }
 
-        fn load_node_(ctx: &GroupContext, node: &archive::Node) {
+        fn load_node_(ctx: &GroupContext, node: &archive::Node, noti: &mut MonitorList) -> bool {
             let mut has_update = false;
 
             for elem in &*ctx.sources {
@@ -384,7 +416,18 @@ mod detail {
                 let Some(value) = node.values.get(meta.name) else { continue };
 
                 let de = value.clone().into_deserializer();
-                has_update |= Self::update_elem_by_(elem, de);
+
+                if Self::update_elem_by_(elem, de) {
+                    has_update = true;
+
+                    Self::send_repl_event_(
+                        noti,
+                        ReplicationEvent::EntityValueUpdated {
+                            group_id: ctx.group_id,
+                            item_id: elem.get_id(),
+                        },
+                    )
+                }
             }
 
             if has_update {
@@ -392,6 +435,8 @@ mod detail {
                 //  side's call to `update()` call would be triggered.
                 ctx.source_update_fence.fetch_add(1, Ordering::Relaxed);
             }
+
+            has_update
         }
 
         fn update_elem_by_<'a, T>(elem: &EntityData, de: T) -> bool

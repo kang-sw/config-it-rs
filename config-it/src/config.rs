@@ -67,7 +67,7 @@ pub struct PropData {
 /// May storage implement this
 ///
 pub struct GroupContext {
-    pub register_id: u64,
+    pub group_id: u64,
     pub sources: Arc<Vec<EntityData>>,
     pub path: Arc<Vec<CompactString>>,
     pub(crate) source_update_fence: AtomicUsize,

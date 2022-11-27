@@ -151,8 +151,6 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
         vec_defaults.push(c);
     });
 
-    // TODO: Implement Default for generated struct
-    
     Ok(quote! {
         #[allow(dead_code)]
         impl #generics config_it::ConfigGroupData for #identifier #generics {

@@ -33,8 +33,9 @@ pub(crate) enum ControlDirective {
         silent_mode: bool,
     },
 
-    // TODO: Perform initial replication on open.
-    MonitorRegister {},
+    MonitorRegister {
+        reply_to: oneshot::Receiver<async_channel::Sender<ReplicationEvent>>,
+    },
 
     Import {
         body: archive::Archive,
@@ -43,8 +44,8 @@ pub(crate) enum ControlDirective {
 
     Export {
         /// If None is specified,
-        destination: oneshot::Receiver<archive::Archive>,
-        merged: bool,
+        destination: oneshot::Sender<archive::Archive>,
+        merge_onto_exist: bool,
     },
 }
 
