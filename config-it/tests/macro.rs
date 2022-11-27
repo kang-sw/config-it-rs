@@ -7,7 +7,7 @@ use std::{
     thread,
 };
 
-#[derive(Clone, ConfigGroupData, Default)]
+#[derive(Clone, ConfigGroupData, Default, Debug)]
 pub struct MyStruct {
     #[config_it(min = 0, min = 3)]
     minimal: i32,
@@ -15,10 +15,10 @@ pub struct MyStruct {
     #[config_it(default = 2, max = 3, one_of(1, 2, 3, 4, 5))]
     maximum: i32,
 
-    #[config_it(one_of("a"))]
+    #[config_it(default = "3@", one_of("a"))]
     data: String,
 
-    #[config_it(default = 3)]
+    #[config_it(default = 3112)]
     median: i32,
 
     my_invisible: f32,
@@ -69,6 +69,11 @@ fn config_set_valid_operations() {
 
         assert!(!group.update(), "Assert initial empty group update handles 0 correctly");
         assert!(!group.check_elem_update(&group.data));
+        assert!(group.maximum == 2);
+        assert!(group.minimal == 0);
+        assert!(group.median == 3112);
+        assert!(group.data == "3@");
+        dbg!(group.__body);
 
         // TODO: Create json value
     };

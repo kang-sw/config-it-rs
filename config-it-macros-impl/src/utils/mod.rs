@@ -134,7 +134,7 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
         
         let default_val = x.default_value.as_ref().map_or(
             quote!{}, |x| quote!{
-                self.#ident = #x.into()            
+                self.#ident = #x.into();          
         });
         
         (meta_gen, elem_at, default_val)

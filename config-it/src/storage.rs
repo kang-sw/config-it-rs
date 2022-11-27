@@ -240,6 +240,7 @@ mod detail {
     use crate::{
         archive,
         core::{MonitorEvent, ReplicationEvent},
+        entity::{EntityData, EntityTrait},
     };
 
     use super::*;
@@ -372,7 +373,7 @@ mod detail {
         }
 
         fn send_repl_event_(&mut self, msg: ReplicationEvent) {
-            todo!()
+            self.monitors.retain(|x| x.try_send(msg.clone()).is_ok());
         }
 
         fn load_node_(ctx: &GroupContext, node: &archive::Node) {
@@ -382,30 +383,44 @@ mod detail {
                 let meta = elem.get_meta();
                 let Some(value) = node.values.get(meta.name) else { continue };
 
-                let mut built = (meta.fn_default)();
                 let de = value.clone().into_deserializer();
-                let mut erased = <dyn erased_serde::Deserializer>::erase(de);
-
-                match built.deserialize(&mut erased) {
-                    Ok(_) => {
-                        elem.update_value(built.into());
-                        has_update = true;
-                    }
-                    Err(e) => {
-                        log::error!(
-                            "(Deserialization Failed) {}(var:{}) <- {:#?}\n\nERROR: {e:#?}",
-                            meta.name,
-                            meta.props.varname,
-                            node.values,
-                        );
-                    }
-                }
+                has_update |= Self::update_elem_by_(elem, de);
             }
 
             if has_update {
                 // On successful load, set its fence value as 1, to make the first client
                 //  side's call to `update()` call would be triggered.
                 ctx.source_update_fence.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+
+        fn update_elem_by_<'a, T>(elem: &EntityData, de: T) -> bool
+        where
+            T: serde::Deserializer<'a>,
+        {
+            let meta = elem.get_meta();
+            let mut erased = <dyn erased_serde::Deserializer>::erase(de);
+            let mut built = (meta.fn_default)();
+
+            match (meta.fn_validate)(&*meta, built.as_any_mut()) {
+                Some(_) => (),
+                None => return false,
+            };
+
+            match built.deserialize(&mut erased) {
+                Ok(_) => {
+                    let built: Arc<dyn EntityTrait> = built.into();
+                    elem.update_value(built.clone());
+                    true
+                }
+                Err(e) => {
+                    log::error!(
+                        "(Deserialization Failed) {}(var:{}) \n\nERROR: {e:#?}",
+                        meta.name,
+                        meta.props.varname,
+                    );
+                    false
+                }
             }
         }
     }

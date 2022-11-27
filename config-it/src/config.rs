@@ -85,7 +85,7 @@ pub struct GroupContext {
 #[derive(Clone)]
 pub struct Group<T> {
     /// Cached local content
-    body: T,
+    pub __body: T,
 
     /// Cached update fence
     fence: usize,
@@ -116,7 +116,7 @@ impl<T: ConfigGroupData> Group<T> {
     pub(crate) fn create_with__(core: Arc<GroupContext>, unregister_anchor: Arc<dyn Any>) -> Self {
         let mut gen = Self {
             core,
-            body: T::default(),
+            __body: T::default(),
             fence: 0,
             local: RefCell::new(vec![PropLocalContext::default(); T::prop_desc_table__().len()]),
             _unregister_hook: unregister_anchor,
@@ -158,7 +158,7 @@ impl<T: ConfigGroupData> Group<T> {
             local.dirty_flag = true;
 
             let (meta, value) = source.access_value();
-            self.body.update_elem_at__(index, value.as_any(), &*meta);
+            self.__body.update_elem_at__(index, value.as_any(), &*meta);
         }
 
         has_update
@@ -179,7 +179,7 @@ impl<T: ConfigGroupData> Group<T> {
     ///
     pub fn get_index_by_ptr<U: 'static>(&self, e: &U) -> Option<usize> {
         let ptr = e as *const _ as *const u8 as isize;
-        let base = &self.body as *const _ as *const u8 as isize;
+        let base = &self.__body as *const _ as *const u8 as isize;
 
         match ptr - base {
             v if v < 0 => None,
@@ -220,13 +220,13 @@ impl<T> std::ops::Deref for Group<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        &self.body
+        &self.__body
     }
 }
 
 impl<T> std::ops::DerefMut for Group<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.body
+        &mut self.__body
     }
 }
 
