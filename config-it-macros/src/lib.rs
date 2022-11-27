@@ -42,6 +42,6 @@ pub fn derive_collect_fn(item: TokenStream) -> TokenStream {
         }.into();
     }
     
-    #[cfg(not(test))]
+    // #[cfg(not(test))]
     generated.into()
 }

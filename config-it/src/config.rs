@@ -204,7 +204,8 @@ impl<T: ConfigGroupData> Group<T> {
         let cloned_value = Arc::new(e.clone()) as Arc<dyn EntityTrait>;
 
         // Replace source argument with created ptr
-        (*self.core.sources)[self.get_index_by_ptr(e).unwrap()].update_value(cloned_value, !notify);
+        (*self.core.sources)[self.get_index_by_ptr(e).unwrap()]
+            .update_value_with_notify(cloned_value, !notify);
     }
 
     ///

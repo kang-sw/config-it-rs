@@ -7,12 +7,15 @@ use std::{
 };
 
 use crate::{
+    archive,
     config::{self, GroupContext},
     core::{self, ControlDirective, Error as ConfigError},
     entity::{self, EntityEventHook},
     monitor::StorageMonitor,
 };
+use futures::TryFutureExt;
 use log::debug;
+use serde::Deserialize;
 use smartstring::alias::CompactString;
 
 ///
@@ -178,12 +181,18 @@ impl Storage {
     /// }
     /// ```
     ///
-    pub async fn load_merge<'de>(
+    pub async fn load_merge(
         &self,
-        de: &dyn erased_serde::Deserializer<'de>,
+        archive: archive::Archive,
         merge: bool,
     ) -> Result<(), core::Error> {
-        todo!() // Create 'LoadedStorage' from deserializer, then send to loader thread.
+        self.tx
+            .send(ControlDirective::Import {
+                body: archive,
+                merged: merge,
+            })
+            .await
+            .map_err(|_| core::Error::ExpiredStorage)
     }
 
     pub fn create_monitor(&self) -> StorageMonitor {
@@ -226,7 +235,12 @@ impl EntityEventHook for EntityHookImpl {
 }
 
 mod detail {
-    use crate::core::{MonitorEvent, ReplicationEvent};
+    use serde::de::IntoDeserializer;
+
+    use crate::{
+        archive,
+        core::{MonitorEvent, ReplicationEvent},
+    };
 
     use super::*;
     use std::{
@@ -248,10 +262,13 @@ mod detail {
         ///
         /// On every monitor event, storage driver will iterate each session channels
         ///  and will try replication.
-        monitor_sessions: Vec<async_channel::Sender<ReplicationEvent>>,
+        monitors: Vec<async_channel::Sender<ReplicationEvent>>,
 
         /// Registered path hashes
         path_hashes: HashSet<u64>,
+
+        /// Cached archive. May contain contents for currently non-exist groups.
+        archive: archive::Archive,
     }
 
     struct GroupRegistration {
@@ -275,7 +292,7 @@ mod detail {
             match msg {
                 FromMonitor(msg) => {
                     // handles monitor event in separate routine.
-                    self.on_monitor_event_(msg)
+                    self.handle_monitor_event_(msg)
                 }
 
                 // Registers config set to `all_sets` table, and publish replication event
@@ -293,23 +310,29 @@ mod detail {
                     }
 
                     let rg = GroupRegistration {
-                        context: msg.context,
+                        context: msg.context.clone(),
                         path_hash,
                         evt_on_update: msg.event_broadcast,
                     };
 
-                    // TODO: Apply initial update from loaded value
-                    //  - If any data is loaded previously, and could be found with
+                    // Apply initial update from loaded value.
+                    if let Some(node) = self
+                        .archive
+                        .find_path(msg.context.path.iter().map(|x| x.as_str()))
+                    {
+                        // Apply node values to newly generated context.
+                        Self::load_node_(&*rg.context, node);
+                    }
 
                     let prev = self.all_groups.insert(msg.group_id, rg);
                     assert!(prev.is_none(), "Key never duplicates");
                     let _ = msg.reply_success.send(Ok(()));
 
-                    // TODO: Send 'new group' message to active monitors
+                    self.send_repl_event_(ReplicationEvent::GroupAdded(msg.group_id, msg.context));
                 }
 
                 GroupDisposal(id) => {
-                    // TODO: Send 'deleted group' message to active monitors
+                    self.send_repl_event_(ReplicationEvent::GroupRemoved(id));
 
                     // Erase from regist
                     let rg = self.all_groups.remove(&id).expect("Key must exist");
@@ -333,10 +356,57 @@ mod detail {
                     // TODO: Create new unbounded reflection channel, flush all current state into it.
                 }
 
+                Import { body, merged } => todo!(),
+
+                Export {
+                    destination,
+                    merged,
+                } => todo!(),
+
                 _ => unimplemented!(),
             }
         }
 
-        fn on_monitor_event_(&mut self, msg: MonitorEvent) {}
+        fn handle_monitor_event_(&mut self, msg: MonitorEvent) {
+            todo!()
+        }
+
+        fn send_repl_event_(&mut self, msg: ReplicationEvent) {
+            todo!()
+        }
+
+        fn load_node_(ctx: &GroupContext, node: &archive::Node) {
+            let mut has_update = false;
+
+            for elem in &*ctx.sources {
+                let meta = elem.get_meta();
+                let Some(value) = node.values.get(meta.name) else { continue };
+
+                let mut built = (meta.fn_default)();
+                let de = value.clone().into_deserializer();
+                let mut erased = <dyn erased_serde::Deserializer>::erase(de);
+
+                match built.deserialize(&mut erased) {
+                    Ok(_) => {
+                        elem.update_value(built.into());
+                        has_update = true;
+                    }
+                    Err(e) => {
+                        log::error!(
+                            "(Deserialization Failed) {}(var:{}) <- {:#?}\n\nERROR: {e:#?}",
+                            meta.name,
+                            meta.props.varname,
+                            node.values,
+                        );
+                    }
+                }
+            }
+
+            if has_update {
+                // On successful load, set its fence value as 1, to make the first client
+                //  side's call to `update()` call would be triggered.
+                ctx.source_update_fence.fetch_add(1, Ordering::Relaxed);
+            }
+        }
     }
 }

@@ -11,6 +11,9 @@ pub enum Error {
 
     #[error("Config name is duplicated {0:?}")]
     GroupCreationFailed(Arc<Vec<CompactString>>),
+
+    #[error("Deserialization failed")]
+    DeserializationFailed,
 }
 
 ///
@@ -33,12 +36,12 @@ pub(crate) enum ControlDirective {
     // TODO: Perform initial replication on open.
     MonitorRegister {},
 
-    LoadStorage {
+    Import {
         body: archive::Archive,
         merged: bool,
     },
 
-    CollectStorage {
+    Export {
         /// If None is specified,
         destination: oneshot::Receiver<archive::Archive>,
         merged: bool,
@@ -63,6 +66,7 @@ pub enum MonitorEvent {
 ///
 /// TODO: Fill appropriate values with these.
 ///
+#[derive(Clone)]
 pub enum ReplicationEvent {
     InitialGroups(Vec<(u64, Arc<GroupContext>)>),
     GroupAdded(u64, Arc<GroupContext>),

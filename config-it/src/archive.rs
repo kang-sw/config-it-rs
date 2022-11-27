@@ -7,7 +7,10 @@ type Map<T, V> = BTreeMap<T, V>;
 ///
 /// Archived config storage.
 ///
-pub type Archive = Map<String, Node>;
+#[derive(Default)]
+pub struct Archive {
+    pub content: Map<String, Node>,
+}
 
 #[derive(Default, Clone)]
 pub struct Node {
@@ -16,6 +19,42 @@ pub struct Node {
 
     // All elements except child path nodes.
     pub values: Map<String, serde_json::Value>,
+}
+
+impl Archive {
+    pub fn find_path<'s, 'a>(
+        &'s self,
+        path: impl IntoIterator<Item = &'a str>,
+    ) -> Option<&'s Node> {
+        let iter = path.into_iter();
+        let mut paths = &self.content;
+        let mut node;
+
+        while let Some(key) = iter.next() {
+            if let Some(next_node) = paths.get(key) {
+                node = next_node;
+                paths = &next_node.paths;
+            } else {
+                return None;
+            }
+        }
+
+        Some(node)
+    }
+}
+
+///
+/// Deserialization Logic Implementation
+///
+impl<'de> Deserialize<'de> for Archive {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Ok(Self {
+            content: <Map<String, Node>>::deserialize(deserializer)?,
+        })
+    }
 }
 
 impl<'de> Deserialize<'de> for Node {
@@ -112,9 +151,9 @@ fn test_load() {
     "##;
 
     let arch: Archive = serde_json::from_str(src).unwrap();
-    assert!(arch.len() == 2);
+    assert!(arch.content.len() == 2);
 
-    let p1 = arch.get("root_path_1").unwrap();
+    let p1 = arch.content.get("root_path_1").unwrap();
     assert!(p1.paths.len() == 2);
     assert!(p1.values.is_empty());
 

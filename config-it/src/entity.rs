@@ -1,7 +1,7 @@
 use arc_swap::ArcSwap;
 use erased_serde::{Deserializer, Serialize, Serializer};
 use serde::de::DeserializeOwned;
-use std::any::Any;
+use std::any::{Any, TypeId};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -11,6 +11,12 @@ use std::sync::{Arc, Mutex};
 pub trait EntityTrait: Send + Sync + Any {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
+
+    fn serialize(&self, se: &mut dyn erased_serde::Serializer) -> Result<(), erased_serde::Error>;
+    fn deserialize(
+        &mut self,
+        de: &mut dyn erased_serde::Deserializer,
+    ) -> Result<(), erased_serde::Error>;
 }
 
 impl<T> EntityTrait for T
@@ -24,6 +30,18 @@ where
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self as &mut dyn Any
     }
+
+    fn serialize(&self, se: &mut dyn erased_serde::Serializer) -> Result<(), erased_serde::Error> {
+        Serialize::erased_serialize(self, se).map(|x| ())
+    }
+
+    fn deserialize(
+        &mut self,
+        de: &mut dyn erased_serde::Deserializer,
+    ) -> Result<(), erased_serde::Error> {
+        *self = T::deserialize(de)?;
+        Ok(())
+    }
 }
 
 ///
@@ -35,6 +53,7 @@ where
 pub struct Metadata {
     /// Identifier for this config entity.
     pub name: &'static str,
+    pub type_id: TypeId,
 
     pub v_default: Arc<dyn EntityTrait>,
     pub v_min: Option<Box<dyn EntityTrait>>,
@@ -102,6 +121,7 @@ impl Metadata {
 
         Self {
             name,
+            type_id: TypeId::of::<T>(),
             v_default: Arc::new(init.v_default),
             v_min,
             v_max,
@@ -231,13 +251,20 @@ impl EntityData {
     /// If `silent` option is disabled, increase config set and source argument's fence
     ///  by 1, to make self and other instances of config set which shares the same core
     ///  be aware of this change.
-    pub fn update_value(&self, value: Arc<dyn EntityTrait>, silent: bool) {
+    pub fn update_value(&self, value: Arc<dyn EntityTrait>) {
+        debug_assert!(self.meta.type_id == value.as_any().type_id());
+
         {
             let mut lock = self.value.lock().unwrap();
             *lock = value;
 
             self.fence.fetch_add(1, Ordering::Release);
         }
+    }
+
+    pub fn update_value_with_notify(&self, value: Arc<dyn EntityTrait>, silent: bool) {
+        self.update_value(value);
+        self.hook.on_value_changed(self, silent);
     }
 }
 
