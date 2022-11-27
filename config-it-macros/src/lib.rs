@@ -31,7 +31,7 @@ pub fn derive_collect_fn(item: TokenStream) -> TokenStream {
             )
     };
     
-    #[cfg(disable)]    
+    #[cfg(any())]
     {
         let generated_str = generated.to_string();
     
@@ -42,5 +42,6 @@ pub fn derive_collect_fn(item: TokenStream) -> TokenStream {
         }.into();
     }
     
+    #[cfg(not(test))]
     generated.into()
 }

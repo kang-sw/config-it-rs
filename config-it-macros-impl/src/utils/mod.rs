@@ -23,11 +23,11 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
             .map_or_else(|| ident_str.clone(), |x| x.into_token_stream().to_string());
         let doc = x.docstring;
 
-        let default = x.default_value.map_or(quote!{Default::default()}, |x| x.into_token_stream());
-        let min = x.min.clone().map_or(quote!{None}, |x| quote!{Some(#x)} );
-        let max = x.max.clone().map_or(quote!{None}, |x| quote!(Some(#x)) );
-        let one_of = x.one_of.clone().map_or(quote!(), |x| {
-            let args = x.nested.into_iter().map(|x| quote!{#x.into(), });
+        let default = x.default_value.as_ref().map_or(quote!{Default::default()}, |x| quote! { #x.into() });
+        let min = x.min.as_ref().map_or(quote!{None}, |x| quote!{Some(#x)} );
+        let max = x.max.as_ref().map_or(quote!{None}, |x| quote!(Some(#x)) );
+        let one_of = x.one_of.as_ref().map_or(quote!(), |x| {
+            let args = x.nested.iter().map(|x| quote!{#x.into(), });
             quote!{#(#args)*}
         });
 
@@ -132,21 +132,29 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
             #indexer => &mut self.#ident,
         };
         
-        (meta_gen, elem_at)
+        let default_val = x.default_value.as_ref().map_or(
+            quote!{}, |x| quote!{
+                self.#ident = #x.into()            
+        });
+        
+        (meta_gen, elem_at, default_val)
     });
 
     let mut vec_fields = Vec::with_capacity(num_fields);
     let mut vec_idents = Vec::with_capacity(num_fields);
+    let mut vec_defaults = Vec::with_capacity(num_fields);
+    
 
-    fields.for_each(|(a, b)| {
+    fields.for_each(|(a, b, c)| {
         vec_fields.push(a);
         vec_idents.push(b);
+        vec_defaults.push(c);
     });
 
     // TODO: Implement Default for generated struct
     
     Ok(quote! {
-        #[allow(unused)]
+        #[allow(dead_code)]
         impl #generics config_it::ConfigGroupData for #identifier #generics {
             fn prop_desc_table__() -> &'static std::collections::HashMap<usize, config_it::config::PropData> {
                 use config_it::lazy_static;
@@ -169,6 +177,10 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
                     #(#vec_idents)*
                     _ => unreachable!(),
                 }
+            }
+            
+            fn fill_default(&mut self) {
+                #(#vec_defaults)*
             }
         }
     })

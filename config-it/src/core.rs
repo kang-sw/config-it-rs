@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use smartstring::alias::CompactString;
 
-use crate::{config::GroupContext, entity::Metadata};
+use crate::{archive, config::GroupContext, entity::Metadata};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -32,6 +32,17 @@ pub(crate) enum ControlDirective {
 
     // TODO: Perform initial replication on open.
     MonitorRegister {},
+
+    LoadStorage {
+        body: archive::Archive,
+        merged: bool,
+    },
+
+    CollectStorage {
+        /// If None is specified,
+        destination: oneshot::Receiver<archive::Archive>,
+        merged: bool,
+    },
 }
 
 pub(crate) struct GroupRegisterParam {

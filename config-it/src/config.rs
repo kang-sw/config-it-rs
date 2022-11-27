@@ -44,6 +44,9 @@ pub trait ConfigGroupData: Default + Clone {
     /// Returns table mapping to <offset_from_base:property_metadata>
     fn prop_desc_table__() -> &'static HashMap<usize, PropData>;
 
+    /// Fill defaulted values
+    fn fill_default(&mut self);
+
     /// Returns element at index as Any
     fn elem_at_mut__(&mut self, index: usize) -> &mut dyn Any;
 
@@ -111,13 +114,16 @@ struct PropLocalContext {
 
 impl<T: ConfigGroupData> Group<T> {
     pub(crate) fn create_with__(core: Arc<GroupContext>, unregister_anchor: Arc<dyn Any>) -> Self {
-        Self {
+        let mut gen = Self {
             core,
             body: T::default(),
             fence: 0,
             local: RefCell::new(vec![PropLocalContext::default(); T::prop_desc_table__().len()]),
             _unregister_hook: unregister_anchor,
-        }
+        };
+
+        gen.fill_default();
+        gen
     }
 
     ///
@@ -299,6 +305,10 @@ mod emulate_generation {
                 1 => &mut self.my_string,
                 _ => panic!(),
             }
+        }
+
+        fn fill_default(&mut self) {
+            todo!()
         }
     }
 

@@ -24,7 +24,7 @@ pub struct MyStruct {
     my_invisible: f32,
 }
 
-#[cfg(any())]
+#[cfg(none)]
 #[test]
 fn fewew() {
     let s = MyStruct::default();
@@ -47,6 +47,7 @@ fn fewew() {
     println!("\n\n{}\n", std::str::from_utf8(&content.stdout).unwrap());
 }
 
+// #[cfg(none)]
 #[test]
 fn create_config_set() {
     let (storage, worker) = config_it::Storage::new();

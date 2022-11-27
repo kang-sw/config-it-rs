@@ -9,7 +9,7 @@ type Map<T, V> = BTreeMap<T, V>;
 ///
 pub type Archive = Map<String, Node>;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Node {
     // Every '~' prefixed keys
     pub paths: Map<String, Node>,
