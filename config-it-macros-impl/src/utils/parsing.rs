@@ -218,11 +218,11 @@ fn decompose_attribute(desc: &mut FieldDesc, attr: syn::Attribute) -> bool {
 /// Concept test below
 ///
 ///
-#[cfg(test)]
+#[cfg(any())]
 #[cfg(feature = "is_proc_macro_impl")]
 use proc_macro2::TokenStream;
 
-#[cfg(test)]
+#[cfg(any())]
 #[cfg(feature = "is_proc_macro_impl")]
 fn test_input(input: TokenStream) -> TokenStream {
     use syn::{parse2, parse_macro_input, AttrStyle};

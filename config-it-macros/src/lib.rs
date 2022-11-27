@@ -1,7 +1,7 @@
 use core::panic;
 
 use proc_macro::TokenStream;
-use quote::{quote_spanned, quote};
+use quote::{quote_spanned};
 use syn::DeriveInput;
 
 mod utils;
@@ -31,16 +31,18 @@ pub fn derive_collect_fn(item: TokenStream) -> TokenStream {
             )
     };
     
-    #[cfg(any())]
-    {
-        let generated_str = generated.to_string();
+    // #[cfg(any())]
+    // {
+    //     use quote::quote;
+        
+    //     let generated_str = generated.to_string();
     
-        return quote!{
-            fn hello() -> &'static str {
-                #generated_str
-            }
-        }.into();
-    }
+    //     return quote!{
+    //         fn hello() -> &'static str {
+    //             #generated_str
+    //         }
+    //     }.into();
+    // }
     
     // #[cfg(not(test))]
     generated.into()

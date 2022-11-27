@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use serde::{ser::SerializeMap, Deserialize, Serialize};
+use smartstring::alias::CompactString;
 
 type Map<T, V> = BTreeMap<T, V>;
 
@@ -9,16 +10,16 @@ type Map<T, V> = BTreeMap<T, V>;
 ///
 #[derive(Default)]
 pub struct Archive {
-    pub content: Map<String, Node>,
+    pub content: Map<CompactString, Node>,
 }
 
 #[derive(Default, Clone)]
 pub struct Node {
     // Every '~' prefixed keys
-    pub paths: Map<String, Node>,
+    pub paths: Map<CompactString, Node>,
 
     // All elements except child path nodes.
-    pub values: Map<String, serde_json::Value>,
+    pub values: Map<CompactString, serde_json::Value>,
 }
 
 impl Archive {
@@ -36,6 +37,28 @@ impl Archive {
                 paths = &next_node.paths;
             } else {
                 return None;
+            }
+        }
+
+        node
+    }
+
+    pub fn find_or_create_path_mut<'s, 'a>(
+        &'s mut self,
+        path: impl IntoIterator<Item = &'a str>,
+    ) -> &'s mut Node {
+        let mut iter = path.into_iter();
+
+        let mut key = iter.next().unwrap();
+        let mut node = self.content.entry(key.into()).or_default();
+
+        loop {
+            node = node.paths.entry(key.into()).or_default();
+
+            if let Some(k) = iter.next() {
+                key = k;
+            } else {
+                break;
             }
         }
 
@@ -72,7 +95,7 @@ impl<'a> Deserialize<'a> for Archive {
         D: serde::Deserializer<'a>,
     {
         Ok(Self {
-            content: <Map<String, Node>>::deserialize(deserializer)?,
+            content: <Map<CompactString, Node>>::deserialize(deserializer)?,
         })
     }
 }
@@ -97,7 +120,7 @@ impl<'a> Deserialize<'a> for Node {
             where
                 A: serde::de::MapAccess<'de>,
             {
-                while let Some(mut key) = map.next_key::<String>()? {
+                while let Some(mut key) = map.next_key::<CompactString>()? {
                     if !key.is_empty() && key.starts_with("~") {
                         key.remove(0); // Exclude initial tilde
 

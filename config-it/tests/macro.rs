@@ -1,3 +1,5 @@
+#![cfg(feature = "derive")]
+
 use config_it::ConfigGroupData;
 use config_it::Group;
 use futures::executor::{self, block_on};
@@ -24,7 +26,7 @@ pub struct MyStruct {
     my_invisible: f32,
 }
 
-#[cfg(none)]
+#[cfg(any())]
 #[test]
 fn fewew() {
     let s = MyStruct::default();
@@ -47,7 +49,6 @@ fn fewew() {
     println!("\n\n{}\n", std::str::from_utf8(&content.stdout).unwrap());
 }
 
-// #[cfg(none)]
 #[test]
 fn config_set_valid_operations() {
     let async_op = async {

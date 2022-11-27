@@ -230,7 +230,7 @@ impl<T> std::ops::DerefMut for Group<T> {
     }
 }
 
-#[cfg(test)]
+#[cfg(any())]
 mod emulate_generation {
     use futures::executor;
     use lazy_static::lazy_static;

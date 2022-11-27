@@ -39,13 +39,14 @@ pub(crate) enum ControlDirective {
 
     Import {
         body: archive::Archive,
-        merged: bool,
+        merge_onto_exist: bool,
     },
 
     Export {
         /// If None is specified,
         destination: oneshot::Sender<archive::Archive>,
-        merge_onto_exist: bool,
+        no_merge_exist: bool,
+        no_update: bool,
     },
 }
 

@@ -151,15 +151,21 @@ impl Storage {
     ///
     /// # Arguments
     ///
-    /// * `merge_onto_exist` - If false, only active archive contents will be collected.
+    /// * `no_merge` - If true, only active archive contents will be collected.
     ///   Otherwise, result will contain merge result of previously loaded archive.
+    /// * `no_update` - If true, existing archive won't
     ///
-    pub async fn export(&self, merge_onto_exist: bool) -> Result<archive::Archive, core::Error> {
+    pub async fn export(
+        &self,
+        no_merge: Option<bool>,
+        no_update: Option<bool>,
+    ) -> Result<archive::Archive, core::Error> {
         let (tx, rx) = oneshot::channel();
         self.tx
             .send(ControlDirective::Export {
                 destination: tx,
-                merge_onto_exist,
+                no_merge_exist: no_merge.unwrap_or(false),
+                no_update: no_merge.unwrap_or(false),
             })
             .await
             .map_err(|_| core::Error::ExpiredStorage)?;
@@ -198,11 +204,15 @@ impl Storage {
     /// }
     /// ```
     ///
-    pub async fn import(&self, archive: archive::Archive, merge: bool) -> Result<(), core::Error> {
+    pub async fn import(
+        &self,
+        archive: archive::Archive,
+        merge: Option<bool>,
+    ) -> Result<(), core::Error> {
         self.tx
             .send(ControlDirective::Import {
                 body: archive,
-                merged: merge,
+                merge_onto_exist: merge.unwrap_or(true),
             })
             .await
             .map_err(|_| core::Error::ExpiredStorage)
@@ -278,7 +288,8 @@ mod detail {
         ///  and will try replication.
         monitors: Vec<async_channel::Sender<ReplicationEvent>>,
 
-        /// Registered path hashes
+        /// Registered path hashes. Used to quickly compare if there are any path name
+        ///  duplication.
         path_hashes: HashSet<u64>,
 
         /// Cached archive. May contain contents for currently non-exist groups.
@@ -288,7 +299,7 @@ mod detail {
     type MonitorList = Vec<async_channel::Sender<ReplicationEvent>>;
 
     struct GroupRegistration {
-        /// Category string array. Never empty.
+        /// Hash calculated from `context.path`.
         path_hash: u64,
         context: Arc<GroupContext>,
         evt_on_update: async_broadcast::Sender<()>,
@@ -350,11 +361,13 @@ mod detail {
                 }
 
                 GroupDisposal(id) => {
-                    // TODO: Before disposal, dump config contents to archive.
+                    // Before dispose, dump existing content to archive.
+                    let rg = self.all_groups.remove(&id).expect("Key must exist!");
+                    Self::dump_node_(&rg.context, &mut self.archive);
+
                     Self::send_repl_event_(&mut self.monitors, ReplicationEvent::GroupRemoved(id));
 
                     // Erase from registry
-                    let rg = self.all_groups.remove(&id).expect("Key must exist");
                     assert!(self.path_hashes.remove(&rg.path_hash));
                 }
 
@@ -375,7 +388,10 @@ mod detail {
                     // TODO: Create new unbounded reflection channel, flush all current state into it.
                 }
 
-                Import { body, merged } => {
+                Import {
+                    body,
+                    merge_onto_exist: merged,
+                } => {
                     if merged {
                         self.archive.merge(body);
                     } else {
@@ -395,17 +411,43 @@ mod detail {
 
                 Export {
                     destination,
-                    merge_onto_exist: merged,
-                } => todo!(),
+                    no_merge_exist: no_merge,
+                    no_update,
+                } => todo!("Export configs"),
             }
         }
 
         fn handle_monitor_event_(&mut self, msg: MonitorEvent) {
-            todo!()
+            todo!("handle_monitor_event_")
         }
 
         fn send_repl_event_(noti: &mut MonitorList, msg: ReplicationEvent) {
             noti.retain(|x| x.try_send(msg.clone()).is_ok());
+        }
+
+        fn dump_node_(ctx: &GroupContext, archive: &mut archive::Archive) {
+            let paths = ctx.path.iter().map(|x| x.as_str());
+            let node = archive.find_or_create_path_mut(paths);
+
+            // Clear existing values before dumping.
+            node.values.clear();
+            let mut buf = Vec::<u8>::with_capacity(128);
+
+            for elem in &*ctx.sources {
+                let (meta, val) = elem.access_value();
+                let dst = node.values.entry(meta.name.into()).or_default();
+
+                // TODO: Find more efficient way to create json::Value from EntityValue ...
+                // TODO: Current implementation dumps json -> load it back to serde_json::Value
+                buf.clear();
+                let mut ser = serde_json::Serializer::new(&mut buf);
+                val.serialize(&mut <dyn erased_serde::Serializer>::erase(&mut ser));
+
+                if let Ok(val) = serde_json::from_slice(&buf[0..]) {
+                    *dst = val;
+                }
+            }
+            todo!("dump_node_")
         }
 
         fn load_node_(ctx: &GroupContext, node: &archive::Node, noti: &mut MonitorList) -> bool {
