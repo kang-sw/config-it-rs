@@ -26,30 +26,30 @@ impl Archive {
         &'s self,
         path: impl IntoIterator<Item = &'a str>,
     ) -> Option<&'s Node> {
-        let iter = path.into_iter();
+        let mut iter = path.into_iter();
         let mut paths = &self.content;
-        let mut node;
+        let mut node = None;
 
         while let Some(key) = iter.next() {
             if let Some(next_node) = paths.get(key) {
-                node = next_node;
+                node = Some(next_node);
                 paths = &next_node.paths;
             } else {
                 return None;
             }
         }
 
-        Some(node)
+        node
     }
 }
 
 ///
 /// Deserialization Logic Implementation
 ///
-impl<'de> Deserialize<'de> for Archive {
+impl<'a> Deserialize<'a> for Archive {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        D: serde::Deserializer<'de>,
+        D: serde::Deserializer<'a>,
     {
         Ok(Self {
             content: <Map<String, Node>>::deserialize(deserializer)?,
@@ -57,10 +57,10 @@ impl<'de> Deserialize<'de> for Archive {
     }
 }
 
-impl<'de> Deserialize<'de> for Node {
+impl<'a> Deserialize<'a> for Node {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        D: serde::Deserializer<'de>,
+        D: serde::Deserializer<'a>,
     {
         struct PathNodeVisit {
             build: Node,
@@ -171,7 +171,7 @@ fn test_load() {
         .unwrap()
         .is_empty());
 
-    let p2 = arch.get("root_path_2").unwrap();
+    let p2 = arch.content.get("root_path_2").unwrap();
     assert!(p2.paths.is_empty());
     assert!(p2.values.len() == 4);
 }
