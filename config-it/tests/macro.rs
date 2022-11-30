@@ -1,4 +1,5 @@
 #![cfg(feature = "derive")]
+#![allow(unused_imports)]
 
 use config_it::ConfigGroupData;
 use config_it::Group;
@@ -23,6 +24,7 @@ pub struct MyStruct {
     #[config_it(default = 3112)]
     median: i32,
 
+    #[allow(unused)]
     my_invisible: f32,
 }
 

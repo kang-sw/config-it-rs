@@ -165,7 +165,7 @@ impl Storage {
             .send(ControlDirective::Export {
                 destination: tx,
                 no_merge_exist: no_merge.unwrap_or(false),
-                no_update: no_merge.unwrap_or(false),
+                no_update: no_update.unwrap_or(false),
             })
             .await
             .map_err(|_| core::Error::ExpiredStorage)?;
@@ -261,7 +261,7 @@ mod detail {
     use serde::de::IntoDeserializer;
 
     use crate::{
-        archive,
+        archive::{self, Archive},
         core::{MonitorEvent, ReplicationEvent},
         entity::{EntityData, EntityTrait},
     };
@@ -393,7 +393,7 @@ mod detail {
                     merge_onto_exist: merged,
                 } => {
                     if merged {
-                        self.archive.merge(body);
+                        self.archive.merge_with(body);
                     } else {
                         self.archive = body;
                     }
@@ -411,9 +411,32 @@ mod detail {
 
                 Export {
                     destination,
-                    no_merge_exist: no_merge,
+                    no_merge_exist,
                     no_update,
-                } => todo!("Export configs"),
+                } => {
+                    let mut archive = Archive::default();
+                    for (_, node) in &self.all_groups {
+                        Self::dump_node_(&node.context, &mut archive);
+                    }
+
+                    let send_target = if no_merge_exist {
+                        if no_update {
+                            archive
+                        } else {
+                            self.archive = archive;
+                            self.archive.clone()
+                        }
+                    } else {
+                        if no_update {
+                            self.archive.clone().merge(archive)
+                        } else {
+                            self.archive.merge_with(archive);
+                            self.archive.clone()
+                        }
+                    };
+
+                    let _ = destination.send(send_target);
+                }
             }
         }
 
@@ -437,17 +460,23 @@ mod detail {
                 let (meta, val) = elem.access_value();
                 let dst = node.values.entry(meta.name.into()).or_default();
 
-                // TODO: Find more efficient way to create json::Value from EntityValue ...
-                // TODO: Current implementation dumps json -> load it back to serde_json::Value
+                // HACK: Find more efficient way to create json::Value from EntityValue ...
+                // HACK: Current implementation naively dumps json -> load it back to serde_json::Value
                 buf.clear();
                 let mut ser = serde_json::Serializer::new(&mut buf);
-                val.serialize(&mut <dyn erased_serde::Serializer>::erase(&mut ser));
+
+                if val
+                    .serialize(&mut <dyn erased_serde::Serializer>::erase(&mut ser))
+                    .is_err()
+                {
+                    // Serialization has failed, do not use the result.
+                    continue;
+                }
 
                 if let Ok(val) = serde_json::from_slice(&buf[0..]) {
                     *dst = val;
                 }
             }
-            todo!("dump_node_")
         }
 
         fn load_node_(ctx: &GroupContext, node: &archive::Node, noti: &mut MonitorList) -> bool {

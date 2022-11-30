@@ -308,9 +308,7 @@ mod emulate_generation {
             }
         }
 
-        fn fill_default(&mut self) {
-            todo!()
-        }
+        fn fill_default(&mut self) {}
     }
 
     #[test]

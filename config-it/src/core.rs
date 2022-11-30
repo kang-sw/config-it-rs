@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use smartstring::alias::CompactString;
 
-use crate::{archive, config::GroupContext, entity::Metadata};
+use crate::{archive, config::GroupContext};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {

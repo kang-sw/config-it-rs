@@ -8,7 +8,7 @@ type Map<T, V> = BTreeMap<T, V>;
 ///
 /// Archived config storage.
 ///
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Archive {
     pub content: Map<CompactString, Node>,
 }
@@ -65,10 +65,15 @@ impl Archive {
         node
     }
 
-    pub fn merge(&mut self, other: Self) {
+    pub fn merge_with(&mut self, other: Self) {
         for (k, v) in other.content {
             self.content.entry(k).or_default().merge(v);
         }
+    }
+
+    pub fn merge(mut self, other: Self) -> Self {
+        self.merge_with(other);
+        self
     }
 }
 

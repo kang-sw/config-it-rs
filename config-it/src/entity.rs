@@ -1,4 +1,3 @@
-use arc_swap::ArcSwap;
 use erased_serde::{Deserializer, Serialize, Serializer};
 use serde::de::DeserializeOwned;
 use std::any::{Any, TypeId};
@@ -32,7 +31,7 @@ where
     }
 
     fn serialize(&self, se: &mut dyn erased_serde::Serializer) -> Result<(), erased_serde::Error> {
-        Serialize::erased_serialize(self, se).map(|x| ())
+        Serialize::erased_serialize(self, se).map(|_| ())
     }
 
     fn deserialize(
