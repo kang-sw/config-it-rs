@@ -2,7 +2,7 @@
 name = "config-it"
 version = "0.0.1"
 edition = "2021"
-description = ""
+description = "Dynamic application config management"
 authors = ["kang-sw <ki6080@gmail.com>"]
 categories = ["config"]
 repository = "https://github.com/kang-sw/config-it-rs"

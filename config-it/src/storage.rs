@@ -397,7 +397,7 @@ mod detail {
                     }
                 }
 
-                MonitorRegister { reply_to } => {
+                MonitorRegister { reply_to: _ } => {
                     // TODO: Create new unbounded reflection channel, flush all current state into it.
                 }
 
@@ -453,7 +453,7 @@ mod detail {
             }
         }
 
-        fn handle_monitor_event_(&mut self, msg: MonitorEvent) {
+        fn handle_monitor_event_(&mut self, _msg: MonitorEvent) {
             todo!("handle_monitor_event_")
         }
 
