@@ -490,6 +490,8 @@ mod detail {
                     *dst = val;
                 }
             }
+
+            dbg!(node);
         }
 
         fn load_node_(ctx: &GroupContext, node: &archive::Node, noti: &mut MonitorList) -> bool {

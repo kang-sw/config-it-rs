@@ -53,13 +53,13 @@ impl Archive {
         let mut node = self.content.entry(key.into()).or_default();
 
         loop {
-            node = node.paths.entry(key.into()).or_default();
-
             if let Some(k) = iter.next() {
                 key = k;
             } else {
                 break;
             }
+
+            node = node.paths.entry(key.into()).or_default();
         }
 
         node
