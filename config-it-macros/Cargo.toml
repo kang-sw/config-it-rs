@@ -6,6 +6,7 @@ authors = ["kang-sw <ki6080@gmail.com>"]
 categories = ["config"]
 repository = "https://github.com/kang-sw/config-it-rs"
 license = "MIT"
+description = "Implements derive macro for config-it"
 
 [lib]
 proc-macro = true
