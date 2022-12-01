@@ -2,6 +2,12 @@
 name = "config-it"
 version = "0.0.1"
 edition = "2021"
+description = ""
+authors = ["kang-sw <ki6080@gmail.com>"]
+categories = ["config"]
+repository = "https://github.com/kang-sw/config-it-rs"
+keywords = ["config"]
+license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
