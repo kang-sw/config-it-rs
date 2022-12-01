@@ -8,12 +8,12 @@ type Map<T, V> = BTreeMap<T, V>;
 ///
 /// Archived config storage.
 ///
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct Archive {
     pub content: Map<CompactString, Node>,
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct Node {
     // Every '~' prefixed keys
     pub paths: Map<CompactString, Node>,
@@ -102,6 +102,15 @@ impl<'a> Deserialize<'a> for Archive {
         Ok(Self {
             content: <Map<CompactString, Node>>::deserialize(deserializer)?,
         })
+    }
+}
+
+impl Serialize for Archive {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.content.serialize(serializer)
     }
 }
 

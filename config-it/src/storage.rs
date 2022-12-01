@@ -531,13 +531,13 @@ mod detail {
             let mut erased = <dyn erased_serde::Deserializer>::erase(de);
             let mut built = (meta.fn_default)();
 
-            match (meta.fn_validate)(&*meta, built.as_any_mut()) {
-                Some(_) => (),
-                None => return false,
-            };
-
             match built.deserialize(&mut erased) {
                 Ok(_) => {
+                    match (meta.fn_validate)(&*meta, built.as_any_mut()) {
+                        Some(_) => (),
+                        None => return false,
+                    };
+
                     let built: Arc<dyn EntityTrait> = built.into();
                     elem.update_value(built.clone());
                     true

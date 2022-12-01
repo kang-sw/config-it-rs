@@ -18,13 +18,13 @@ pub struct MyStruct {
     #[config_it(min = -35)]
     minimal: i32,
 
-    #[config_it(default = 2, max = 3, one_of(1, 2, 3, 4, 5))]
+    #[config_it(default = 2, max = 3)]
     maximum: i32,
 
-    #[config_it(default = "3@", one_of("a"))]
+    #[config_it(default = "3@", one_of("ab3", "go04"))]
     data: String,
 
-    #[config_it(default = 3112)]
+    #[config_it(default = 3112, one_of(1, 2, 3, 4, 5))]
     median: i32,
 
     #[allow(unused)]
@@ -98,6 +98,8 @@ fn config_set_valid_operations() {
         });
 
         let arch = serde_json::from_str::<Archive>(&json.to_string()).unwrap();
+        dbg!(&arch);
+
         let _ = storage.import(arch, None).await;
 
         thread::sleep(Duration::from_millis(100));
@@ -117,6 +119,10 @@ fn config_set_valid_operations() {
         assert_eq!(group.minimal, -35, "Lower limit correctly applied");
         assert_eq!(group.median, 3112, "Untouched element correctly excluded");
         assert_eq!(group.data, "ab3", "String argument updated well");
+
+        let dumped = storage.export(None, None).await.unwrap();
+        let dumped = serde_json::to_string_pretty(&dumped).unwrap();
+        println!("{}", dumped);
     };
 
     block_on(async_op);
