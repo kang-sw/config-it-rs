@@ -1,5 +1,6 @@
 mod utils;
 
+#[cfg(any())]
 #[test]
 fn test_macro() {
     use syn::parse2;
