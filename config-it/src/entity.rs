@@ -224,7 +224,7 @@ impl EntityData {
 
         Self {
             id: 1 + ID_GEN.fetch_add(1, Ordering::Relaxed),
-            fence: AtomicUsize::new(0),
+            fence: AtomicUsize::new(1), // This forces initial
             value: Mutex::new(meta.v_default.clone()),
             meta,
             hook,

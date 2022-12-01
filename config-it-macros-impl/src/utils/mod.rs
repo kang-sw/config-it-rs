@@ -126,7 +126,6 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
             }
         };
 
-        indexer += 1;
         
         let elem_at = quote!{
             #indexer => &mut self.#ident,
@@ -137,6 +136,7 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
                 self.#ident = #x.into();          
         });
         
+        indexer += 1;
         (meta_gen, elem_at, default_val)
     });
 

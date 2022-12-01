@@ -143,11 +143,11 @@ impl<T: ConfigGroupData> Group<T> {
         );
 
         let mut has_update = false;
+        let mut local_ctx = self.local.borrow_mut();
 
-        for ((index, local), source) in zip(
-            zip(0..self.local.borrow().len(), &mut *self.local.borrow_mut()),
-            &*self.core.sources,
-        ) {
+        for ((index, local), source) in
+            zip(zip(0..local_ctx.len(), &mut *local_ctx), &*self.core.sources)
+        {
             // Perform quick check to see if given config entity has any update.
             match source.update_fence() {
                 v if v == local.update_fence => continue,
@@ -213,6 +213,32 @@ impl<T: ConfigGroupData> Group<T> {
     ///
     pub async fn subscribe_update(&self) -> async_broadcast::Receiver<()> {
         self.core.update_receiver_channel.lock().unwrap().clone()
+    }
+
+    ///
+    /// Mark all elements dirty
+    ///
+    pub fn mark_all_elem_dirty(&self) {
+        // Raising dirty flag does not incur remote reload.
+        self.local
+            .borrow_mut()
+            .iter_mut()
+            .for_each(|e| e.dirty_flag = true);
+    }
+
+    ///
+    /// Mark this group dirty.
+    ///
+    pub fn mark_group_dirty(&mut self) {
+        self.fence = 0;
+    }
+
+    ///
+    /// Mark given element dirty.
+    ///
+    pub fn mark_dirty<U: 'static>(&self, elem: &U) {
+        let index = self.get_index_by_ptr(elem).unwrap();
+        self.local.borrow_mut()[index].dirty_flag = true;
     }
 }
 

@@ -91,7 +91,7 @@ impl Storage {
         let core = Arc::new(GroupContext {
             group_id: register_id,
             sources: Arc::new(sources),
-            source_update_fence: AtomicUsize::new(0),
+            source_update_fence: AtomicUsize::new(1), // NOTE: This will trigger initial check_update() always.
             update_receiver_channel: Mutex::new(broad_rx),
             path: path.clone(),
         });
@@ -184,7 +184,7 @@ impl Storage {
     ///
     /// # Data serialization rule:
     ///  - The first path component is root component, which is written as-is.
-    ///  - Any path component after the first must be prefixed with `~` character.
+    ///  - Any path component after the first must be prefixed with `~(tilde)` character.
     ///    - Otherwise, they are treated as field element of enclosing path component.
     ///  - Any '~' prefixed key inside of existing field
     ///
@@ -376,12 +376,25 @@ mod detail {
                     item_id,
                     silent_mode,
                 } => {
-                    todo!("propagate-event-to-subs")
+                    let Some(group) = self.all_groups.get(&group_id) else { return };
 
                     // - Notify monitors value change
                     // - If it's silent mode, do not step group update fence forward.
                     //   Thus, this update will not trigger all group's update.
                     //   Otherwise, step group update fence, and propagate group update event
+                    Self::send_repl_event_(
+                        &mut self.monitors,
+                        ReplicationEvent::EntityValueUpdated { group_id, item_id },
+                    );
+
+                    if !silent_mode {
+                        group
+                            .context
+                            .source_update_fence
+                            .fetch_add(1, Ordering::Release);
+
+                        let _ = group.evt_on_update.broadcast(()).await;
+                    }
                 }
 
                 MonitorRegister { reply_to } => {
@@ -504,7 +517,7 @@ mod detail {
             if has_update {
                 // On successful load, set its fence value as 1, to make the first client
                 //  side's call to `update()` call would be triggered.
-                ctx.source_update_fence.fetch_add(1, Ordering::Relaxed);
+                ctx.source_update_fence.fetch_add(1, Ordering::Release);
             }
 
             has_update
