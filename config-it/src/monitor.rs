@@ -5,7 +5,7 @@ use crate::{
     storage,
 };
 
-type ReplicationChannel = async_channel::Sender<ReplicationEvent>;
+type ReplicationChannel = async_channel::Receiver<ReplicationEvent>;
 
 ///
 /// monitor interface for storage
@@ -25,8 +25,14 @@ impl StorageMonitor {
     }
 
     // Request new monitor event receiver
-    pub fn open_channel(&self) -> Result<ReplicationChannel, crate::core::Error> {
-        todo!("Request new monitor event receive channel")
+    pub async fn open_replication_channel(&self) -> Result<ReplicationChannel, crate::core::Error> {
+        let (tx, rx) = oneshot::channel();
+        self.tx
+            .send(ControlDirective::MonitorRegister { reply_to: tx })
+            .await
+            .map_err(|_| crate::core::Error::ExpiredStorage)?;
+
+        rx.await.map_err(|_| crate::core::Error::ExpiredStorage)
     }
 
     ///

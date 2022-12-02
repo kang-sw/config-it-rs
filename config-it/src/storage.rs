@@ -474,8 +474,35 @@ mod detail {
             }
         }
 
-        fn handle_monitor_event_(&mut self, _msg: MonitorEvent) {
-            todo!("handle_monitor_event_")
+        fn handle_monitor_event_(&mut self, msg: MonitorEvent) {
+            match msg {
+                MonitorEvent::GroupUpdateNotify { mut updates } => {
+                    updates.sort();
+                    updates.dedup();
+
+                    for group_id in updates {
+                        let group = if let Some(g) = self.all_groups.get(&group_id) {
+                            g
+                        } else {
+                            log::warn!("ValueUpdateNotify request failed for group [{group_id}]");
+                            continue;
+                        };
+
+                        let sources = &group.context.sources;
+                        debug_assert!(
+                            sources.windows(2).all(|w| w[0].get_id() < w[1].get_id()),
+                            "If sources are not sorted by item id, it's logic error!"
+                        );
+
+                        group
+                            .context
+                            .source_update_fence
+                            .fetch_add(1, Ordering::AcqRel);
+
+                        let _ = group.evt_on_update.try_broadcast(());
+                    }
+                }
+            }
         }
 
         fn send_repl_event_(noti: &mut MonitorList, msg: ReplicationEvent) {
@@ -524,16 +551,21 @@ mod detail {
 
                 let de = value.clone().into_deserializer();
 
-                if elem.update_value_from(de) {
-                    has_update = true;
+                match elem.update_value_from(de) {
+                    Ok(_) => {
+                        has_update = true;
 
-                    Self::send_repl_event_(
-                        noti,
-                        ReplicationEvent::EntityValueUpdated {
-                            group_id: ctx.group_id,
-                            item_id: elem.get_id(),
-                        },
-                    )
+                        Self::send_repl_event_(
+                            noti,
+                            ReplicationEvent::EntityValueUpdated {
+                                group_id: ctx.group_id,
+                                item_id: elem.get_id(),
+                            },
+                        )
+                    }
+                    Err(e) => {
+                        log::warn!("Element value update error during node loading: {e:?}")
+                    }
                 }
             }
 

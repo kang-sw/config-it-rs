@@ -250,7 +250,7 @@ impl EntityData {
     /// If `silent` option is disabled, increase config set and source argument's fence
     ///  by 1, to make self and other instances of config set which shares the same core
     ///  be aware of this change.
-    pub fn apply_value(&self, value: Arc<dyn EntityTrait>) {
+    pub fn __apply_value(&self, value: Arc<dyn EntityTrait>) {
         debug_assert!(self.meta.type_id == value.as_any().type_id());
 
         {
@@ -261,7 +261,17 @@ impl EntityData {
         }
     }
 
-    pub fn update_value_from<'a, T>(&self, de: T) -> bool
+    ///
+    /// Update config entity's central value by parsing given deserializer.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(true)` - Deserialization successful, validation successful.
+    /// * `Ok(false)` - Deserialization successful, validation unsuccessful, as value was modified
+    ///                 to satisfy validator constraint
+    /// * `Err(_)` - Deserialization or validation has failed.
+    ///
+    pub fn update_value_from<'a, T>(&self, de: T) -> Result<bool, crate::core::Error>
     where
         T: serde::Deserializer<'a>,
     {
@@ -271,14 +281,15 @@ impl EntityData {
 
         match built.deserialize(&mut erased) {
             Ok(_) => {
-                match (meta.fn_validate)(&*meta, built.as_any_mut()) {
-                    Some(_) => (),
-                    None => return false,
+                let clean = match (meta.fn_validate)(&*meta, built.as_any_mut()) {
+                    Some(clean) => clean,
+                    None => return Err(crate::core::Error::ValueValidationFailed),
                 };
 
                 let built: Arc<dyn EntityTrait> = built.into();
-                self.apply_value(built);
-                true
+                self.__apply_value(built);
+
+                Ok(clean)
             }
             Err(e) => {
                 log::error!(
@@ -286,14 +297,13 @@ impl EntityData {
                     meta.name,
                     meta.props.varname,
                 );
-                false
+                Err(e.into())
             }
         }
     }
 
-    pub fn update_value_with_notify(&self, value: Arc<dyn EntityTrait>, silent: bool) {
-        self.apply_value(value);
-        self.hook.on_value_changed(self, silent);
+    pub fn __notify_value_change(&self, make_storage_dirty: bool) {
+        self.hook.on_value_changed(self, !make_storage_dirty);
     }
 }
 

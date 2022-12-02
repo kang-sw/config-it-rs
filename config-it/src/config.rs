@@ -1,31 +1,3 @@
-//! Primary control flow is:
-//!
-//! Usage example:
-//!
-//! ``` text
-//! #[derive(ConfigDataReflect)]
-//! struct MyConfigData {
-//!   #[perfkit(one_of(3,4,5,6,7)]
-//!   value1: i32,
-//!
-//!   #[perfkit(min=2, max=5)]
-//!   value2: float,
-//! }
-//!
-//! impl Default for ConfigData {
-//!   fn default() -> Self {
-//!     Self {
-//!       value1: 0,
-//!       value2: 34f32
-//!     }
-//!   }
-//! }
-//!
-//! fn my_code() {
-//!
-//! }
-//! ```
-
 use crate::entity::{EntityData, EntityTrait, Metadata};
 use smartstring::alias::CompactString;
 use std::any::{Any, TypeId};
@@ -204,8 +176,9 @@ impl<T: ConfigGroupData> Group<T> {
         let cloned_value = Arc::new(e.clone()) as Arc<dyn EntityTrait>;
 
         // Replace source argument with created ptr
-        (*self.core.sources)[self.get_index_by_ptr(e).unwrap()]
-            .update_value_with_notify(cloned_value, !notify);
+        let elem = &(*self.core.sources)[self.get_index_by_ptr(e).unwrap()];
+        elem.__apply_value(cloned_value);
+        elem.__notify_value_change(notify)
     }
 
     ///

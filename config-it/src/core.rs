@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use smallvec::SmallVec;
 use smartstring::alias::CompactString;
 
 use crate::{archive, config::GroupContext};
@@ -13,7 +14,10 @@ pub enum Error {
     GroupCreationFailed(Arc<Vec<CompactString>>),
 
     #[error("Deserialization failed")]
-    DeserializationFailed,
+    DeserializationFailed(#[from] erased_serde::Error),
+
+    #[error("Validation failed")]
+    ValueValidationFailed,
 }
 
 ///
@@ -59,8 +63,7 @@ pub(crate) struct GroupRegisterParam {
 }
 
 pub enum MonitorEvent {
-    /// TODO:
-    ValueUpdateRequest,
+    GroupUpdateNotify { updates: SmallVec<[u64; 4]> },
 }
 
 ///
