@@ -1,6 +1,6 @@
 [package]
 name = "config-it"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 description = "Dynamic application config management"
 authors = ["kang-sw <ki6080@gmail.com>"]
