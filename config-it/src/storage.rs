@@ -263,7 +263,6 @@ mod detail {
     use crate::{
         archive::{self, Archive},
         core::{MonitorEvent, ReplicationEvent},
-        entity::{EntityData, EntityTrait},
     };
 
     use super::*;
@@ -393,12 +392,34 @@ mod detail {
                             .source_update_fence
                             .fetch_add(1, Ordering::Release);
 
-                        let _ = group.evt_on_update.broadcast(()).await;
+                        let _ = group.evt_on_update.try_broadcast(());
                     }
                 }
 
-                MonitorRegister { reply_to: _ } => {
-                    // TODO: Create new unbounded reflection channel, flush all current state into it.
+                MonitorRegister { reply_to } => {
+                    // Create new unbounded reflection channel, flush all current state into it.
+                    let (tx, rx) = async_channel::unbounded();
+                    if reply_to.send(rx).is_err() {
+                        log::warn!("MonitorRegister() canceled.");
+                        return;
+                    }
+
+                    let args: Vec<_> = self
+                        .all_groups
+                        .iter()
+                        .map(|e| (*e.0, e.1.context.clone()))
+                        .collect();
+
+                    if tx
+                        .send(ReplicationEvent::InitialGroups(args))
+                        .await
+                        .is_err()
+                    {
+                        log::warn!("Initial replication data transfer failed.");
+                        return;
+                    }
+
+                    self.monitors.push(tx);
                 }
 
                 Import {
@@ -417,7 +438,7 @@ mod detail {
                         let Some(node) = self.archive.find_path(path) else { continue };
 
                         if Self::load_node_(&group.context, node, &mut self.monitors) {
-                            let _ = group.evt_on_update.broadcast(()).await;
+                            let _ = group.evt_on_update.try_broadcast(());
                         }
                     }
                 }
@@ -470,7 +491,7 @@ mod detail {
             let mut buf = Vec::<u8>::with_capacity(128);
 
             for elem in &*ctx.sources {
-                let (meta, val) = elem.access_value();
+                let (meta, val) = elem.get_value();
                 let dst = node.values.entry(meta.name.into()).or_default();
 
                 // HACK: Find more efficient way to create json::Value from EntityValue ...
@@ -503,7 +524,7 @@ mod detail {
 
                 let de = value.clone().into_deserializer();
 
-                if Self::update_elem_by_(elem, de) {
+                if elem.update_value_from(de) {
                     has_update = true;
 
                     Self::send_repl_event_(
@@ -523,36 +544,6 @@ mod detail {
             }
 
             has_update
-        }
-
-        fn update_elem_by_<'a, T>(elem: &EntityData, de: T) -> bool
-        where
-            T: serde::Deserializer<'a>,
-        {
-            let meta = elem.get_meta();
-            let mut erased = <dyn erased_serde::Deserializer>::erase(de);
-            let mut built = (meta.fn_default)();
-
-            match built.deserialize(&mut erased) {
-                Ok(_) => {
-                    match (meta.fn_validate)(&*meta, built.as_any_mut()) {
-                        Some(_) => (),
-                        None => return false,
-                    };
-
-                    let built: Arc<dyn EntityTrait> = built.into();
-                    elem.update_value(built.clone());
-                    true
-                }
-                Err(e) => {
-                    log::error!(
-                        "(Deserialization Failed) {}(var:{}) \n\nERROR: {e:#?}",
-                        meta.name,
-                        meta.props.varname,
-                    );
-                    false
-                }
-            }
         }
     }
 }

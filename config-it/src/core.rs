@@ -35,7 +35,7 @@ pub(crate) enum ControlDirective {
 
     #[allow(unused)] // TODO: Implement monitoring logics!
     MonitorRegister {
-        reply_to: oneshot::Receiver<async_channel::Sender<ReplicationEvent>>,
+        reply_to: oneshot::Sender<async_channel::Receiver<ReplicationEvent>>,
     },
 
     Import {

@@ -149,7 +149,7 @@ impl<T: ConfigGroupData> Group<T> {
             zip(zip(0..local_ctx.len(), &mut *local_ctx), &*self.core.sources)
         {
             // Perform quick check to see if given config entity has any update.
-            match source.update_fence() {
+            match source.get_update_fence() {
                 v if v == local.update_fence => continue,
                 v => local.update_fence = v,
             }
@@ -157,7 +157,7 @@ impl<T: ConfigGroupData> Group<T> {
             has_update = true;
             local.dirty_flag = true;
 
-            let (meta, value) = source.access_value();
+            let (meta, value) = source.get_value();
             self.__body.update_elem_at__(index, value.as_any(), &*meta);
         }
 
@@ -211,7 +211,7 @@ impl<T: ConfigGroupData> Group<T> {
     ///
     /// Get update receiver
     ///
-    pub async fn subscribe_update(&self) -> async_broadcast::Receiver<()> {
+    pub async fn watch_update(&self) -> async_broadcast::Receiver<()> {
         self.core.update_receiver_channel.lock().unwrap().clone()
     }
 

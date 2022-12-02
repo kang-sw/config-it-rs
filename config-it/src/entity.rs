@@ -239,18 +239,18 @@ impl EntityData {
         &self.meta
     }
 
-    pub fn update_fence(&self) -> usize {
+    pub fn get_update_fence(&self) -> usize {
         self.fence.load(Ordering::Relaxed)
     }
 
-    pub fn access_value(&self) -> (&Arc<Metadata>, Arc<dyn EntityTrait>) {
+    pub fn get_value(&self) -> (&Arc<Metadata>, Arc<dyn EntityTrait>) {
         (&self.meta, self.value.lock().unwrap().clone())
     }
 
     /// If `silent` option is disabled, increase config set and source argument's fence
     ///  by 1, to make self and other instances of config set which shares the same core
     ///  be aware of this change.
-    pub fn update_value(&self, value: Arc<dyn EntityTrait>) {
+    pub fn apply_value(&self, value: Arc<dyn EntityTrait>) {
         debug_assert!(self.meta.type_id == value.as_any().type_id());
 
         {
@@ -261,8 +261,38 @@ impl EntityData {
         }
     }
 
+    pub fn update_value_from<'a, T>(&self, de: T) -> bool
+    where
+        T: serde::Deserializer<'a>,
+    {
+        let meta = &self.meta;
+        let mut erased = <dyn erased_serde::Deserializer>::erase(de);
+        let mut built = (meta.fn_default)();
+
+        match built.deserialize(&mut erased) {
+            Ok(_) => {
+                match (meta.fn_validate)(&*meta, built.as_any_mut()) {
+                    Some(_) => (),
+                    None => return false,
+                };
+
+                let built: Arc<dyn EntityTrait> = built.into();
+                self.apply_value(built);
+                true
+            }
+            Err(e) => {
+                log::error!(
+                    "(Deserialization Failed) {}(var:{}) \n\nERROR: {e:#?}",
+                    meta.name,
+                    meta.props.varname,
+                );
+                false
+            }
+        }
+    }
+
     pub fn update_value_with_notify(&self, value: Arc<dyn EntityTrait>, silent: bool) {
-        self.update_value(value);
+        self.apply_value(value);
         self.hook.on_value_changed(self, silent);
     }
 }

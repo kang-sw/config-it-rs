@@ -73,6 +73,9 @@ fn config_set_valid_operations() {
             "Assert key duplication handled correctly"
         );
 
+        let mut brd = group.watch_update().await;
+        assert!(brd.try_recv().is_err());
+
         assert!(group.update(), "Initial update always returns true.");
         assert!(!group.update(), "Now dirty flag cleared");
         assert!(group.check_elem_update(&group.data), "Initial check returns true");
@@ -98,12 +101,15 @@ fn config_set_valid_operations() {
         });
 
         let arch = serde_json::from_str::<Archive>(&json.to_string()).unwrap();
+
         dbg!(&arch);
 
+        assert!(brd.try_recv().is_err());
         let _ = storage.import(arch, None).await;
 
         thread::sleep(Duration::from_millis(100));
 
+        assert!(brd.try_recv().is_ok());
         assert!(!group.check_elem_update(&group.data), "Before 'update()' call, nothing changes.");
         assert!(group.update(), "Config successfully imported.");
 
