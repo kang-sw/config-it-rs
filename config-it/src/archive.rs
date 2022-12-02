@@ -15,10 +15,10 @@ pub struct Archive {
 
 #[derive(Default, Clone, Debug)]
 pub struct Node {
-    // Every '~' prefixed keys
+    /// Every '~' prefixed keys
     pub paths: Map<CompactString, Node>,
 
-    // All elements except child path nodes.
+    /// All elements except child path nodes.
     pub values: Map<CompactString, serde_json::Value>,
 }
 

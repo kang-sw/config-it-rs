@@ -5,7 +5,7 @@ use crate::{
     storage,
 };
 
-type ReplicationChannel = async_channel::Receiver<ReplicationEvent>;
+pub type ReplicationChannel = async_channel::Receiver<ReplicationEvent>;
 
 ///
 /// monitor interface for storage

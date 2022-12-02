@@ -13,6 +13,7 @@ use crate::{
     entity::{self, EntityEventHook},
     monitor::StorageMonitor,
 };
+use futures::executor::block_on;
 use log::debug;
 use smartstring::alias::CompactString;
 
@@ -144,6 +145,22 @@ impl Storage {
                 .collect::<Vec<_>>(),
         )
         .await
+    }
+
+    pub async fn create_group_block<T>(
+        &self,
+        path: impl IntoIterator<Item = &str>,
+    ) -> Result<config::Group<T>, ConfigError>
+    where
+        T: config::ConfigGroupData,
+    {
+        block_on(
+            self.create_group_ex::<T>(
+                path.into_iter()
+                    .map(|x| -> CompactString { x.into() })
+                    .collect::<Vec<_>>(),
+            ),
+        )
     }
 
     ///

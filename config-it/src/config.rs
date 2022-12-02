@@ -75,6 +75,15 @@ pub struct Group<T> {
     _unregister_hook: Arc<dyn Any>,
 }
 
+impl<T: std::fmt::Debug> std::fmt::Debug for Group<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Group")
+            .field("__body", &self.__body)
+            .field("fence", &self.fence)
+            .finish()
+    }
+}
+
 #[derive(Default, Clone)]
 struct PropLocalContext {
     /// Locally cached update fence.
@@ -150,6 +159,14 @@ impl<T: ConfigGroupData> Group<T> {
     /// Get index of element
     ///
     pub fn get_index_by_ptr<U: 'static>(&self, e: &U) -> Option<usize> {
+        if let Some(prop) = self.get_prop_by_ptr(e) {
+            Some(prop.index)
+        } else {
+            None
+        }
+    }
+
+    pub fn get_prop_by_ptr<U: 'static>(&self, e: &U) -> Option<&PropData> {
         let ptr = e as *const _ as *const u8 as isize;
         let base = &self.__body as *const _ as *const u8 as isize;
 
@@ -160,7 +177,7 @@ impl<T: ConfigGroupData> Group<T> {
                 if let Some(prop) = T::prop_desc_table__().get(&(v as usize)) {
                     debug_assert_eq!(prop.type_id, TypeId::of::<U>());
                     debug_assert!(prop.index < self.local.borrow().len());
-                    Some(prop.index)
+                    Some(prop)
                 } else {
                     None
                 }
@@ -212,6 +229,13 @@ impl<T: ConfigGroupData> Group<T> {
     pub fn mark_dirty<U: 'static>(&self, elem: &U) {
         let index = self.get_index_by_ptr(elem).unwrap();
         self.local.borrow_mut()[index].dirty_flag = true;
+    }
+
+    ///
+    /// Get generated metadata of given element
+    ///
+    pub fn get_metadata<U: 'static>(&self, elem: &U) -> Arc<Metadata> {
+        self.get_prop_by_ptr(elem).unwrap().meta.clone()
     }
 }
 
