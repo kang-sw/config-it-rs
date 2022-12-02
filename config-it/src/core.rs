@@ -37,7 +37,6 @@ pub(crate) enum ControlDirective {
         silent_mode: bool,
     },
 
-    #[allow(unused)] // TODO: Implement monitoring logics!
     MonitorRegister {
         reply_to: oneshot::Sender<async_channel::Receiver<ReplicationEvent>>,
     },
@@ -69,8 +68,6 @@ pub enum MonitorEvent {
 ///
 ///
 /// Message type to notify backend
-///
-/// TODO: Fill appropriate values with these.
 ///
 #[derive(Clone)]
 pub enum ReplicationEvent {

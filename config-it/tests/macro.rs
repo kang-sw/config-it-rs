@@ -89,7 +89,6 @@ fn config_set_valid_operations() {
         assert_eq!(group.data, "3@");
         dbg!(&group.__body);
 
-        // TODO: Create json value
         let json = json!({
             "hello": {
                 "~world!": {
