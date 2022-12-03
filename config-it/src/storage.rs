@@ -9,9 +9,8 @@ use std::{
 use crate::{
     archive,
     config::{self, GroupContext},
-    core::{self, ControlDirective, Error as ConfigError},
+    core::{self, ControlDirective, Error as ConfigError, MonitorEvent, ReplicationEvent},
     entity::{self, EntityEventHook},
-    monitor::StorageMonitor,
 };
 use futures::executor::block_on;
 use log::debug;
@@ -237,12 +236,38 @@ impl Storage {
             .map_err(|_| core::Error::ExpiredStorage)
     }
 
-    pub fn create_monitor(&self) -> StorageMonitor {
-        StorageMonitor {
-            tx: self.tx.clone(),
-        }
+    ///
+    /// Create replication channel
+    ///
+    pub async fn monitor_open_replication_channel(
+        &self,
+    ) -> Result<ReplicationChannel, crate::core::Error> {
+        let (tx, rx) = oneshot::channel();
+        self.tx
+            .send(ControlDirective::MonitorRegister { reply_to: tx })
+            .await
+            .map_err(|_| crate::core::Error::ExpiredStorage)?;
+
+        rx.await.map_err(|_| crate::core::Error::ExpiredStorage)
+    }
+
+    ///
+    /// Send monitor event to storage driver.
+    ///
+    pub async fn monitor_send_event(&self, evt: MonitorEvent) -> Result<(), core::Error> {
+        self.tx
+            .send(ControlDirective::FromMonitor(evt))
+            .await
+            .map_err(|_| core::Error::ExpiredStorage)
     }
 }
+
+///
+/// A unbounded receiver channel which receives replication stream from storage.
+///
+/// By tracking this, one can synchronize its state with storage.
+///
+pub type ReplicationChannel = async_channel::Receiver<ReplicationEvent>;
 
 struct GroupUnregisterHook {
     register_id: u64,
