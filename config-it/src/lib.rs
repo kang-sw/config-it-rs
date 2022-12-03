@@ -120,6 +120,7 @@ pub use storage::Storage;
 pub use lazy_static::lazy_static;
 pub use macros::ConfigGroupData;
 
+#[cfg(test)]
 mod ttt {
     mod config_it {
         pub use crate::*;
@@ -127,7 +128,7 @@ mod ttt {
 
     #[test]
     fn doctest() {
-        use futures::executor::{self, block_on};
+        use futures::executor::block_on;
 
         ///
         /// Define set of properties using derive macro
@@ -150,6 +151,7 @@ mod ttt {
             median: i32,
 
             /// This property won't be counted as config group's property
+            #[allow(unused)]
             transient: f32,
         }
 
@@ -169,6 +171,7 @@ mod ttt {
 
             // "Main" - `group`
             //   +-> "Sub" - `subgroup`
+            #[allow(unused)]
             let subgroup = storage
                 .create_group::<MyStruct>(["Main", "Sub"])
                 .await
