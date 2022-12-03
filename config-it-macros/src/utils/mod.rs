@@ -131,6 +131,10 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
             #indexer => &mut self.#ident,
         };
         
+        // TODO: Environment variable handling
+        // If given property has 'env' option, try find corresponding environment variable, 
+        //  and if one is found, try to parse it. Otherwise, don't touch or use default.
+        
         let default_val = x.default_value.as_ref().map_or(
             quote!{}, |x| quote!{
                 self.#ident = #x.into();          

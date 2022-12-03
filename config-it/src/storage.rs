@@ -39,6 +39,7 @@ impl Storage {
         let (tx, rx) = async_channel::unbounded();
         let driver = {
             async move {
+                debug!("Config storage worker launched");
                 let mut context = detail::StorageDriveContext::new();
                 loop {
                     match rx.recv().await {
@@ -47,7 +48,8 @@ impl Storage {
                         }
                         Err(e) => {
                             let ptr = &rx as *const _;
-                            debug!("[{ptr:p}] ({e:?}) All sender channel has been closed. Closing storage ...")
+                            debug!("[{ptr:p}] ({e:?}) All sender channel has been closed. Closing storage ...");
+                            break;
                         }
                     }
                 }
@@ -534,8 +536,12 @@ mod detail {
             node.values.clear();
             let mut buf = Vec::<u8>::with_capacity(128);
 
-            for elem in &*ctx.sources {
-                let (meta, val) = elem.get_value();
+            for (meta, val) in ctx
+                .sources
+                .iter()
+                .map(|e| e.get_value())
+                .filter(|(meta, _)| !meta.props.disable_export)
+            {
                 let dst = node.values.entry(meta.name.into()).or_default();
 
                 // HACK: Find more efficient way to create json::Value from EntityValue ...
@@ -562,12 +568,17 @@ mod detail {
         fn load_node_(ctx: &GroupContext, node: &archive::Node, noti: &mut MonitorList) -> bool {
             let mut has_update = false;
 
-            for elem in &*ctx.sources {
-                let meta = elem.get_meta();
-                let Some(value) = node.values.get(meta.name) else { continue };
-
-                let de = value.clone().into_deserializer();
-
+            for (elem, de) in ctx
+                .sources
+                .iter()
+                .map(|e| (e, e.get_meta()))
+                .filter(|(_, m)| !m.props.disable_import)
+                .filter_map(|(e, m)| {
+                    node.values
+                        .get(m.name)
+                        .map(|o| (e, o.clone().into_deserializer()))
+                })
+            {
                 match elem.update_value_from(de) {
                     Ok(_) => {
                         has_update = true;

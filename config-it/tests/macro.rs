@@ -1,4 +1,3 @@
-#![cfg(feature = "derive")]
 #![allow(unused_imports)]
 
 use config_it::archive::Archive;
@@ -26,6 +25,12 @@ pub struct MyStruct {
 
     #[config_it(default = 3112, one_of(1, 2, 3, 4, 5))]
     median: i32,
+
+    #[config_it(default = 124, no_import)]
+    noimp: i32,
+
+    #[config_it(default = 242, no_export)]
+    noexp: i32,
 
     #[allow(unused)]
     my_invisible: f32,
@@ -82,10 +87,13 @@ fn config_set_valid_operations() {
         assert!(!group.check_elem_update(&group.data), "Now dirty flag is cleared");
         assert!(!group.check_elem_update(&group.data), "Now dirty flag is cleared");
         assert!(group.check_elem_update(&group.median), "Now dirty flag is cleared");
+        assert!(group.check_elem_update(&group.noimp), "Now dirty flag is cleared");
         assert!(!group.check_elem_update(&group.median), "Now dirty flag is cleared");
         assert_eq!(group.maximum, 2, "Default value correctly applied");
         assert_eq!(group.minimal, 0);
         assert_eq!(group.median, 3112);
+        assert_eq!(group.noimp, 124);
+        assert_eq!(group.noexp, 242);
         assert_eq!(group.data, "3@");
         dbg!(&group.__body);
 
@@ -95,6 +103,8 @@ fn config_set_valid_operations() {
                     "data": "ab3",
                     "maximum": 98,
                     "minimal": -1929,
+                    "noimp": 932,
+                    "noexp": 884,
                 }
             }
         });
@@ -118,14 +128,18 @@ fn config_set_valid_operations() {
         assert!(group.check_elem_update(&group.data), "Updated configs correctly applied.");
         assert!(group.check_elem_update(&group.maximum));
         assert!(group.check_elem_update(&group.minimal));
+        assert!(group.check_elem_update(&group.noexp));
+        assert!(!group.check_elem_update(&group.noimp), "No-import property correctly excluded");
         assert!(!group.check_elem_update(&group.median), "Unspecified update correctly excluded.");
 
         assert_eq!(group.maximum, 3, "Value validation correctly applied");
         assert_eq!(group.minimal, -35, "Lower limit correctly applied");
         assert_eq!(group.median, 3112, "Untouched element correctly excluded");
+        assert_eq!(group.noimp, 124, "No-import element excluded well");
+        assert_eq!(group.noexp, 884, "No-export element included well");
         assert_eq!(group.data, "ab3", "String argument updated well");
 
-        let dumped = storage.export(None, None).await.unwrap();
+        let dumped = storage.export(Some(true), Some(true)).await.unwrap();
         let dumped = serde_json::to_string_pretty(&dumped).unwrap();
         println!("{}", dumped);
     };
