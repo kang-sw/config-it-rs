@@ -40,3 +40,34 @@ impl Builder {
         todo!()
     }
 }
+
+#[cfg(test)]
+mod _test {
+    use std::sync::Arc;
+
+    use axum::{routing::get, Extension};
+
+    struct Context {
+        value: i32,
+    }
+
+    async fn handler(Extension(ext): Extension<Arc<Context>>) -> String {
+        format!("Value is: {}", ext.value)
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn layer_test() {
+        let app = axum::Router::new()
+            .route("/test1", get(handler))
+            .layer(Extension(Arc::new(Context { value: 1 })))
+            .route("/test2", get(handler))
+            .layer(Extension(Arc::new(Context { value: 2 })))
+            .route("/test3", get(handler));
+
+        axum::Server::bind(&"0.0.0.0:15572".parse().unwrap())
+            .serve(app.into_make_service())
+            .await
+            .unwrap();
+    }
+}
