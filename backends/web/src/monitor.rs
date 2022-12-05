@@ -1,6 +1,8 @@
 use std::net::{IpAddr, Ipv4Addr};
 
+use axum::routing::get;
 use config_it::CompactString;
+use tokio::sync::mpsc;
 
 pub enum PublicFile {
     DownloadArchive(String),
@@ -16,7 +18,10 @@ pub struct Builder {
     pub description: String,
 
     pub public_file: PublicFile,
+    pub storage: Vec<config_it::Storage>,
     // TODO: Find out how to define authentication ...
+    // TODO: Find out how to integrate with log system ...
+    pub command_stream: Option<async_channel::Sender<String>>,
 }
 
 impl Default for Builder {
@@ -29,16 +34,32 @@ impl Default for Builder {
             public_file: PublicFile::DownloadUri(
                 "TODO: Publish files to github, hard code the link here.".into(),
             ),
+            storage: Default::default(),
+            command_stream: None,
         }
     }
 }
 
+pub struct BuildOutput {
+    pub app: axum::Router,
+    pub remote_terminal_input: mpsc::UnboundedReceiver<String>,
+}
+
 impl Builder {
-    pub async fn build(mut self) -> axum::Router {
-        // TODO: Build a router
+    pub async fn build(mut self) -> BuildOutput {
+        // let app = axum::Router::new().route("/api/system_info", get(api::sysinfo));
 
         todo!()
     }
+
+    pub fn with_command_receiver(mut self, ch: async_channel::Sender<String>) -> Self {
+        self.command_stream = Some(ch);
+        self
+    }
+}
+
+mod api {
+    pub async fn sysinfo() {}
 }
 
 #[cfg(test)]

@@ -11,3 +11,5 @@ config-it = { path = "../../config-it", version = "0.0.3" }
 serde = { version = "1", features = ["derive"] }
 axum = { version = "0.6", features = ["ws"] }
 tokio = { version = "1", features = ["full"] }
+async-channel = "1"
+log = "0.4"
