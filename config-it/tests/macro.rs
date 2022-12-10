@@ -139,6 +139,8 @@ fn config_set_valid_operations() {
         assert_eq!(group.noexp, 884, "No-export element included well");
         assert_eq!(group.data, "ab3", "String argument updated well");
 
+        let _0: &dyn Send = &group;
+
         let dumped = storage.export(Some(true), Some(true)).await.unwrap();
         let dumped = serde_json::to_string_pretty(&dumped).unwrap();
         println!("{}", dumped);

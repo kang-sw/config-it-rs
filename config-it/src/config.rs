@@ -72,7 +72,7 @@ pub struct Group<T> {
     ///
     /// It will unregister this config set from owner storage automatically, when all
     ///  instances of config set disposed.
-    _unregister_hook: Arc<dyn Any>,
+    _unregister_hook: Arc<dyn Any + Send + Sync>,
 }
 
 impl<T: std::fmt::Debug> std::fmt::Debug for Group<T> {
@@ -94,7 +94,10 @@ struct PropLocalContext {
 }
 
 impl<T: ConfigGroupData> Group<T> {
-    pub(crate) fn create_with__(core: Arc<GroupContext>, unregister_anchor: Arc<dyn Any>) -> Self {
+    pub(crate) fn create_with__(
+        core: Arc<GroupContext>,
+        unregister_anchor: Arc<dyn Any + Send + Sync>,
+    ) -> Self {
         let mut gen = Self {
             core,
             __body: T::default(),
