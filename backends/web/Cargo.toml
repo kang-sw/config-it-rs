@@ -7,9 +7,12 @@ exclude = ["front"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-config-it = { path = "../../config-it", version = "0.0.3" }
+config-it = { path = "../../config-it", version = "0.0.4" }
 serde = { version = "1", features = ["derive"] }
 axum = { version = "0.6", features = ["ws"] }
 tokio = { version = "1", features = ["full"] }
+rand = "*"
 async-channel = "1"
 log = "0.4"
+whoami = "1"
+serde_json = "1"
