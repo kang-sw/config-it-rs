@@ -1,8 +1,9 @@
 use axum::{routing::get, Extension};
+use tokio::sync::mpsc;
 
 use super::actor;
 
-pub(super) fn build(tx: async_channel::Sender<actor::Directive>) -> axum::Router {
+pub(super) fn build(tx: mpsc::UnboundedSender<actor::Directive>) -> axum::Router {
     // TODO: Add router handler for index.html
     axum::Router::new()
         .route("/api/system_info", get(api::system_info))

@@ -1,4 +1,5 @@
 use config_it::CompactString;
+use tokio::sync::oneshot;
 
 mod actor;
 mod api;
@@ -19,6 +20,8 @@ pub struct Builder {
     // TODO: Find out how to define authentication ...
     pub command_stream: Option<async_channel::Sender<String>>,
     pub terminal_stream: Option<async_channel::Receiver<String>>,
+
+    pub close_signal: Option<oneshot::Receiver<()>>,
 }
 
 impl Default for Builder {
@@ -32,6 +35,7 @@ impl Default for Builder {
             storage: Default::default(),
             command_stream: None,
             terminal_stream: None,
+            close_signal: None,
         }
     }
 }
@@ -39,9 +43,7 @@ impl Default for Builder {
 impl Builder {
     pub async fn build(self) -> axum::Router {
         // Create context with self, launch event loop.
-        let context = actor::Context::new(self);
-        let (tx, rx) = async_channel::unbounded();
-        tokio::spawn(async move { context.run(rx).await });
+        let tx = actor::Context::launch(self).await;
 
         // Build API router with tx
         api::build(tx)
@@ -49,6 +51,11 @@ impl Builder {
 
     pub fn add_storage(mut self, storage: config_it::Storage) -> Self {
         self.storage.push(storage);
+        self
+    }
+
+    pub fn with_close_signal(mut self, ch: oneshot::Receiver<()>) -> Self {
+        self.close_signal = Some(ch);
         self
     }
 
