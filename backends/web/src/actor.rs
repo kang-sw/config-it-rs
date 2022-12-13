@@ -30,53 +30,57 @@ pub struct SystemInfo {
 
 impl Context {
     pub async fn launch(init: super::Builder) -> mpsc::UnboundedSender<Directive> {
-        let (tx, rx) = mpsc::unbounded_channel();
+        let (tx_directive, rx) = mpsc::unbounded_channel();
 
-        // Spawn terminal handler task if `init` has terminal_stream
-        if let Some(terminal_stream) = init.terminal_stream {
-            let tx = tx.clone();
-            task::spawn(async move {
-                while let Ok(line) = terminal_stream.recv().await {
-                    let _ = tx.send(Directive::AppendLine(line));
+        let tx = tx_directive.clone();
+        let async_job = async move {
+            // Spawn terminal handler task if `init` has terminal_stream
+            let fut_term_strm_handler = async {
+                if let Some(terminal_stream) = init.terminal_stream {
+                    while let Ok(line) = terminal_stream.recv().await {
+                        let _ = tx.send(Directive::AppendLine(line));
+                    }
+
+                    log::debug!("Terminal stream closed.");
                 }
+            };
 
-                log::debug!("Terminal stream closed.");
-            });
-        }
-
-        // Spawn close signal handler task if `init` has close_signal
-        if let Some(close_signal) = init.close_signal {
-            let tx = tx.clone();
-            task::spawn(async move {
-                if let Ok(_) = close_signal.await {
-                    let _ = tx.send(Directive::Shutdown);
+            // Spawn close signal handler task if `init` has close_signal
+            let fut_close_signal_handler = async {
+                if let Some(close_signal) = init.close_signal {
+                    let tx = tx.clone();
+                    if let Ok(_) = close_signal.await {
+                        let _ = tx.send(Directive::Shutdown);
+                    }
                 }
-            });
-        }
+            };
 
-        // Spawn context
-        let context = Self {
-            sys_info: SystemInfo {
-                alias: init.app_name.into(),
-                description: init.description.clone(),
-                epoch: SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs(),
-                version: env!("CARGO_PKG_VERSION").into(),
-                hostname: whoami::hostname(),
-                num_cores: std::thread::available_parallelism()
-                    .unwrap_or(NonZeroUsize::new(1).unwrap())
-                    .into(),
-            }
-            .into(),
-            storages: init.storage,
-            command_stream: init.command_stream,
+            // Spawn context
+            let context = Self {
+                sys_info: SystemInfo {
+                    alias: init.app_name.into(),
+                    description: init.description.clone(),
+                    epoch: SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs(),
+                    version: env!("CARGO_PKG_VERSION").into(),
+                    hostname: whoami::hostname(),
+                    num_cores: std::thread::available_parallelism()
+                        .unwrap_or(NonZeroUsize::new(1).unwrap())
+                        .into(),
+                }
+                .into(),
+                storages: init.storage,
+                command_stream: init.command_stream,
+            };
+
+            futures::join!(fut_term_strm_handler, fut_close_signal_handler, context.run_(rx),);
         };
 
-        task::spawn(context.run_(rx));
+        task::spawn(async_job);
 
-        tx
+        tx_directive
     }
 
     ///
