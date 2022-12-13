@@ -240,6 +240,13 @@ impl<T: ConfigGroupData> Group<T> {
     pub fn get_metadata<U: 'static>(&self, elem: &U) -> Arc<Metadata> {
         self.get_prop_by_ptr(elem).unwrap().meta.clone()
     }
+
+    ///
+    /// Get allocated group prefix
+    ///
+    pub fn get_path(&self) -> Arc<Vec<CompactString>> {
+        self.core.path.clone()
+    }
 }
 
 impl<T> std::ops::Deref for Group<T> {
