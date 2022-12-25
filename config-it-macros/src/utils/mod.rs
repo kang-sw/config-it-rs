@@ -160,7 +160,7 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
                     if let Ok(x) = std::env::var(#env_var) {
                         
                         // TODO: Custom environment parser
-                        // To support types which does not support 'parse', implement way to 
+                        // To support types which does not implement 'parse', implement way to 
                         //  provide customized environnement parser function, which accepts 
                         //  `&str` then returns `Option<U>`, which implements trait `Into<T>()`.
                         if let Ok(x) = x.parse::<#ty>() {
