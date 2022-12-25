@@ -31,6 +31,9 @@ pub struct MyStruct {
     #[config_it(default_expr = "[1,2,3,4,5]")]
     array: [i32; 5],
 
+    #[config_it(env = "MY_ARRAY_VAR")]
+    array_env: i64,
+
     #[config_it(default = 124, no_import)]
     noimp: i32,
 
@@ -70,6 +73,9 @@ fn config_set_valid_operations() {
         let (storage, worker) = config_it::Storage::new();
         thread::spawn(move || block_on(worker));
 
+        std::env::set_var("MY_ARRAY_VAR", "14141");
+        assert_eq!(std::env::var("MY_ARRAY_VAR").unwrap(), "14141");
+
         let mut group = storage
             .create_group::<MyStruct>(["hello", "world!"])
             .await
@@ -86,6 +92,15 @@ fn config_set_valid_operations() {
         let mut brd = group.watch_update().await;
         assert!(brd.try_recv().is_err());
 
+        assert_eq!(group.maximum, 2, "Default value correctly applied");
+        assert_eq!(group.minimal, 0);
+        assert_eq!(group.median, 3112);
+        assert_eq!(group.noimp, 124);
+        assert_eq!(group.noexp, 242);
+        assert_eq!(group.array, [1, 2, 3, 4, 5]);
+        assert_eq!(group.array_env, 14141);
+        assert_eq!(group.data, "3@");
+
         assert!(group.update(), "Initial update always returns true.");
         assert!(!group.update(), "Now dirty flag cleared");
         assert!(group.check_elem_update(&group.data), "Initial check returns true");
@@ -94,13 +109,7 @@ fn config_set_valid_operations() {
         assert!(group.check_elem_update(&group.median), "Now dirty flag is cleared");
         assert!(group.check_elem_update(&group.noimp), "Now dirty flag is cleared");
         assert!(!group.check_elem_update(&group.median), "Now dirty flag is cleared");
-        assert_eq!(group.maximum, 2, "Default value correctly applied");
-        assert_eq!(group.minimal, 0);
-        assert_eq!(group.median, 3112);
-        assert_eq!(group.noimp, 124);
-        assert_eq!(group.noexp, 242);
-        assert_eq!(group.array, [1, 2, 3, 4, 5]);
-        assert_eq!(group.data, "3@");
+
         dbg!(&group.__body);
 
         let json = json!({

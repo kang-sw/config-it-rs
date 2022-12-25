@@ -143,7 +143,6 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
             #indexer => &mut self.#ident,
         };
         
-        // TODO: Environment variable handling
         // If given property has 'env' option, try find corresponding environment variable, 
         //  and if one is found, try to parse it. Otherwise, don't touch or use default.
         
@@ -151,6 +150,32 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
             quote!{}, |x| quote!{
                 self.#ident = #x.into();          
         });
+        
+        let env_var = x.env_var;
+        let default_val = env_var.as_ref().map_or(
+            quote!{#default_val}, 
+            |env_var| {
+                quote! {
+                    let mut env_parsed = false;
+                    if let Ok(x) = std::env::var(#env_var) {
+                        
+                        // TODO: Custom environment parser
+                        // To support types which does not support 'parse', implement way to 
+                        //  provide customized environnement parser function, which accepts 
+                        //  `&str` then returns `Option<U>`, which implements trait `Into<T>()`.
+                        if let Ok(x) = x.parse::<#ty>() {
+                            self.#ident = x;
+                            env_parsed = true;
+                        } else {
+                        }
+                    }
+                    
+                    if !env_parsed {
+                        #default_val
+                    }
+                }
+            }
+        );
         
         indexer += 1;
         (meta_gen, elem_at, default_val)
