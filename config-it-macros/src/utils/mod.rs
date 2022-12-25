@@ -26,7 +26,7 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
         let doc = x.docstring;
 
         let default = if let Some(x) = &x.default_value {
-            Some(quote!(#x))
+            Some(quote!(#x.into()))
         } else if let Some(Lit::Str(x)) = &x.default_expr {
             // x is in form of "<expr>". Retrieve <expr> from quotes
             let x = x.value();
@@ -35,7 +35,7 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
             None
         };
         
-        let default_to_meta = default.as_ref().map_or(quote!(Default::default()), |v| quote!(#v.into()));
+        let default_to_meta = default.as_ref().map_or(quote!(Default::default()), |v| quote!(#v));
         let min = x.min.as_ref().map_or(quote!{None}, |x| quote!{Some(#x)} );
         let max = x.max.as_ref().map_or(quote!{None}, |x| quote!(Some(#x)) );
         let one_of = x.one_of.as_ref().map_or(quote!(), |x| {
@@ -148,7 +148,7 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
         
         let default_val = default.as_ref().map_or(
             quote!{}, |x| quote!{
-                self.#ident = #x.into();          
+                self.#ident = #x;          
         });
         
         let env_var = x.env_var;
