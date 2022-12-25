@@ -1,6 +1,6 @@
 [package]
 name = "config-it"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Centralized dynamic configuration management"
 authors = ["kang-sw <ki6080@gmail.com>"]
@@ -26,4 +26,4 @@ smallvec = { version = "1", features = ["serde", "write", "union"] }
 lazy_static = "1"
 futures = "0.3"
 arc-swap = "1"
-macros = { package = "config-it-macros", path = "../config-it-macros", version = "0.0.2" }
+macros = { package = "config-it-macros", path = "../config-it-macros", version = "0.1" }
