@@ -3,7 +3,7 @@ use std::sync::Arc;
 use smallvec::SmallVec;
 use smartstring::alias::CompactString;
 
-use crate::{archive, config::GroupContext};
+use crate::{archive, config::GroupContext, ExportOptions, ImportOptions};
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
@@ -43,14 +43,13 @@ pub(crate) enum ControlDirective {
 
     Import {
         body: archive::Archive,
-        merge_onto_exist: bool,
+        option: ImportOptions,
     },
 
     Export {
         /// If None is specified,
         destination: oneshot::Sender<archive::Archive>,
-        no_merge_exist: bool,
-        no_update: bool,
+        option: ExportOptions,
     },
 }
 

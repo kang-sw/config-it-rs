@@ -113,6 +113,8 @@ pub use smartstring::alias::CompactString;
 pub use archive::Archive;
 pub use config::ConfigGroupData;
 pub use config::Group;
+pub use storage::ExportOptions;
+pub use storage::ImportOptions;
 pub use storage::Storage;
 
 pub use lazy_static::lazy_static;

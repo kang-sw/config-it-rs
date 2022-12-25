@@ -27,6 +27,42 @@ pub struct Storage {
     pub(crate) tx: async_channel::Sender<ControlDirective>,
 }
 
+pub struct ImportOptions {
+    /// If set this to true, the imported config will be merged onto existing cache. Usually turning
+    /// this on is useful to prevent unsaved archive entity from being overwritten.
+    merge_onto_cache: bool,
+}
+
+impl Default for ImportOptions {
+    fn default() -> Self {
+        Self {
+            merge_onto_cache: true,
+        }
+    }
+}
+
+pub struct ExportOptions {
+    /// On export, storage collects only active instances of config groups. If this is set to true,
+    /// collected result will be merged onto existing dump cache, thus it will preserve
+    /// uninitialized config groups' archive data.
+    ///
+    /// Otherwise, only active config groups will be exported.
+    merge_onto_dumped: bool,
+
+    /// If this option is set true, storage will replace import cache with dumped export data.
+    /// This will affect the next config group creation.
+    replace_import_cache: bool,
+}
+
+impl Default for ExportOptions {
+    fn default() -> Self {
+        Self {
+            merge_onto_dumped: true,
+            replace_import_cache: false,
+        }
+    }
+}
+
 impl Storage {
     ///
     /// Creates new storage and its driver.
@@ -173,17 +209,12 @@ impl Storage {
     ///   Otherwise, result will contain merge result of previously loaded archive.
     /// * `no_update` - If true, existing archive won't
     ///
-    pub async fn export(
-        &self,
-        no_merge: Option<bool>,
-        no_update: Option<bool>,
-    ) -> Result<archive::Archive, core::Error> {
+    pub async fn export(&self, option: ExportOptions) -> Result<archive::Archive, core::Error> {
         let (tx, rx) = oneshot::channel();
         self.tx
             .send(ControlDirective::Export {
                 destination: tx,
-                no_merge_exist: no_merge.unwrap_or(false),
-                no_update: no_update.unwrap_or(false),
+                option,
             })
             .await
             .map_err(|_| core::Error::ExpiredStorage)?;
@@ -225,12 +256,12 @@ impl Storage {
     pub async fn import(
         &self,
         archive: archive::Archive,
-        merge: Option<bool>,
+        option: ImportOptions,
     ) -> Result<(), core::Error> {
         self.tx
             .send(ControlDirective::Import {
                 body: archive,
-                merge_onto_exist: merge.unwrap_or(true),
+                option,
             })
             .await
             .map_err(|_| core::Error::ExpiredStorage)
@@ -466,11 +497,8 @@ mod detail {
                     self.monitors.push(tx);
                 }
 
-                Import {
-                    body,
-                    merge_onto_exist: merged,
-                } => {
-                    if merged {
+                Import { body, option } => {
+                    if option.merge_onto_cache {
                         self.archive.merge_with(body);
                     } else {
                         self.archive = body;
@@ -489,27 +517,26 @@ mod detail {
 
                 Export {
                     destination,
-                    no_merge_exist,
-                    no_update,
+                    option,
                 } => {
                     let mut archive = Archive::default();
                     for (_, node) in &self.all_groups {
                         Self::dump_node_(&node.context, &mut archive);
                     }
 
-                    let send_target = if no_merge_exist {
-                        if no_update {
-                            archive
-                        } else {
+                    let send_target = if !option.merge_onto_dumped {
+                        if option.replace_import_cache {
                             self.archive = archive;
                             self.archive.clone()
+                        } else {
+                            archive
                         }
                     } else {
-                        if no_update {
-                            self.archive.clone().merge(archive)
-                        } else {
+                        if option.replace_import_cache {
                             self.archive.merge_with(archive);
                             self.archive.clone()
+                        } else {
+                            self.archive.clone().merge(archive)
                         }
                     };
 
