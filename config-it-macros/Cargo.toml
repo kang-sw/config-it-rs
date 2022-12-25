@@ -1,6 +1,6 @@
 [package]
 name = "config-it-macros"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 authors = ["kang-sw <ki6080@gmail.com>"]
 categories = ["config"]
@@ -13,5 +13,5 @@ proc-macro = true
 
 [dependencies]
 proc-macro2 = "1"
-quote = "1.0"
+quote = "1"
 syn = { version = "1" }
