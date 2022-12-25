@@ -4,7 +4,9 @@ pub mod parsing;
 use parsing::*;
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
+use syn::Lit;
 use std::mem::replace;
+use std::str::FromStr;
 
 pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
     let identifier = ty.identifier;
@@ -23,7 +25,17 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
             .map_or_else(|| ident_str.clone(), |x| x.into_token_stream().to_string());
         let doc = x.docstring;
 
-        let default = x.default_value.as_ref().map_or(quote!{Default::default()}, |x| quote! { #x.into() });
+        let default = if let Some(x) = &x.default_value {
+            Some(quote!(#x))
+        } else if let Some(Lit::Str(x)) = &x.default_expr {
+            // x is in form of "<expr>". Retrieve <expr> from quotes
+            let x = x.value();
+            Some(TokenStream::from_str(&x).unwrap())
+        } else {
+            None
+        };
+        
+        let default_to_meta = default.as_ref().map_or(quote!(Default::default()), |v| quote!(#v.into()));
         let min = x.min.as_ref().map_or(quote!{None}, |x| quote!{Some(#x)} );
         let max = x.max.as_ref().map_or(quote!{None}, |x| quote!(Some(#x)) );
         let one_of = x.one_of.as_ref().map_or(quote!(), |x| {
@@ -100,7 +112,7 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
                         
                         result
                     }, 
-                    v_default: #default,
+                    v_default: #default_to_meta,
                     v_one_of: [#one_of].into(),
                     v_max: #min,
                     v_min: #max,
@@ -135,7 +147,7 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
         // If given property has 'env' option, try find corresponding environment variable, 
         //  and if one is found, try to parse it. Otherwise, don't touch or use default.
         
-        let default_val = x.default_value.as_ref().map_or(
+        let default_val = default.as_ref().map_or(
             quote!{}, |x| quote!{
                 self.#ident = #x.into();          
         });

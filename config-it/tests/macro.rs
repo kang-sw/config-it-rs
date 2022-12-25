@@ -26,6 +26,11 @@ pub struct MyStruct {
     #[config_it(default = 3112, one_of(1, 2, 3, 4, 5))]
     median: i32,
 
+    /// Complicated default value expressions should be wrapped within quotes, and assigned into
+    /// `default_expr` attribute.
+    #[config_it(default_expr = "[1,2,3,4,5]")]
+    array: [i32; 5],
+
     #[config_it(default = 124, no_import)]
     noimp: i32,
 
@@ -94,6 +99,7 @@ fn config_set_valid_operations() {
         assert_eq!(group.median, 3112);
         assert_eq!(group.noimp, 124);
         assert_eq!(group.noexp, 242);
+        assert_eq!(group.array, [1, 2, 3, 4, 5]);
         assert_eq!(group.data, "3@");
         dbg!(&group.__body);
 
@@ -114,7 +120,7 @@ fn config_set_valid_operations() {
         dbg!(&arch);
 
         assert!(brd.try_recv().is_err());
-        let _ = storage.import(arch, None).await;
+        let _ = storage.import(arch, Default::default()).await;
 
         thread::sleep(Duration::from_millis(100));
 
@@ -141,7 +147,7 @@ fn config_set_valid_operations() {
 
         let _0: &dyn Send = &group;
 
-        let dumped = storage.export(Some(true), Some(true)).await.unwrap();
+        let dumped = storage.export(Default::default()).await.unwrap();
         let dumped = serde_json::to_string_pretty(&dumped).unwrap();
         println!("{}", dumped);
     };

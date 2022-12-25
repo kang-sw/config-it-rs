@@ -29,6 +29,7 @@ pub struct FieldDesc {
     pub alias: Option<syn::Lit>,
 
     pub default_value: Option<syn::Lit>,
+    pub default_expr: Option<syn::Lit>,
     pub min: Option<syn::Lit>,
     pub max: Option<syn::Lit>,
     pub one_of: Option<syn::MetaList>,
@@ -72,6 +73,7 @@ pub fn decompose_input(input: DeriveInput) -> Result<TypeDesc, (Span, String)> {
             src_type: field.ty,
             visibility: field.vis,
             default_value: Default::default(),
+            default_expr: Default::default(),
             docstring: String::with_capacity(200),
             alias: Default::default(),
             min: Default::default(),
@@ -184,6 +186,8 @@ fn decompose_attribute(desc: &mut FieldDesc, attr: syn::Attribute) -> bool {
                 &mut desc.min
             } else if path.is_ident("max") {
                 &mut desc.max
+            } else if path.is_ident("default_expr") {
+                &mut desc.default_expr
             } else if path.is_ident("default") {
                 &mut desc.default_value
             } else if path.is_ident("env") {

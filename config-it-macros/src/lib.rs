@@ -31,19 +31,19 @@ pub fn derive_collect_fn(item: TokenStream) -> TokenStream {
             )
     };
     
-    // #[cfg(any())]
-    // {
-    //     use quote::quote;
+    #[cfg(any())]
+    {
+        use quote::quote;
         
-    //     let generated_str = generated.to_string();
+        let generated_str = generated.to_string();
     
-    //     return quote!{
-    //         fn hello() -> &'static str {
-    //             #generated_str
-    //         }
-    //     }.into();
-    // }
+        return quote!{
+            fn hello() -> &'static str {
+                #generated_str
+            }
+            
+        }.into();
+    }
     
-    // #[cfg(not(test))]
     generated.into()
 }
