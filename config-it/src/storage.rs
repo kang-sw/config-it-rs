@@ -30,7 +30,7 @@ pub struct Storage {
 pub struct ImportOptions {
     /// If set this to true, the imported config will be merged onto existing cache. Usually turning
     /// this on is useful to prevent unsaved archive entity from being overwritten.
-    merge_onto_cache: bool,
+    pub merge_onto_cache: bool,
 }
 
 impl Default for ImportOptions {
@@ -47,18 +47,18 @@ pub struct ExportOptions {
     /// uninitialized config groups' archive data.
     ///
     /// Otherwise, only active config groups will be exported.
-    merge_onto_dumped: bool,
+    pub merge_onto_dumped: bool,
 
     /// If this option is set true, storage will replace import cache with dumped export data.
     /// This will affect the next config group creation.
-    replace_import_cache: bool,
+    pub replace_import_cache: bool,
 }
 
 impl Default for ExportOptions {
     fn default() -> Self {
         Self {
             merge_onto_dumped: true,
-            replace_import_cache: false,
+            replace_import_cache: true,
         }
     }
 }
