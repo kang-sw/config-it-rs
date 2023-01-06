@@ -1,11 +1,14 @@
+mod public_path;
+
 use std::net::{IpAddr, Ipv4Addr};
 
-use async_channel::{Receiver, Sender};
+use async_channel::Sender;
 use config_it::CompactString;
-use futures::Future;
 use tokio::sync::oneshot;
 
-use crate::runner::Runner;
+use crate::{misc::default, runner::Runner};
+
+use self::public_path::PublicPath;
 
 ///
 /// Serves multiple config storages on specified access point.
@@ -14,28 +17,24 @@ use crate::runner::Runner;
 /// TODO: Public file path
 ///
 pub struct Service {
-    storages: Vec<config_it::Storage>,
-    bind_addr: IpAddr,
-    bind_port: u16,
+    pub storages: Vec<config_it::Storage>,
+    pub bind_addr: IpAddr,
+    pub bind_port: u16,
+
+    /// Path to public files
+    pub public_path: PublicPath,
 
     /// Name of this system. This will be displayed in the web interface.
-    name: String,
+    pub name: String,
 
     /// Description of this system. This will be displayed in the web interface.
-    description: String,
-
-    /// A string channel that can be used to log messages
-    rx_log: Option<Receiver<CompactString>>,
+    pub description: String,
 
     /// A string channel for accepting commands from remote side client.
-    tx_cmd: Option<Sender<CompactString>>,
+    pub tx_cmd: Option<Sender<CompactString>>,
 
     /// A oneshot signal that can be used to stop the service.
-    stop_signal: Option<oneshot::Receiver<()>>,
-}
-
-fn default<T: Default>() -> T {
-    T::default()
+    pub stop_signal: Option<oneshot::Receiver<()>>,
 }
 
 impl Service {
@@ -46,7 +45,7 @@ impl Service {
             bind_addr: Ipv4Addr::UNSPECIFIED.into(),
             name: "default".into(),
             description: default(),
-            rx_log: None,
+            public_path: default(),
             tx_cmd: None,
             stop_signal: None,
         }
@@ -77,9 +76,8 @@ impl Service {
         self
     }
 
-    pub fn with_log_sink(mut self, rx: Receiver<CompactString>) -> Self {
-        self.rx_log = Some(rx);
-        self
+    pub fn with_sink(mut self, rx: crate::trace::Builder) -> Self {
+        todo!("Spawn a trace subscriber, associate it with the service.");
     }
 
     pub fn with_command_source(mut self, tx: Sender<CompactString>) -> Self {
