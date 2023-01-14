@@ -11,4 +11,5 @@ mod misc;
 mod runner;
 mod service;
 
+pub use async_channel as channel;
 pub use service::Builder;
