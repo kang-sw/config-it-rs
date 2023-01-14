@@ -4,9 +4,9 @@ pub mod parsing;
 use parsing::*;
 use proc_macro2::{Span, TokenStream};
 use quote::{quote, ToTokens};
-use syn::Lit;
 use std::mem::replace;
 use std::str::FromStr;
+use syn::Lit;
 
 pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
     let identifier = ty.identifier;
@@ -22,7 +22,10 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
         let ty = x.src_type;
         let alias = x
             .alias
-            .map_or_else(|| ident_str.clone(), |x| x.into_token_stream().to_string());
+            .map_or_else(|| ident_str.clone(), |x| match x {
+                Lit::Str(x) => x.value(),
+                _ => ident_str.clone(),
+            });
         let doc = x.docstring;
 
         let default = if let Some(x) = &x.default_value {
@@ -34,7 +37,7 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
         } else {
             None
         };
-        
+
         let default_to_meta = default.as_ref().map_or(quote!(Default::default()), |v| quote!(#v));
         let min = x.min.as_ref().map_or(quote!{None}, |x| quote!{Some(#x)} );
         let max = x.max.as_ref().map_or(quote!{None}, |x| quote!(Some(#x)) );
@@ -45,9 +48,9 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
 
         let disable_import = x.flag_disable_import;
         let disable_export = x.flag_disable_export;
-        
+
         let hidden = x.flag_hidden;
-        
+
         let func_min = x.min.map_or(quote!{}, |x| {
             quote! {
                 if *to < #x {
@@ -56,7 +59,7 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
                 }
             }
         });
-        
+
         let func_max = x.max.map_or(quote!{}, |x| {
             quote! {
                 if *to > #x {
@@ -65,24 +68,24 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
                 }
             }
         });
-        
+
         let func_one_of = if let Some(v) = x.one_of {
             let args =v.nested.into_iter().map(
                 |x| quote! {
                     x if *x == #x => true,
                 });
-                
+
             quote! {
                 let matches_one_of = match to {
-                    #(#args)*                    
+                    #(#args)*
                     _ => false,
                 };
-                
+
                 if !matches_one_of {
                     result = None;
                 }
             }
-        } else { 
+        } else {
             quote!()
         };
 
@@ -101,17 +104,17 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
                 let index = #indexer as usize;
 
                 let init = config_it::entity::MetadataValInit::<Type> {
-                    fn_validate: |_meta, to| -> Option<bool> { 
-                        
+                    fn_validate: |_meta, to| -> Option<bool> {
+
                         let to: &mut Type = to.downcast_mut().unwrap();
                         let mut result = Some(true);
-                        
+
                         #func_min
                         #func_max
                         #func_one_of
-                        
+
                         result
-                    }, 
+                    },
                     v_default: #default_to_meta,
                     v_one_of: [#one_of].into(),
                     v_max: #min,
@@ -138,30 +141,30 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
             }
         };
 
-        
+
         let elem_at = quote!{
             #indexer => &mut self.#ident,
         };
-        
-        // If given property has 'env' option, try find corresponding environment variable, 
+
+        // If given property has 'env' option, try find corresponding environment variable,
         //  and if one is found, try to parse it. Otherwise, don't touch or use default.
-        
+
         let default_val = default.as_ref().map_or(
             quote!{}, |x| quote!{
-                self.#ident = #x;          
+                self.#ident = #x;
         });
-        
+
         let env_var = x.env_var;
         let default_val = env_var.as_ref().map_or(
-            quote!{#default_val}, 
+            quote!{#default_val},
             |env_var| {
                 quote! {
                     let mut env_parsed = false;
                     if let Ok(x) = std::env::var(#env_var) {
-                        
+
                         // TODO: Custom environment parser
-                        // To support types which does not implement 'parse', implement way to 
-                        //  provide customized environnement parser function, which accepts 
+                        // To support types which does not implement 'parse', implement way to
+                        //  provide customized environnement parser function, which accepts
                         //  `&str` then returns `Option<U>`, which implements trait `Into<T>()`.
                         if let Ok(x) = x.parse::<#ty>() {
                             self.#ident = x;
@@ -169,14 +172,14 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
                         } else {
                         }
                     }
-                    
+
                     if !env_parsed {
                         #default_val
                     }
                 }
             }
         );
-        
+
         indexer += 1;
         (meta_gen, elem_at, default_val)
     });
@@ -184,7 +187,6 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
     let mut vec_fields = Vec::with_capacity(num_fields);
     let mut vec_idents = Vec::with_capacity(num_fields);
     let mut vec_defaults = Vec::with_capacity(num_fields);
-    
 
     fields.for_each(|(a, b, c)| {
         vec_fields.push(a);
@@ -217,7 +219,7 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
                     _ => unreachable!(),
                 }
             }
-            
+
             fn fill_default(&mut self) {
                 #(#vec_defaults)*
             }

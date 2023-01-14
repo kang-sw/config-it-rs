@@ -88,7 +88,7 @@ pub fn decompose_input(input: DeriveInput) -> Result<TypeDesc, (Span, String)> {
 
         let mut has_any_valid_attr = false;
         for attr in field.attrs {
-            has_any_valid_attr = has_any_valid_attr | decompose_attribute(&mut desc, attr);
+            has_any_valid_attr = has_any_valid_attr | decompose_attribute(&mut desc, attr)?;
         }
 
         if has_any_valid_attr {
@@ -157,17 +157,17 @@ fn retrieve_namespace(attrs: Vec<Attribute>) -> Option<TokenTree> {
     Some(puncts.swap_remove(comma_pos))
 }
 
-fn decompose_attribute(desc: &mut FieldDesc, attr: syn::Attribute) -> bool {
+fn decompose_attribute(desc: &mut FieldDesc, attr: syn::Attribute) -> Result<bool, (Span, String)> {
     // Simply ignores non-perfkit attribute
     if attr.path.is_ident("doc") {
         if let Ok(NameValue(v)) = attr.parse_meta() {
             desc.docstring += v.lit.to_token_stream().to_string().as_str();
         }
-        return false;
+        return Ok(false);
     }
 
     if false == attr.path.is_ident("config_it") {
-        return false;
+        return Ok(false);
     };
 
     use syn::Meta::*;
@@ -176,44 +176,47 @@ fn decompose_attribute(desc: &mut FieldDesc, attr: syn::Attribute) -> bool {
     let meta_list = if let Ok(List(m)) = attr.parse_meta() {
         m
     } else {
-        return false;
+        return Ok(true);
     };
-    meta_list.nested.into_iter().for_each(|meta| match meta {
-        Meta(List(v)) if v.path.is_ident("one_of") => desc.one_of = Some(v),
 
-        Meta(NameValue(MetaNameValue { path, lit, .. })) => {
-            let dst = if path.is_ident("min") {
-                &mut desc.min
-            } else if path.is_ident("max") {
-                &mut desc.max
-            } else if path.is_ident("default_expr") {
-                &mut desc.default_expr
-            } else if path.is_ident("default") {
-                &mut desc.default_value
-            } else if path.is_ident("env") {
-                &mut desc.env_var
-            } else if path.is_ident("alias") {
-                &mut desc.alias
-            } else {
-                return;
-            };
+    for meta in meta_list.nested {
+        match meta {
+            Meta(List(v)) if v.path.is_ident("one_of") => desc.one_of = Some(v),
 
-            *dst = Some(lit);
+            Meta(NameValue(MetaNameValue { path, lit, .. })) => {
+                let dst = if path.is_ident("min") {
+                    &mut desc.min
+                } else if path.is_ident("max") {
+                    &mut desc.max
+                } else if path.is_ident("default_expr") {
+                    &mut desc.default_expr
+                } else if path.is_ident("default") {
+                    &mut desc.default_value
+                } else if path.is_ident("env") {
+                    &mut desc.env_var
+                } else if path.is_ident("alias") {
+                    &mut desc.alias
+                } else {
+                    return Err((attr.span(), "Unknonw attribute".to_string()));
+                };
+
+                *dst = Some(lit);
+            }
+
+            Meta(Path(v)) if v.is_ident("no_export") => desc.flag_disable_export = true,
+            Meta(Path(v)) if v.is_ident("no_import") => desc.flag_disable_import = true,
+            Meta(Path(v)) if v.is_ident("hidden") => desc.flag_hidden = true,
+
+            Meta(Path(v)) if v.is_ident("transient") => {
+                desc.flag_disable_import = true;
+                desc.flag_disable_export = true
+            }
+
+            _ => return Err((attr.span(), "Invalid attribute".to_string())),
         }
+    }
 
-        Meta(Path(v)) if v.is_ident("no_export") => desc.flag_disable_export = true,
-        Meta(Path(v)) if v.is_ident("no_import") => desc.flag_disable_import = true,
-        Meta(Path(v)) if v.is_ident("hidden") => desc.flag_hidden = true,
-
-        Meta(Path(v)) if v.is_ident("transient") => {
-            desc.flag_disable_import = true;
-            desc.flag_disable_export = true
-        }
-
-        _ => {}
-    });
-
-    true
+    Ok(true)
 }
 
 ///
