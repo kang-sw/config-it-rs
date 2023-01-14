@@ -12,7 +12,7 @@ use crate::{
     core::{self, ControlDirective, Error as ConfigError, MonitorEvent, ReplicationEvent},
     entity::{self, EntityEventHook},
 };
-use futures::executor::block_on;
+use futures::executor::LocalPool;
 use log::debug;
 use smartstring::alias::CompactString;
 
@@ -191,7 +191,7 @@ impl Storage {
     where
         T: config::ConfigGroupData,
     {
-        block_on(
+        LocalPool::new().run_until(
             self.create_group_ex::<T>(
                 path.into_iter()
                     .map(|x| -> CompactString { x.into() })
