@@ -1,0 +1,14 @@
+[package]
+name = "trace-it"
+version = "0.1.0"
+edition = "2021"
+authors = ["kang-sw <ki6080@gmail.com>"]
+categories = ["tracing"]
+repository = "https://github.com/kang-sw/config-it-rs"
+license = "MIT"
+description = "Implements web socket interface for tracing"
+
+
+[dependencies]
+log = "0"
+tracing = "0"

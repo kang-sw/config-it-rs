@@ -25,7 +25,7 @@ enum Directive {}
 type Handle = mpsc::UnboundedSender<Directive>;
 
 impl Runner {
-    pub async fn exec(desc: super::Service) {
+    pub async fn exec(desc: super::Builder) {
         let sys_info = SystemInfo {
             alias: desc.name,
             description: desc.description,

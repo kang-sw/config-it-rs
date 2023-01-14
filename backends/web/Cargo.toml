@@ -8,18 +8,23 @@ exclude = ["front"]
 
 [dependencies]
 config-it = { path = "../../config-it", version = "0.1" }
+
 serde = { version = "1", features = ["derive"] }
-axum = { version = "0.6", features = ["ws"] }
+
 tokio = { version = "1", features = ["full"] }
-rand = "*"
+axum = { version = "0.6", features = ["ws"] }
 async-channel = "1"
-log = "0.4"
-whoami = "1"
 futures = "0.3"
+
+log = "0.4"
+
+rand = "*"
+whoami = "1"
 serde_json = "1"
 gethostname = "*"
 
 tracing = "0.1"
+trace-it = { path = "../../trace-it" }
 
 [dev-dependencies]
 dotenvy = "0"

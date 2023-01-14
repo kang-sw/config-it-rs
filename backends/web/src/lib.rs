@@ -10,6 +10,5 @@
 mod misc;
 mod runner;
 mod service;
-pub mod trace;
 
-pub use service::Service;
+pub use service::Builder;

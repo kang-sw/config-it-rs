@@ -147,7 +147,7 @@ fn config_set_valid_operations() {
 
         dbg!(&group.__body);
 
-        let meta = group.get_metadata(&group.aliased_to_mvmv);
+        let meta = group.get_metadata(&group.my_value);
         dbg!((meta.name, &meta.props));
 
         assert!(!group.update(), "Re-request handled correctly.");

@@ -16,7 +16,7 @@ use self::public_path::PublicPath;
 /// TODO: Authentication method
 /// TODO: Public file path
 ///
-pub struct Service {
+pub struct Builder {
     pub storages: Vec<config_it::Storage>,
     pub bind_addr: IpAddr,
     pub bind_port: u16,
@@ -37,7 +37,7 @@ pub struct Service {
     pub stop_signal: Option<oneshot::Receiver<()>>,
 }
 
-impl Service {
+impl Builder {
     pub fn new() -> Self {
         Self {
             storages: default(),
@@ -76,7 +76,7 @@ impl Service {
         self
     }
 
-    pub fn with_sink(mut self, rx: crate::trace::Builder) -> Self {
+    pub fn with_trace_sink(mut self, rx: trace_it::Builder) -> Self {
         todo!("Spawn a trace subscriber, associate it with the service.");
     }
 
@@ -88,6 +88,14 @@ impl Service {
     pub fn with_stop_signal(mut self, rx: oneshot::Receiver<()>) -> Self {
         self.stop_signal = Some(rx);
         self
+    }
+
+    /// Creates a log sink that can be used to redirect log outputs to the service.
+    ///
+    /// > **Warning**: Do not use this method with `with_trace_sink` method with log to
+    ///   event redirection. This will incur duplicated output of every log message.
+    pub fn create_log_sink(&mut self) -> Box<dyn Fn(&log::Record)> {
+        todo!("Create a log sink, associate it with the service.");
     }
 
     pub async fn run(self) {
