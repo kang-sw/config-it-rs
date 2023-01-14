@@ -83,6 +83,7 @@ pub struct MetadataValInit<T> {
     pub fn_validate: fn(&Metadata, &mut dyn Any) -> Option<bool>,
 }
 
+#[derive(Debug)]
 pub struct MetadataProps {
     pub disable_export: bool,
     pub disable_import: bool,

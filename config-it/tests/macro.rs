@@ -40,6 +40,12 @@ pub struct MyStruct {
     #[config_it(default = 242, no_export)]
     noexp: i32,
 
+    #[config_it]
+    my_value: i32,
+
+    #[config_it(alias = "mvmv")]
+    aliased_to_mvmv: i32,
+
     #[allow(unused)]
     my_invisible: f32,
 }
@@ -97,6 +103,7 @@ fn config_set_valid_operations() {
         assert_eq!(group.median, 3112);
         assert_eq!(group.noimp, 124);
         assert_eq!(group.noexp, 242);
+        assert_eq!(group.my_value, 0);
         assert_eq!(group.array, [1, 2, 3, 4, 5]);
         assert_eq!(group.array_env, 14141);
         assert_eq!(group.data, "3@");
@@ -120,6 +127,7 @@ fn config_set_valid_operations() {
                     "minimal": -1929,
                     "noimp": 932,
                     "noexp": 884,
+                    "mvmv": 415,
                 }
             }
         });
@@ -139,6 +147,9 @@ fn config_set_valid_operations() {
 
         dbg!(&group.__body);
 
+        let meta = group.get_metadata(&group.aliased_to_mvmv);
+        dbg!((meta.name, &meta.props));
+
         assert!(!group.update(), "Re-request handled correctly.");
         assert!(group.check_elem_update(&group.data), "Updated configs correctly applied.");
         assert!(group.check_elem_update(&group.maximum));
@@ -147,18 +158,19 @@ fn config_set_valid_operations() {
         assert!(!group.check_elem_update(&group.noimp), "No-import property correctly excluded");
         assert!(!group.check_elem_update(&group.median), "Unspecified update correctly excluded.");
 
-        assert_eq!(group.maximum, 3, "Value validation correctly applied");
-        assert_eq!(group.minimal, -35, "Lower limit correctly applied");
-        assert_eq!(group.median, 3112, "Untouched element correctly excluded");
-        assert_eq!(group.noimp, 124, "No-import element excluded well");
-        assert_eq!(group.noexp, 884, "No-export element included well");
-        assert_eq!(group.data, "ab3", "String argument updated well");
-
-        let _0: &dyn Send = &group;
-
         let dumped = storage.export(Default::default()).await.unwrap();
         let dumped = serde_json::to_string_pretty(&dumped).unwrap();
         println!("{}", dumped);
+
+        assert_eq!(group.maximum, 3, "Value validation");
+        assert_eq!(group.minimal, -35, "Lower limit");
+        assert_eq!(group.median, 3112, "Untouched element exclude");
+        assert_eq!(group.noimp, 124, "No-import element exclude");
+        assert_eq!(group.aliased_to_mvmv, 415, "Alias");
+        assert_eq!(group.noexp, 884, "No-export element include");
+        assert_eq!(group.data, "ab3", "String argument update");
+
+        let _: &dyn Send = &group;
     };
 
     block_on(async_op);
