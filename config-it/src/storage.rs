@@ -63,6 +63,33 @@ impl Default for ExportOptions {
     }
 }
 
+///
+/// Create config storage and its driver pair.
+///
+pub fn create() -> (Storage, impl Future<Output = ()>) {
+    let (tx, rx) = async_channel::unbounded();
+    let driver = {
+        async move {
+            debug!("Config storage worker launched");
+            let mut context = detail::StorageDriveContext::new();
+            loop {
+                match rx.recv().await {
+                    Ok(msg) => {
+                        context.handle_once(msg).await;
+                    }
+                    Err(e) => {
+                        let ptr = &rx as *const _;
+                        debug!("[{ptr:p}] ({e:?}) All sender channel has been closed. Closing storage ...");
+                        break;
+                    }
+                }
+            }
+        }
+    };
+
+    (Storage { tx }, driver)
+}
+
 impl Storage {
     ///
     /// Creates new storage and its driver.
@@ -70,28 +97,9 @@ impl Storage {
     /// The second tuple parameter is asynchronous loop which handles all storage events,
     ///  which must be spawned or blocked by runtime to make storage work. All storage
     ///
+    #[deprecated(note = "Use global function 'create' instead")]
     pub fn new() -> (Self, impl Future<Output = ()>) {
-        let (tx, rx) = async_channel::unbounded();
-        let driver = {
-            async move {
-                debug!("Config storage worker launched");
-                let mut context = detail::StorageDriveContext::new();
-                loop {
-                    match rx.recv().await {
-                        Ok(msg) => {
-                            context.handle_once(msg).await;
-                        }
-                        Err(e) => {
-                            let ptr = &rx as *const _;
-                            debug!("[{ptr:p}] ({e:?}) All sender channel has been closed. Closing storage ...");
-                            break;
-                        }
-                    }
-                }
-            }
-        };
-
-        (Self { tx }, driver)
+        create()
     }
 
     ///

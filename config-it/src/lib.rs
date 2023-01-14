@@ -117,6 +117,8 @@ pub use storage::ExportOptions;
 pub use storage::ImportOptions;
 pub use storage::Storage;
 
+pub use storage::create as create_storage;
+
 pub use lazy_static::lazy_static;
 pub use macros::ConfigGroupData;
 
