@@ -20,6 +20,9 @@ pub struct MyStruct {
     #[config_it(default = 2, max = 3)]
     maximum: i32,
 
+    #[config_it(default = 24, max = 3)]
+    maximum_va: usize,
+
     #[config_it(default = "3@", one_of("ab3", "go04"))]
     data: String,
 
@@ -76,7 +79,7 @@ fn fewew() {
 #[test]
 fn config_set_valid_operations() {
     let async_op = async {
-        let (storage, worker) = config_it::Storage::new();
+        let (storage, worker) = config_it::create_storage();
         thread::spawn(move || block_on(worker));
 
         std::env::set_var("MY_ARRAY_VAR", "14141");

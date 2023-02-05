@@ -29,7 +29,7 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
         let doc = x.docstring;
 
         let default = if let Some(x) = &x.default_value {
-            Some(quote!(#x.into()))
+            Some(quote!(#x.try_into().unwrap()))
         } else if let Some(Lit::Str(x)) = &x.default_expr {
             // x is in form of "<expr>". Retrieve <expr> from quotes
             let x = x.value();
@@ -54,7 +54,7 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
         let func_min = x.min.map_or(quote!{}, |x| {
             quote! {
                 if *to < #x {
-                    *to = (#x).into();
+                    *to = (#x).try_into().unwrap();
                     result = Some(false);
                 }
             }
@@ -63,7 +63,7 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
         let func_max = x.max.map_or(quote!{}, |x| {
             quote! {
                 if *to > #x {
-                    *to = (#x).into();
+                    *to = (#x).try_into().unwrap();
                     result = Some(false);
                 }
             }
