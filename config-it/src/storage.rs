@@ -2,7 +2,7 @@ use std::{
     future::Future,
     sync::{
         atomic::{AtomicU64, AtomicUsize, Ordering},
-        Arc, Mutex,
+        Arc,
     },
 };
 
@@ -14,6 +14,7 @@ use crate::{
 };
 use futures::executor::LocalPool;
 use log::debug;
+use parking_lot::Mutex;
 use smartstring::alias::CompactString;
 
 ///
@@ -192,9 +193,9 @@ impl Storage {
         .await
     }
 
-    pub async fn create_group_block<T>(
+    pub fn create_group_block<'a, T>(
         &self,
-        path: impl IntoIterator<Item = &str>,
+        path: impl IntoIterator<Item = &'a str>,
     ) -> Result<config::Group<T>, ConfigError>
     where
         T: config::ConfigGroupData,

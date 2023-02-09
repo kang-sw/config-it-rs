@@ -98,7 +98,7 @@ fn config_set_valid_operations() {
             "Assert key duplication handled correctly"
         );
 
-        let mut brd = group.watch_update().await;
+        let mut brd = group.watch_update();
         assert!(brd.try_recv().is_err());
 
         assert_eq!(group.maximum, 2, "Default value correctly applied");

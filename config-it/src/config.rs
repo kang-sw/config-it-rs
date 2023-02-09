@@ -1,14 +1,13 @@
 use crate::entity::{EntityData, EntityTrait, Metadata};
+use parking_lot::Mutex;
 use smartstring::alias::CompactString;
 use std::any::{Any, TypeId};
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::iter::zip;
 use std::mem::replace;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-///
 ///
 /// Base trait that is automatically generated
 ///
@@ -49,12 +48,10 @@ pub struct GroupContext {
 }
 
 ///
-///
 /// Primary interface that end user may interact with
 ///
 /// Wrap `ReflectData` derivative like `Group<MyData>`
 ///
-#[derive(Clone)]
 pub struct Group<T> {
     /// Cached local content
     pub __body: T,
@@ -62,8 +59,8 @@ pub struct Group<T> {
     /// Cached update fence
     fence: usize,
 
-    /// Collects each property context.
-    local: RefCell<Vec<PropLocalContext>>,
+    /// Property-wise contexts
+    local: Mutex<Vec<PropLocalContext>>,
 
     /// List of managed properties. This act as source container
     core: Arc<GroupContext>,
@@ -73,6 +70,18 @@ pub struct Group<T> {
     /// It will unregister this config set from owner storage automatically, when all
     ///  instances of config set disposed.
     _unregister_hook: Arc<dyn Any + Send + Sync>,
+}
+
+impl<T: Clone> Clone for Group<T> {
+    fn clone(&self) -> Self {
+        Self {
+            __body: self.__body.clone(),
+            fence: self.fence.clone(),
+            local: self.local.lock().clone().into(),
+            core: self.core.clone(),
+            _unregister_hook: self._unregister_hook.clone(),
+        }
+    }
 }
 
 impl<T: std::fmt::Debug> std::fmt::Debug for Group<T> {
@@ -102,7 +111,7 @@ impl<T: ConfigGroupData> Group<T> {
             core,
             __body: T::default(),
             fence: 0,
-            local: RefCell::new(vec![PropLocalContext::default(); T::prop_desc_table__().len()]),
+            local: vec![PropLocalContext::default(); T::prop_desc_table__().len()].into(),
             _unregister_hook: unregister_anchor,
         };
 
@@ -120,14 +129,14 @@ impl<T: ConfigGroupData> Group<T> {
             v => self.fence = v,
         }
 
+        let mut local_ctx = self.local.lock();
         debug_assert_eq!(
-            self.local.borrow().len(),
+            local_ctx.len(),
             self.core.sources.len(),
             "Logic Error: set was not correctly initialized!"
         );
 
         let mut has_update = false;
-        let mut local_ctx = self.local.borrow_mut();
 
         for ((index, local), source) in
             zip(zip(0..local_ctx.len(), &mut *local_ctx), &*self.core.sources)
@@ -153,7 +162,7 @@ impl<T: ConfigGroupData> Group<T> {
     ///
     pub fn check_elem_update<U: 'static>(&self, e: &U) -> bool {
         let Some(index) = self.get_index_by_ptr(e) else { return false };
-        let ref_dirty_flag = &mut (*self.local.borrow_mut())[index].dirty_flag;
+        let ref_dirty_flag = &mut (*self.local.lock())[index].dirty_flag;
 
         replace(ref_dirty_flag, false)
     }
@@ -179,7 +188,7 @@ impl<T: ConfigGroupData> Group<T> {
             v => {
                 if let Some(prop) = T::prop_desc_table__().get(&(v as usize)) {
                     debug_assert_eq!(prop.type_id, TypeId::of::<U>());
-                    debug_assert!(prop.index < self.local.borrow().len());
+                    debug_assert!(prop.index < self.local.lock().len());
                     Some(prop)
                 } else {
                     None
@@ -204,8 +213,8 @@ impl<T: ConfigGroupData> Group<T> {
     ///
     /// Get update receiver
     ///
-    pub async fn watch_update(&self) -> async_broadcast::Receiver<()> {
-        self.core.update_receiver_channel.lock().unwrap().clone()
+    pub fn watch_update(&self) -> async_broadcast::Receiver<()> {
+        self.core.update_receiver_channel.lock().clone()
     }
 
     ///
@@ -214,7 +223,7 @@ impl<T: ConfigGroupData> Group<T> {
     pub fn mark_all_elem_dirty(&self) {
         // Raising dirty flag does not incur remote reload.
         self.local
-            .borrow_mut()
+            .lock()
             .iter_mut()
             .for_each(|e| e.dirty_flag = true);
     }
@@ -231,7 +240,7 @@ impl<T: ConfigGroupData> Group<T> {
     ///
     pub fn mark_dirty<U: 'static>(&self, elem: &U) {
         let index = self.get_index_by_ptr(elem).unwrap();
-        self.local.borrow_mut()[index].dirty_flag = true;
+        self.local.lock()[index].dirty_flag = true;
     }
 
     ///
@@ -261,6 +270,28 @@ impl<T> std::ops::DerefMut for Group<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.__body
     }
+}
+
+#[test]
+fn _verify_send_impl() {
+    #[derive(Clone, Default)]
+    struct Example {}
+    impl ConfigGroupData for Example {
+        fn prop_desc_table__() -> &'static HashMap<usize, PropData> {
+            unimplemented!()
+        }
+
+        fn fill_default(&mut self) {
+            unimplemented!()
+        }
+
+        fn elem_at_mut__(&mut self, _: usize) -> &mut dyn Any {
+            unimplemented!()
+        }
+    }
+
+    fn _assert_send<T: Send + Sync>() {}
+    _assert_send::<Group<Example>>();
 }
 
 #[cfg(any())]
