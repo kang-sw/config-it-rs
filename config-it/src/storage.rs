@@ -31,12 +31,16 @@ pub struct ImportOptions {
     /// If set this to true, the imported config will be merged onto existing cache. Usually turning
     /// this on is useful to prevent unsaved archive entity from being overwritten.
     pub merge_onto_cache: bool,
+
+    /// If this option is enabled, imported setting will be converted into 'patch' before applied.
+    pub patch_cache: bool,
 }
 
 impl Default for ImportOptions {
     fn default() -> Self {
         Self {
             merge_onto_cache: true,
+            patch_cache: false,
         }
     }
 }
@@ -506,20 +510,38 @@ mod detail {
                 }
 
                 Import { body, option } => {
-                    if option.merge_onto_cache {
-                        self.archive.merge_onto(body);
-                    } else {
-                        self.archive = body;
-                    }
+                    let mut _apply_archive = |archive: &Archive| {
+                        for (_id, group) in &self.all_groups {
+                            let path = &group.context.path;
+                            let path = path.iter().map(|x| x.as_str());
+                            let Some(node) = archive.find_path(path) else { continue };
 
-                    for (_id, group) in &self.all_groups {
-                        let path = &group.context.path;
-                        let path = path.iter().map(|x| x.as_str());
-                        let Some(node) = self.archive.find_path(path) else { continue };
-
-                        if Self::load_node_(&group.context, node, &mut self.monitors) {
-                            let _ = group.evt_on_update.try_broadcast(());
+                            if Self::load_node_(&group.context, node, &mut self.monitors) {
+                                let _ = group.evt_on_update.try_broadcast(());
+                            }
                         }
+                    };
+
+                    if option.patch_cache {
+                        let mut body = body;
+                        let patch = self.archive.create_patch(&mut body);
+
+                        _apply_archive(&patch);
+
+                        if option.merge_onto_cache {
+                            self.archive.merge_onto(body);
+                        } else {
+                            body.merge_onto(patch);
+                            self.archive = body;
+                        }
+                    } else {
+                        if option.merge_onto_cache {
+                            self.archive.merge_onto(body);
+                        } else {
+                            self.archive = body;
+                        }
+
+                        _apply_archive(&self.archive);
                     }
                 }
 

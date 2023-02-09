@@ -123,7 +123,7 @@ fn config_set_valid_operations() {
         dbg!(&group.__body);
 
         let json = json!({
-            "hello": {
+            "~hello": {
                 "~world!": {
                     "data": "ab3",
                     "maximum": 98,

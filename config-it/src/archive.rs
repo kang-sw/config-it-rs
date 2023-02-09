@@ -1,12 +1,11 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, mem::take};
 
 use compact_str::CompactString;
 use serde::{ser::SerializeMap, Deserialize, Serialize};
-use smallvec::SmallVec;
 
 type Map<T, V> = BTreeMap<T, V>;
 
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub struct Archive {
     /// Every '~' prefixed keys
     pub paths: Map<CompactString, Archive>,
@@ -62,29 +61,39 @@ impl Archive {
     /// Creates archive which contains only the differences between two archives.
     /// This does not affect to removed categories/values of newer archive.
     ///
-    pub fn patch(base: &Self, newer: &Self) -> Self {
+    /// Patched elements are removed from newer archive.
+    ///
+    pub fn create_patch(&self, newer: &mut Self) -> Self {
         let mut patch = Self::default();
 
-        for (k, v) in &newer.paths {
-            if let Some(base_v) = base.paths.get(k) {
-                let patch_v = Self::patch(base_v, v);
+        newer.paths.retain(|k, v| {
+            if let Some(base_v) = self.paths.get(k) {
+                let patch_v = base_v.create_patch(v);
                 if !patch_v.is_empty() {
                     patch.paths.insert(k.clone(), patch_v);
+                    v.is_empty() == false
+                } else {
+                    true
                 }
             } else {
-                patch.paths.insert(k.clone(), v.clone());
+                patch.paths.insert(k.clone(), take(v));
+                false
             }
-        }
+        });
 
-        for (k, v) in &newer.values {
-            if let Some(base_v) = base.values.get(k) {
+        newer.values.retain(|k, v| {
+            if let Some(base_v) = self.values.get(k) {
                 if *base_v != *v {
-                    patch.values.insert(k.clone(), v.clone());
+                    patch.values.insert(k.clone(), take(v));
+                    false
+                } else {
+                    true
                 }
             } else {
-                patch.values.insert(k.clone(), v.clone());
+                patch.values.insert(k.clone(), take(v));
+                false
             }
-        }
+        });
 
         patch
     }
@@ -256,7 +265,11 @@ fn test_archive_basic() {
         }
     "##;
     let newer: Archive = serde_json::from_str(newer).unwrap();
-    let patch = Archive::patch(&arch, &newer);
+    let mut newer_consume = newer.clone();
+    let patch = Archive::create_patch(&arch, &mut newer_consume);
+
+    let merged = arch.clone().merge(patch.clone());
+    assert_eq!(merged, newer);
 
     assert!(patch.paths.len() == 1);
     assert!(patch.paths.contains_key("root_path_1"));
