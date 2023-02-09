@@ -22,7 +22,7 @@ once_cell = "1"
 thiserror = "1"
 
 smartstring = { version = "1", features = ["serde"] }
-async-channel = "1"
+flume = "0"
 async-broadcast = "0.5"
 futures = "0.3"
 

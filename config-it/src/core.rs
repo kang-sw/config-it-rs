@@ -38,7 +38,7 @@ pub(crate) enum ControlDirective {
     },
 
     MonitorRegister {
-        reply_to: oneshot::Sender<async_channel::Receiver<ReplicationEvent>>,
+        reply_to: oneshot::Sender<flume::Receiver<ReplicationEvent>>,
     },
 
     Import {

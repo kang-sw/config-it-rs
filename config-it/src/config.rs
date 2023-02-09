@@ -44,7 +44,7 @@ pub struct GroupContext {
     pub(crate) source_update_fence: AtomicUsize,
 
     /// Broadcast subscriber to receive updates from backend.
-    pub(crate) update_receiver_channel: Mutex<async_broadcast::Receiver<()>>,
+    pub(crate) update_receiver_channel: async_broadcast::InactiveReceiver<()>,
 }
 
 ///
@@ -214,7 +214,7 @@ impl<T: ConfigGroupData> Group<T> {
     /// Get update receiver
     ///
     pub fn watch_update(&self) -> async_broadcast::Receiver<()> {
-        self.core.update_receiver_channel.lock().clone()
+        self.core.update_receiver_channel.clone().activate()
     }
 
     ///

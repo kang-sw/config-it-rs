@@ -14,7 +14,6 @@ use crate::{
 };
 use futures::executor::LocalPool;
 use log::debug;
-use parking_lot::Mutex;
 use smartstring::alias::CompactString;
 
 ///
@@ -25,7 +24,7 @@ pub struct Storage {
     /// Internally, any request/notify is transferred through this channel.
     ///
     /// Thus, any reply-required operation becomes async inherently.
-    pub(crate) tx: async_channel::Sender<ControlDirective>,
+    pub(crate) tx: flume::Sender<ControlDirective>,
 }
 
 pub struct ImportOptions {
@@ -68,13 +67,13 @@ impl Default for ExportOptions {
 /// Create config storage and its driver pair.
 ///
 pub fn create() -> (Storage, impl Future<Output = ()>) {
-    let (tx, rx) = async_channel::unbounded();
+    let (tx, rx) = flume::unbounded();
     let driver = {
         async move {
             debug!("Config storage worker launched");
             let mut context = detail::StorageDriveContext::new();
             loop {
-                match rx.recv().await {
+                match rx.recv_async().await {
                     Ok(msg) => {
                         context.handle_once(msg).await;
                     }
@@ -139,14 +138,14 @@ impl Storage {
             group_id: register_id,
             sources: Arc::new(sources),
             source_update_fence: AtomicUsize::new(1), // NOTE: This will trigger initial check_update() always.
-            update_receiver_channel: Mutex::new(broad_rx),
+            update_receiver_channel: broad_rx.deactivate(),
             path: path.clone(),
         });
 
         let (tx, rx) = oneshot::channel();
         match self
             .tx
-            .send(ControlDirective::TryGroupRegister(
+            .send_async(ControlDirective::TryGroupRegister(
                 core::GroupRegisterParam {
                     group_id: register_id,
                     context: core.clone(),
@@ -221,7 +220,7 @@ impl Storage {
     pub async fn export(&self, option: ExportOptions) -> Result<archive::Archive, core::Error> {
         let (tx, rx) = oneshot::channel();
         self.tx
-            .send(ControlDirective::Export {
+            .send_async(ControlDirective::Export {
                 destination: tx,
                 option,
             })
@@ -268,7 +267,7 @@ impl Storage {
         option: ImportOptions,
     ) -> Result<(), core::Error> {
         self.tx
-            .send(ControlDirective::Import {
+            .send_async(ControlDirective::Import {
                 body: archive,
                 option,
             })
@@ -284,7 +283,7 @@ impl Storage {
     ) -> Result<ReplicationChannel, crate::core::Error> {
         let (tx, rx) = oneshot::channel();
         self.tx
-            .send(ControlDirective::MonitorRegister { reply_to: tx })
+            .send_async(ControlDirective::MonitorRegister { reply_to: tx })
             .await
             .map_err(|_| crate::core::Error::ExpiredStorage)?;
 
@@ -296,7 +295,7 @@ impl Storage {
     ///
     pub async fn monitor_send_event(&self, evt: MonitorEvent) -> Result<(), core::Error> {
         self.tx
-            .send(ControlDirective::FromMonitor(evt))
+            .send_async(ControlDirective::FromMonitor(evt))
             .await
             .map_err(|_| core::Error::ExpiredStorage)
     }
@@ -307,11 +306,11 @@ impl Storage {
 ///
 /// By tracking this, one can synchronize its state with storage.
 ///
-pub type ReplicationChannel = async_channel::Receiver<ReplicationEvent>;
+pub type ReplicationChannel = flume::Receiver<ReplicationEvent>;
 
 struct GroupUnregisterHook {
     register_id: u64,
-    tx: async_channel::Sender<ControlDirective>,
+    tx: flume::Sender<ControlDirective>,
 }
 
 impl Drop for GroupUnregisterHook {
@@ -326,7 +325,7 @@ impl Drop for GroupUnregisterHook {
 
 struct EntityHookImpl {
     register_id: u64,
-    tx: async_channel::Sender<ControlDirective>,
+    tx: flume::Sender<ControlDirective>,
 }
 
 impl EntityEventHook for EntityHookImpl {
@@ -369,7 +368,7 @@ mod detail {
         ///
         /// On every monitor event, storage driver will iterate each session channels
         ///  and will try replication.
-        monitors: Vec<async_channel::Sender<ReplicationEvent>>,
+        monitors: Vec<flume::Sender<ReplicationEvent>>,
 
         /// Registered path hashes. Used to quickly compare if there are any path name
         ///  duplication.
@@ -379,7 +378,7 @@ mod detail {
         archive: archive::Archive,
     }
 
-    type MonitorList = Vec<async_channel::Sender<ReplicationEvent>>;
+    type MonitorList = Vec<flume::Sender<ReplicationEvent>>;
 
     struct GroupRegistration {
         /// Hash calculated from `context.path`.
@@ -482,7 +481,7 @@ mod detail {
 
                 MonitorRegister { reply_to } => {
                     // Create new unbounded reflection channel, flush all current state into it.
-                    let (tx, rx) = async_channel::unbounded();
+                    let (tx, rx) = flume::unbounded();
                     if reply_to.send(rx).is_err() {
                         log::warn!("MonitorRegister() canceled.");
                         return;
@@ -495,7 +494,7 @@ mod detail {
                         .collect();
 
                     if tx
-                        .send(ReplicationEvent::InitialGroups(args))
+                        .send_async(ReplicationEvent::InitialGroups(args))
                         .await
                         .is_err()
                     {
