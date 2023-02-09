@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
+use compact_str::CompactString;
 use serde::{ser::SerializeMap, Deserialize, Serialize};
-use smartstring::alias::CompactString;
 
 type Map<T, V> = BTreeMap<T, V>;
 

@@ -12,9 +12,9 @@ use crate::{
     core::{self, ControlDirective, Error as ConfigError, MonitorEvent, ReplicationEvent},
     entity::{self, EntityEventHook},
 };
+use compact_str::CompactString;
 use futures::executor::LocalPool;
 use log::debug;
-use smartstring::alias::CompactString;
 
 ///
 /// Storage manages multiple sets registered by preset key.

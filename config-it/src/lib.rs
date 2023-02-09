@@ -108,7 +108,7 @@ pub mod core;
 pub mod entity;
 pub mod storage;
 
-pub use smartstring::alias::CompactString;
+pub use compact_str::CompactString;
 
 pub use archive::Archive;
 pub use config::ConfigGroupData;

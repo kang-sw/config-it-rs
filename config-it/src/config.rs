@@ -1,6 +1,6 @@
 use crate::entity::{EntityData, EntityTrait, Metadata};
+use compact_str::CompactString;
 use parking_lot::Mutex;
-use smartstring::alias::CompactString;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::iter::zip;

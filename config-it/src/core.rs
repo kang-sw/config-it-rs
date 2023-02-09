@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
+use compact_str::CompactString;
 use smallvec::SmallVec;
-use smartstring::alias::CompactString;
 
 use crate::{archive, config::GroupContext, ExportOptions, ImportOptions};
 
