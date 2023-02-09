@@ -507,7 +507,7 @@ mod detail {
 
                 Import { body, option } => {
                     if option.merge_onto_cache {
-                        self.archive.merge_with(body);
+                        self.archive.merge_onto(body);
                     } else {
                         self.archive = body;
                     }
@@ -541,7 +541,7 @@ mod detail {
                         }
                     } else {
                         if option.replace_import_cache {
-                            self.archive.merge_with(archive);
+                            self.archive.merge_onto(archive);
                             self.archive.clone()
                         } else {
                             self.archive.clone().merge(archive)
@@ -623,7 +623,7 @@ mod detail {
             }
         }
 
-        fn load_node_(ctx: &GroupContext, node: &archive::Node, noti: &mut MonitorList) -> bool {
+        fn load_node_(ctx: &GroupContext, node: &archive::Archive, noti: &mut MonitorList) -> bool {
             let mut has_update = false;
 
             for (elem, de) in ctx
