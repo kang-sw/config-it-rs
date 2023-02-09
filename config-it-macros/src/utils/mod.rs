@@ -3,7 +3,7 @@ pub mod parsing;
 
 use parsing::*;
 use proc_macro2::{Span, TokenStream};
-use quote::{quote, ToTokens};
+use quote::quote;
 use std::mem::replace;
 use std::str::FromStr;
 use syn::Lit;
