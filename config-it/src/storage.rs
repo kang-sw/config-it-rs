@@ -13,7 +13,6 @@ use crate::{
     entity::{self, EntityEventHook},
 };
 use compact_str::CompactString;
-use futures::executor::LocalPool;
 use log::debug;
 
 ///
@@ -144,6 +143,7 @@ impl Storage {
             source_update_fence: AtomicUsize::new(1), // NOTE: This will trigger initial check_update() always.
             update_receiver_channel: broad_rx.deactivate(),
             path: path.clone(),
+            template_name: T::template_name(),
         });
 
         let (tx, rx) = oneshot::channel();
@@ -194,22 +194,6 @@ impl Storage {
                 .collect::<Vec<_>>(),
         )
         .await
-    }
-
-    pub fn create_group_block<'a, T>(
-        &self,
-        path: impl IntoIterator<Item = &'a str>,
-    ) -> Result<config::Group<T>, ConfigError>
-    where
-        T: config::Template,
-    {
-        LocalPool::new().run_until(
-            self.create_group_ex::<T>(
-                path.into_iter()
-                    .map(|x| -> CompactString { x.into() })
-                    .collect::<Vec<_>>(),
-            ),
-        )
     }
 
     ///

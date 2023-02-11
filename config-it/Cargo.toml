@@ -22,7 +22,6 @@ thiserror = "1"
 
 flume = "0"
 async-broadcast = "0.5"
-futures = "0.3"
 
 oneshot = "0.1"
 log = "0.4"
@@ -32,3 +31,6 @@ compact_str = { version = "0", features = ["serde"] }
 
 lazy_static = "1"
 parking_lot = "0"
+
+[dev-dependencies]
+futures = "0.3"

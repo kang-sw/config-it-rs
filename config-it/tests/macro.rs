@@ -101,6 +101,9 @@ fn config_set_valid_operations() {
         let mut brd = group.watch_update();
         assert!(brd.try_recv().is_err());
 
+        dbg!(module_path!());
+        dbg!(MyStruct::template_name());
+
         assert_eq!(group.maximum, 2, "Default value correctly applied");
         assert_eq!(group.minimal, 0);
         assert_eq!(group.median, 3112);

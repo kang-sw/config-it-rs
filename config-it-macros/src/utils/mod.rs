@@ -230,7 +230,7 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
                 #(#vec_defaults)*
             }
 
-            fn struct_path() -> (&'static str, &'static str) {
+            fn template_name() -> (&'static str, &'static str) {
                 (module_path!(), stringify!(#identifier))
             }
         }

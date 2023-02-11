@@ -16,7 +16,7 @@ pub trait Template: Default + Clone {
     fn prop_desc_table__() -> &'static HashMap<usize, PropData>;
 
     /// Get path of this config template (module path, struct name)
-    fn struct_path() -> (&'static str, &'static str);
+    fn template_name() -> (&'static str, &'static str);
 
     /// Fill defaulted values
     fn fill_default(&mut self);
@@ -43,8 +43,13 @@ pub struct PropData {
 pub struct GroupContext {
     pub group_id: u64,
     pub sources: Arc<Vec<EntityData>>,
-    pub path: Arc<Vec<CompactString>>,
     pub(crate) source_update_fence: AtomicUsize,
+
+    /// Path of instantiated config set.
+    pub path: Arc<Vec<CompactString>>,
+
+    ///
+    pub template_name: (&'static str, &'static str),
 
     /// Broadcast subscriber to receive updates from backend.
     pub(crate) update_receiver_channel: async_broadcast::InactiveReceiver<()>,
@@ -292,7 +297,7 @@ fn _verify_send_impl() {
             unimplemented!()
         }
 
-        fn struct_path() -> (&'static str, &'static str) {
+        fn template_name() -> (&'static str, &'static str) {
             unimplemented!()
         }
     }
