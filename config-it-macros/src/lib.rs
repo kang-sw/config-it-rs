@@ -9,7 +9,7 @@ mod utils;
 ///
 /// Generates required properties for config set properties
 /// 
-#[proc_macro_derive(ConfigGroupData, attributes(config_it))]
+#[proc_macro_derive(Template, attributes(config_it))]
 pub fn derive_collect_fn(item: TokenStream) -> TokenStream {
     let Ok(result) = syn::parse::<DeriveInput>(item) else { 
         panic!("Failed to parse syntax!")

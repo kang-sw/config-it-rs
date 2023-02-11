@@ -6,5 +6,4 @@ members = [
     "config-it",
     "config-it-macros",
     "config-it-macros-impl",
-    "trace-it",
 ]

@@ -9,6 +9,11 @@ use std::str::FromStr;
 use syn::Lit;
 
 pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
+    // TODO: Change hard-coded 'config_it::'
+    // - We can't use `$crate` here since we're not in `config-it` crate.
+    // - There's a crate `proc-macro-crate` for this purpose.
+    // - To make it work with renamed imports, we should apply it here.
+
     let identifier = ty.identifier;
     let generics = ty.generics;
 
@@ -170,6 +175,7 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
                             self.#ident = x;
                             env_parsed = true;
                         } else {
+                            ()                            
                         }
                     }
 
@@ -196,7 +202,7 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
 
     Ok(quote! {
         #[allow(dead_code)]
-        impl #generics config_it::ConfigGroupData for #identifier #generics {
+        impl #generics config_it::Template for #identifier #generics {
             fn prop_desc_table__() -> &'static std::collections::HashMap<usize, config_it::config::PropData> {
                 use config_it::lazy_static;
 
@@ -222,6 +228,10 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
 
             fn fill_default(&mut self) {
                 #(#vec_defaults)*
+            }
+
+            fn struct_path() -> (&'static str, &'static str) {
+                (module_path!(), stringify!(#identifier))
             }
         }
     })

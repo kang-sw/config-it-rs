@@ -111,7 +111,7 @@ impl Storage {
     ///
     /// If path is duplicated for existing config set, the program will panic.
     ///
-    pub async fn create_group_ex<T: config::ConfigGroupData>(
+    pub async fn create_group_ex<T: config::Template>(
         &self,
         path: Vec<CompactString>,
     ) -> Result<config::Group<T>, ConfigError> {
@@ -186,7 +186,7 @@ impl Storage {
         path: impl IntoIterator<Item = &str>,
     ) -> Result<config::Group<T>, ConfigError>
     where
-        T: config::ConfigGroupData,
+        T: config::Template,
     {
         self.create_group_ex::<T>(
             path.into_iter()
@@ -201,7 +201,7 @@ impl Storage {
         path: impl IntoIterator<Item = &'a str>,
     ) -> Result<config::Group<T>, ConfigError>
     where
-        T: config::ConfigGroupData,
+        T: config::Template,
     {
         LocalPool::new().run_until(
             self.create_group_ex::<T>(

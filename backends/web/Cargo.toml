@@ -7,7 +7,7 @@ exclude = ["front"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-config-it = { path = "../../config-it", version = "0.1" }
+config-it = { path = "../../config-it" }
 
 serde = { version = "1", features = ["derive"] }
 
@@ -22,9 +22,6 @@ rand = "*"
 whoami = "1"
 serde_json = "1"
 gethostname = "*"
-
-tracing = "0.1"
-trace-it = { path = "../../trace-it" }
 
 [dev-dependencies]
 dotenvy = "0"

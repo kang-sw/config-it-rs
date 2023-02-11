@@ -7,7 +7,7 @@ fn test_macro() {
     use crate::utils::parsing::decompose_input;
 
     let raw = r###"
-        #[derive(Debug, config_it::ConfigGroupData, Clone, Serialize)]
+        #[derive(Debug, config_it::Template, Clone, Serialize)]
         pub struct MyStruct<T, Y> {
           #[config_it(default=34, min=0, max=154,  env="MY_ENV_VAR_NAME", no_import, no_export, hidden)]
           my_var : i32,

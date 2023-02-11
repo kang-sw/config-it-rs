@@ -3,14 +3,14 @@
 //!
 //! # Usage
 //!
-//! You can define 'ConfigGroupData' which defines set of grouped properties,
+//! You can define 'Template' which defines set of grouped properties,
 //!  which should be updated at once. Only `config_it` decorated properties will be counted
 //!  as part of given group and will be managed.
 //!
-//! `ConfigGroupData` must implement `Clone` and `Default` to be treated as valid config
+//! `Template` must implement `Clone` and `Default` to be treated as valid config
 //!  group data.
 //!
-//! You should create `Storage` to create config group instances(`Group<T:ConfigGroupData>`).
+//! You should create `Storage` to create config group instances(`Group<T:Template>`).
 //!  `Storage` is the primary actor for centralized configuration management. Config groups can
 //!  be instantiated based on storage instance.
 //!
@@ -24,7 +24,7 @@
 //! ///
 //! /// `Debug` implementation is optional.
 //! ///
-//! #[derive(Clone, config_it::ConfigGroupData, Default, Debug)]
+//! #[derive(Clone, config_it::Template, Default, Debug)]
 //! pub struct MyStruct {
 //!     /// This docstring will be contained as metadata of given element
 //!     #[config_it(min = -35)]
@@ -88,7 +88,7 @@
 //!     //  in simple manner.
 //!     assert!(&group.data == "3@");
 //!
-//!     // You can modify `ConfigGroupData`, however, this change won't be visible to
+//!     // You can modify `Template`, however, this change won't be visible to
 //!     //  storage until you publish this change.
 //!     group.data = "other_value".into();
 //!
@@ -111,8 +111,8 @@ pub mod storage;
 pub use compact_str::CompactString;
 
 pub use archive::Archive;
-pub use config::ConfigGroupData;
 pub use config::Group;
+pub use config::Template;
 pub use storage::ExportOptions;
 pub use storage::ImportOptions;
 pub use storage::Storage;
@@ -120,4 +120,4 @@ pub use storage::Storage;
 pub use storage::create as create_storage;
 
 pub use lazy_static::lazy_static;
-pub use macros::ConfigGroupData;
+pub use macros::Template;

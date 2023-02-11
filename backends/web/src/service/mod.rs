@@ -76,10 +76,6 @@ impl Builder {
         self
     }
 
-    pub fn with_trace_sink(mut self, rx: trace_it::Builder) -> Self {
-        todo!("Spawn a trace subscriber, associate it with the service.");
-    }
-
     pub fn with_command_source(mut self, tx: Sender<CompactString>) -> Self {
         self.tx_cmd = Some(tx);
         self
@@ -92,8 +88,8 @@ impl Builder {
 
     /// Creates a log sink that can be used to redirect log outputs to the service.
     ///
-    /// > **Warning**: Do not use this method with `with_trace_sink` method with log to
-    ///   event redirection. This will incur duplicated output of every log message.
+    /// > **Warning**: Do not use this method with `with_trace_sink` method when log is
+    ///   redirected as trace event.
     pub fn create_log_sink(&mut self) -> Box<dyn Fn(&log::Record)> {
         todo!("Create a log sink, associate it with the service.");
     }

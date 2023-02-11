@@ -122,7 +122,7 @@ fn retrieve_namespace(attrs: Vec<Attribute>) -> Option<TokenTree> {
 
     let Some(pos) = puncts.iter().position(|x| {
             let TokenTree::Ident(id) = x else { return false};
-            id == "ConfigGroupData"
+            id == "Template"
         }) else {
             return None;
         };
@@ -143,7 +143,7 @@ fn retrieve_namespace(attrs: Vec<Attribute>) -> Option<TokenTree> {
         return None;
     }
 
-    // It seems our 'ConfigGroupData' specified with namespace ...
+    // It seems our 'Template' specified with namespace ...
     // Find its name.
     let comma_pos = (0..pos)
         .rev()

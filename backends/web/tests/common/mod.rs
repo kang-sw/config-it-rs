@@ -1,6 +1,6 @@
-use config_it::ConfigGroupData;
+use config_it::Template;
 
-#[derive(ConfigGroupData, Clone, Default)]
+#[derive(Template, Clone, Default)]
 pub struct ExampleConfig {
     #[config_it]
     pub field_i32: i32,

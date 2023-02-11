@@ -21,11 +21,16 @@ impl ApiRouter {
         shutdown: impl Future<Output = ()>,
     ) {
         let this = Arc::new(Self { sys_info, chan });
-        let router = Router::new().layer(Extension(this.clone()));
+        let router = Router::new();
 
-        axum::Server::bind(&SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), port))
+        let router = router.layer(Extension(this.clone()));
+        let err = axum::Server::bind(&SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), port))
             .serve(router.into_make_service())
             .with_graceful_shutdown(shutdown)
             .await;
+
+        if let Err(e) = err {
+            log::error!("API server didn't gracefully exited: {}", e);
+        }
     }
 }

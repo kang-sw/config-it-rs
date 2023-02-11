@@ -11,9 +11,12 @@ use std::sync::Arc;
 ///
 /// Base trait that is automatically generated
 ///
-pub trait ConfigGroupData: Default + Clone {
+pub trait Template: Default + Clone {
     /// Returns table mapping to <offset_from_base:property_metadata>
     fn prop_desc_table__() -> &'static HashMap<usize, PropData>;
+
+    /// Get path of this config template (module path, struct name)
+    fn struct_path() -> (&'static str, &'static str);
 
     /// Fill defaulted values
     fn fill_default(&mut self);
@@ -102,7 +105,7 @@ struct PropLocalContext {
     dirty_flag: bool,
 }
 
-impl<T: ConfigGroupData> Group<T> {
+impl<T: Template> Group<T> {
     pub(crate) fn create_with__(
         core: Arc<GroupContext>,
         unregister_anchor: Arc<dyn Any + Send + Sync>,
@@ -276,7 +279,7 @@ impl<T> std::ops::DerefMut for Group<T> {
 fn _verify_send_impl() {
     #[derive(Clone, Default)]
     struct Example {}
-    impl ConfigGroupData for Example {
+    impl Template for Example {
         fn prop_desc_table__() -> &'static HashMap<usize, PropData> {
             unimplemented!()
         }
@@ -286,6 +289,10 @@ fn _verify_send_impl() {
         }
 
         fn elem_at_mut__(&mut self, _: usize) -> &mut dyn Any {
+            unimplemented!()
+        }
+
+        fn struct_path() -> (&'static str, &'static str) {
             unimplemented!()
         }
     }
@@ -309,7 +316,7 @@ mod emulate_generation {
         my_string: String,
     }
 
-    impl ConfigGroupData for MyStruct {
+    impl Template for MyStruct {
         fn prop_desc_table__() -> &'static HashMap<usize, PropData> {
             use entity::{MetadataProps, MetadataValInit};
 

@@ -1,8 +1,8 @@
 #![allow(unused_imports)]
 
 use config_it::archive::Archive;
-use config_it::ConfigGroupData;
 use config_it::Group;
+use config_it::Template;
 use futures::executor::{self, block_on};
 use serde_json::json;
 use std::time::Duration;
@@ -12,7 +12,7 @@ use std::{
     thread,
 };
 
-#[derive(Clone, ConfigGroupData, Default, Debug)]
+#[derive(Clone, Template, Default, Debug)]
 pub struct MyStruct {
     #[config_it(min = -35)]
     minimal: i32,
