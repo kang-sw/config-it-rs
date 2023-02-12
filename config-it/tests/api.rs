@@ -175,8 +175,8 @@ fn test_use_case() {
         // `config_it::Archive` implements `serde::Serialize` and
         // `serde::Deserialize`. You can use it to serialize/
         //  deserialize the whole storage.
-        let yaml = serde_yaml::to_string(&archive).unwrap();
-        let json = serde_json::to_string_pretty(&archive).unwrap();
+        let _yaml = serde_yaml::to_string(&archive).unwrap();
+        let _json = serde_json::to_string_pretty(&archive).unwrap();
         // println!("{}", yaml);
         // OUTPUT:
         //
