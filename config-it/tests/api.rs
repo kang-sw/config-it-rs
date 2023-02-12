@@ -177,7 +177,7 @@ fn test_use_case() {
         //  deserialize the whole storage.
         let yaml = serde_yaml::to_string(&archive).unwrap();
         let json = serde_json::to_string_pretty(&archive).unwrap();
-        println!("{}", yaml);
+        // println!("{}", yaml);
         // OUTPUT:
         //
         //  ~path: # all path tokens of group hierarchy are prefixed with '~'
@@ -198,7 +198,8 @@ fn test_use_case() {
         //          string_field: ''
         //
 
-        println!("{}", json);
+        // println!("{}", json);
+        // OUTPUT:
         // {
         //   "~path": {
         //     "~to": {
@@ -227,19 +228,18 @@ fn test_use_case() {
         // whole storage from an archive. For this, you should
         // create a new archive. Archive can be created using serde either.
         let yaml = r##"
-        ~path:
-            ~to:
-                ~my:
-                    ~group:
-                        alias: 3.14
-                        array_init:
-                        - 1
-                        - 145
-                        int_field: 3 # If there's no change, it won't be updated.
-                                        # This behavior can be overridden by import options.
-                        env_var: 59
-                        one_of_field: "hello" # This is not in the 'one_of' list...
-    "##;
+~path:
+    ~to:
+        ~my:
+            ~group:
+                alias: 3.14
+                array_init:
+                - 1
+                - 145
+                int_field: 3 # If there's no change, it won't be updated.
+                                # This behavior can be overridden by import options.
+                env_var: 59
+                one_of_field: "hello" # This is not in the 'one_of' list..."##;
 
         let archive: config_it::Archive = serde_yaml::from_str(yaml).unwrap();
         storage.import(archive, Default::default()).await.unwrap();
