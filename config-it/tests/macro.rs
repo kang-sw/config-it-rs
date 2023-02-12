@@ -12,7 +12,7 @@ use std::{
     thread,
 };
 
-#[derive(Clone, Template, Default, Debug)]
+#[derive(Clone, config_it::Template, Default, Debug)]
 pub struct MyStruct {
     #[config_it(min = -35)]
     minimal: i32,
