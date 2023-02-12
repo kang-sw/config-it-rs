@@ -1,4 +1,5 @@
-fn main() {
+#[test]
+fn test_use_case() {
     /// This is a 'Template' struct, which is minimal unit of
     /// instantiation. Put required properties to configure
     /// your program.
