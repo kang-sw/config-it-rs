@@ -31,6 +31,8 @@ pub(crate) enum ControlDirective {
 
     GroupDisposal(u64),
 
+    Fence(oneshot::Sender<()>),
+
     EntityValueUpdate {
         group_id: u64,
         item_id: u64,

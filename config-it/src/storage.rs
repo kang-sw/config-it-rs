@@ -32,14 +32,16 @@ pub struct ImportOptions {
     pub merge_onto_cache: bool,
 
     /// If this option is enabled, imported setting will be converted into 'patch' before applied.
-    pub patch_cache: bool,
+    /// Otherwise, the imported setting will be applied directly, and will affect to all properties
+    /// that are included in the archive even if there is no actual change on archive content.
+    pub apply_as_patch: bool,
 }
 
 impl Default for ImportOptions {
     fn default() -> Self {
         Self {
             merge_onto_cache: true,
-            patch_cache: false,
+            apply_as_patch: true,
         }
     }
 }
@@ -261,6 +263,23 @@ impl Storage {
             })
             .await
             .map_err(|_| core::Error::ExpiredStorage)
+    }
+
+    ///
+    /// Wait synchronization after calling 'import'
+    ///
+    pub async fn fence(&self) {
+        async {
+            let (tx, rx) = oneshot::channel();
+            self.tx
+                .send_async(ControlDirective::Fence(tx))
+                .await
+                .map(|_| rx)
+                .ok()?
+                .await
+                .ok()
+        }
+        .await;
     }
 
     ///
@@ -506,7 +525,7 @@ mod detail {
                         }
                     };
 
-                    if option.patch_cache {
+                    if option.apply_as_patch {
                         let mut body = body;
                         let patch = self.archive.create_patch(&mut body);
 
@@ -555,6 +574,10 @@ mod detail {
                     };
 
                     let _ = destination.send(send_target);
+                }
+
+                Fence(reply) => {
+                    reply.send(()).ok();
                 }
             }
         }
