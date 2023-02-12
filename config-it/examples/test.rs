@@ -1,31 +1,37 @@
 fn main() {
-    /// This is a 'Template' struct, which is minimal unit of instantiation. Put required properties
-    /// to configure your program.
+    /// This is a 'Template' struct, which is minimal unit of
+    /// instantiation. Put required properties to configure
+    /// your program.
     ///
-    /// All 'Template' classes must be 'Clone'able, and 'Default'able.
+    /// All 'Template' classes must be 'Clone'able, and
+    /// 'Default'able.
     ///
-    /// (Trying to finding way to remove 'Default' constraint. However, 'Clone' will always be
-    ///  required.)
+    /// (Trying to finding way to remove 'Default' constraint.
+    ///  However, 'Clone' will always be required.)
     #[derive(config_it::Template, Clone, Default)]
     struct MyConfig {
-        /// If you expose any field as config property, the field must be marked with
-        /// `config_it` attribute.
+        /// If you expose any field as config property, the
+        /// field must be marked with `config_it` attribute.
         #[config_it]
         string_field: String,
 
-        /// You can also specify default value, or min/max constraints for this field.
+        /// You can also specify default value, or min/max
+        /// constraints for this field.
         #[config_it(default = 3, min = 1, max = 5)]
         int_field: i32,
 
         /// This field will be aliased as 'alias'.
         ///
-        /// > **Warning** Don't use `~(tilde)` characters in alias name. In current implementation,
-        /// > `~` is used to indicate group object in archive representation during serialization.
+        /// > **Warning** Don't use `~(tilde)` characters in
+        /// > alias name. In current implementation, `~` is
+        /// > used to indicate group object in archive
+        /// > representation during serialization.
         #[config_it(alias = "alias")]
         non_alias: f32,
 
-        /// Only specified set of values are allowed for this field, however, default field
-        /// can be excluded from this set.
+        /// Only specified set of values are allowed for
+        /// this field, however, default field can be
+        /// excluded from this set.
         #[config_it(default = "default", one_of("a", "b", "c"))]
         one_of_field: String,
 
@@ -33,10 +39,12 @@ fn main() {
         #[config_it]
         c_string_type: Box<std::ffi::CStr>,
 
-        /// This will find value from environment variable `MY_ENV_VAR`. Currently, only values
-        /// that can be `TryParse`d from `str` are supported.
+        /// This will find value from environment variable
+        /// `MY_ENV_VAR`. Currently, only values that can be
+        /// `TryParse`d from `str` are supported.
         ///
-        /// Environment variables are imported when the group is firstly instantiated.
+        /// Environment variables are imported when the
+        /// group is firstly instantiated.
         /// i.e. call to `Storage::create_group`
         #[config_it(env = "MY_ARRAY_VAR")]
         env_var: i64,
@@ -48,11 +56,13 @@ fn main() {
         /// This field is not part of config_it system.
         _not_part_of: (),
 
-        /// This field won't be imported or exported from archiving operation
+        /// This field won't be imported or exported from
+        /// archiving operation
         #[config_it(no_import, no_export)]
         no_imp_exp: Vec<f64>,
 
-        /// `transient` flag is equivalent to `no_import` and `no_export` flags.
+        /// `transient` flag is equivalent to `no_import` and
+        /// `no_export` flags.
         #[config_it(transient)]
         no_imp_exp_2: Vec<f64>,
     }
@@ -61,16 +71,20 @@ fn main() {
 
     // 1. Storage
     //
-    // Storage is basic and most important class to drive the whole config_it system. Before you
-    // can use any of the features, you must create a storage instance.
+    // Storage is basic and most important class to drive
+    // the whole config_it system. Before you can use any
+    // of the features, you must create a storage instance.
     let (storage, driver_task) = config_it::create_storage();
 
-    // `[config_it::create_storage]` returns a tuple of `(Storage, Task)`. `Storage` is the
-    // handle to the storage, and `Task` is the driver task that must be spawned to drive the
-    // storage operations(actor). You can spawn the task using any async runtime.
+    // `[config_it::create_storage]` returns a tuple of
+    // `(Storage, Task)`. `Storage` is the handle to the
+    // storage, and `Task` is the driver task that must
+    // be spawned to drive the storage operations(actor).
+    // You can spawn the task using any async runtime.
     //
-    // Basically, config_it is designed to be used with async runtime, we're run this example
-    // under async environment.
+    // Basically, config_it is designed to be used with
+    // async runtime, we're run this example under async
+    // environment.
     let mut local = futures::executor::LocalPool::new();
     let spawn = local.spawner();
 
@@ -85,27 +99,34 @@ fn main() {
     local.run_until(async {
         // 2. Groups and Templates
         //
-        // A group is an instance of a template. You can create multiple groups from a single
-        // template. Each group has its own set of properties, and can be configured independently.
+        // A group is an instance of a template. You can
+        // create multiple groups from a single template.
+        // Each group has its own set of properties, and
+        // can be configured independently.
         //
-        // When instantiating a group, you must provide a path to the group. Path is a list of
-        // short string tokens, which is used to identify the group. You can use any string as
-        // path, but it's recommended to use a short string, which does not contain any special
-        // characters. (Since it usually encoded as a key of a key-value store of some kind of
-        // data serialization formats, such as JSON, YAML, etc.)
+        // When instantiating a group, you must provide a
+        // path to the group. Path is a list of short string
+        // tokens, which is used to identify the group. You
+        // can use any string as path, but it's recommended
+        // to use a short string, which does not contain any
+        // special characters. (Since it usually encoded as a
+        //  key of a key-value store of some kind of data
+        //  serialization formats, such as JSON, YAML, etc.)
         let path = &["path", "to", "my", "group"];
         let mut group = storage.create_group::<MyConfig>(path).await.unwrap();
 
         // Note, duplicated path name is not allowed.
         assert!(storage.create_group::<MyConfig>(path).await.is_err());
 
-        // `update()` call to group, will check for asynchronously queued updates, and apply
-        // changes to the group instance. Since this is the first call to update,
+        // `update()` call to group, will check for asynchronously
+        // queued updates, and apply changes to the group instance.
+        // Since this is the first call to update,
         //
         // You can understand `update()` as clearing dirty flag.
         assert!(group.update() == true);
 
-        // After `update()`, as long as there's no new update, `update()` will return false.
+        // After `update()`, as long as there's no new update,
+        // `update()` will return false.
         assert!(group.update() == false);
 
         // Every individual properties has their own dirty flag.
@@ -144,13 +165,15 @@ fn main() {
 
         // 4. Importing and Exporting
         //
-        // You can export the whole storage using 'Export' method. (currently, there is no way
-        // to export a specific group instance. To separate groups into different archiving
-        // categories, you can use multiple storage instances)
+        // You can export the whole storage using 'Export' method.
+        // (currently, there is no way to export a specific group
+        //  instance. To separate groups into different archiving
+        //  categories, you can use multiple storage instances)
         let archive = storage.export(Default::default()).await.unwrap();
 
-        // `config_it::Archive` implements `serde::Serialize` and `serde::Deserialize`.
-        // You can use it to serialize/deserialize the whole storage.
+        // `config_it::Archive` implements `serde::Serialize` and
+        // `serde::Deserialize`. You can use it to serialize/
+        //  deserialize the whole storage.
         let yaml = serde_yaml::to_string(&archive).unwrap();
         let json = serde_json::to_string_pretty(&archive).unwrap();
         println!("{}", yaml);
@@ -199,22 +222,23 @@ fn main() {
         //   }
         // }
 
-        // Importing is similar to exporting. You can import a whole storage from an archive.
-        // For this, you should create a new archive. Archive can be created using serde either.
+        // Importing is similar to exporting. You can import a
+        // whole storage from an archive. For this, you should
+        // create a new archive. Archive can be created using serde either.
         let yaml = r##"
-            ~path:
-                ~to:
-                    ~my:
-                        ~group:
-                            alias: 3.14
-                            array_init:
-                            - 1
-                            - 145
-                            int_field: 3 # If there's no change, it won't be updated.
-                                         # This behavior can be overridden by import options.
-                            env_var: 59
-                            one_of_field: "hello" # This is not in the 'one_of' list...
-        "##;
+        ~path:
+            ~to:
+                ~my:
+                    ~group:
+                        alias: 3.14
+                        array_init:
+                        - 1
+                        - 145
+                        int_field: 3 # If there's no change, it won't be updated.
+                                        # This behavior can be overridden by import options.
+                        env_var: 59
+                        one_of_field: "hello" # This is not in the 'one_of' list...
+    "##;
 
         let archive: config_it::Archive = serde_yaml::from_str(yaml).unwrap();
         storage.import(archive, Default::default()).await.unwrap();
@@ -252,8 +276,9 @@ fn main() {
         // 5. Other features
 
         // 5.1. Watch update
-        // When group is possible to updated, you can be notified through asynchronous channel.
-        // This is useful when you want to immediately response to any configuration updates.
+        // When group is possible to updated, you can be notified
+        // through asynchronous channel. This is useful when you
+        // want to immediately response to any configuration updates.
         let mut monitor = group.watch_update();
         assert!(false == monitor.try_recv().is_ok());
 
@@ -273,13 +298,17 @@ fn main() {
         assert!(group.update());
 
         // 5.2. Commit
-        // Any property value changes on group is usually local, however, if you want to
+        // Any property value changes on group is usually local,
+        // however, if you want to
         // archive those changes, you can commit it.
-        group.int_field = 15111; // This does not affected by constraint and visible from export,
-                                 // however, in next time you import it from exported archive,
+        group.int_field = 15111; // This does not affected by
+                                 // constraint and visible from export,
+                                 // however, in next time you import
+                                 // it from exported archive,
                                  // its constraint will be applied.
 
-        // If you set the second boolean parameter 'true', it will be notified to 'monitor'
+        // If you set the second boolean parameter 'true', it will
+        // be notified to 'monitor'
         group.commit_elem(&group.int_field, false);
         let archive = storage.export(Default::default()).await.unwrap();
 
@@ -310,10 +339,12 @@ fn main() {
 
         // 5.3. Monitor
         //
-        // All events to update storage can be monitored though this channel.
+        // All events to update storage can be monitored though
+        // this channel.
         //
-        // As this is advanced topic, and currently its design is not finalized,
-        // just give a look for fun and don't use it in production.
+        // As this is advanced topic, and currently its design
+        // is not finalized, just give a look for fun and don't
+        // use it in production.
         let _ch = storage.monitor_open_replication_channel().await;
     });
 }
