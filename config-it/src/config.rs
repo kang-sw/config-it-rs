@@ -101,13 +101,22 @@ impl<T: std::fmt::Debug> std::fmt::Debug for Group<T> {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 struct PropLocalContext {
     /// Locally cached update fence.
     update_fence: usize,
 
     /// Updated recently
     dirty_flag: bool,
+}
+
+impl Default for PropLocalContext {
+    fn default() -> Self {
+        Self {
+            update_fence: 0,
+            dirty_flag: true, // This forces initial 'check_update()' call to return true.
+        }
+    }
 }
 
 impl<T: Template> Group<T> {
@@ -131,6 +140,9 @@ impl<T: Template> Group<T> {
     /// Update this storage
     ///
     pub fn update(&mut self) -> bool {
+        // Forces initial update always return true.
+        let mut has_update = self.fence == 0;
+
         // Perform quick check: Does update fence value changed?
         match self.core.source_update_fence.load(Ordering::Relaxed) {
             v if v == self.fence => return false,
@@ -143,8 +155,6 @@ impl<T: Template> Group<T> {
             self.core.sources.len(),
             "Logic Error: set was not correctly initialized!"
         );
-
-        let mut has_update = false;
 
         for ((index, local), source) in
             zip(zip(0..local_ctx.len(), &mut *local_ctx), &*self.core.sources)

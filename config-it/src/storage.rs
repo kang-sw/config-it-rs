@@ -12,7 +12,7 @@ use crate::{
     core::{self, ControlDirective, Error as ConfigError, MonitorEvent, ReplicationEvent},
     entity::{self, EntityEventHook},
 };
-use compact_str::CompactString;
+use compact_str::{CompactString, ToCompactString};
 use log::debug;
 
 ///
@@ -183,14 +183,14 @@ impl Storage {
 
     pub async fn create_group<T>(
         &self,
-        path: impl IntoIterator<Item = &str>,
+        path: impl IntoIterator<Item = impl ToCompactString>,
     ) -> Result<config::Group<T>, ConfigError>
     where
         T: config::Template,
     {
         self.create_group_ex::<T>(
             path.into_iter()
-                .map(|x| -> CompactString { x.into() })
+                .map(|x| x.to_compact_string())
                 .collect::<Vec<_>>(),
         )
         .await
