@@ -636,7 +636,12 @@ mod detail {
                 // HACK: Find more efficient way to create json::Value from EntityValue ...
                 // HACK: Current implementation naively dumps json -> load it back to serde_json::Value
                 buf.clear();
+
+                #[cfg(not(feature = "use_binary_archive"))]
                 let mut ser = serde_json::Serializer::new(&mut buf);
+
+                #[cfg(feature = "use_binary_archive")]
+                let mut ser = rmp_serde::Serializer::new(&mut buf);
 
                 if val
                     .serialize(&mut <dyn erased_serde::Serializer>::erase(&mut ser))
@@ -646,7 +651,13 @@ mod detail {
                     continue;
                 }
 
-                if let Ok(val) = serde_json::from_slice(&buf[0..]) {
+                #[cfg(not(feature = "use_binary_archive"))]
+                let val = serde_json::from_slice(&buf[0..]);
+
+                #[cfg(feature = "use_binary_archive")]
+                let val = rmp_serde::from_slice(&buf[0..]);
+
+                if let Ok(val) = val {
                     *dst = val;
                 }
             }
