@@ -148,6 +148,15 @@ fn config_set_valid_operations() {
 
         let arch = serde_json::from_str::<Archive>(&json.to_string()).unwrap();
 
+        config_it::archive::with_category_rule(
+            config_it::ArchiveCategoryRule::Wrap("C_AT", "GO_RY"),
+            || {
+                let str = serde_json::to_string_pretty(&arch).unwrap();
+                println!("{}", str);
+                assert!(serde_json::from_str::<Archive>(&str).is_ok());
+            },
+        );
+
         dbg!(&arch);
 
         assert!(brd.try_recv().is_err());

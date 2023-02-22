@@ -1,9 +1,84 @@
-use std::{collections::BTreeMap, mem::take};
+use std::{cell::Cell, collections::BTreeMap, mem::take};
 
 use compact_str::CompactString;
 use serde::{ser::SerializeMap, Deserialize, Serialize};
 
 type Map<T, V> = BTreeMap<T, V>;
+
+///
+/// [`Archive`] is serialized a map of key-value pairs, where key is a string, and value is
+/// plain object. Since key for categories cannot be distinguished from value objects' keys,
+/// a special rule for category name is applied.
+///
+/// Default rule is to prefix category name with `~`. So a category named `hello` will be
+/// serialized as `~hello`.
+///
+/// This rule can be changed by serialize or deserialize objects within boundary of
+/// [`with_category_rule`].
+///
+pub enum CategoryRule {
+    /// Category name is prefixed with this token.
+    Prefix(&'static str),
+
+    /// Category name is suffixed with this token.
+    Suffix(&'static str),
+
+    /// Category name is wrapped with this token.
+    Wrap(&'static str, &'static str),
+}
+
+thread_local! {
+    static CATEGORY_RULE: Cell<CategoryRule> = Cell::new(Default::default());
+}
+
+///
+/// Serialize or deserialize a map with customized category rule support.
+///
+pub fn with_category_rule(rule: CategoryRule, f: impl FnOnce()) {
+    CATEGORY_RULE.with(|x| {
+        x.replace(rule);
+        f();
+        x.replace(Default::default());
+    })
+}
+
+impl Default for CategoryRule {
+    fn default() -> Self {
+        Self::Prefix("~")
+    }
+}
+
+impl CategoryRule {
+    pub fn is_category(&self, key: &str) -> bool {
+        match self {
+            Self::Prefix(prefix) => key.starts_with(prefix),
+            Self::Suffix(suffix) => key.ends_with(suffix),
+            Self::Wrap(prefix, suffix) => key.starts_with(prefix) && key.ends_with(suffix),
+        }
+    }
+
+    pub fn make_category(&self, key: &str, out_key: &mut CompactString) {
+        out_key.clear();
+
+        match self {
+            CategoryRule::Prefix(tok) => {
+                out_key.push_str(tok);
+                out_key.push_str(key);
+            }
+
+            CategoryRule::Suffix(tok) => {
+                out_key.push_str(key);
+                out_key.push_str(tok);
+            }
+
+            CategoryRule::Wrap(pre, suf) => {
+                out_key.push_str(pre);
+                out_key.push_str(key);
+                out_key.push_str(suf);
+            }
+        }
+    }
+}
 
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct Archive {
@@ -141,19 +216,23 @@ impl<'a> Deserialize<'a> for Archive {
             where
                 A: serde::de::MapAccess<'de>,
             {
-                while let Some(mut key) = map.next_key::<CompactString>()? {
-                    if !key.is_empty() && key.starts_with("~") {
-                        key.remove(0); // Exclude initial tilde
+                CATEGORY_RULE.with(|rule| {
+                    let rule = rule.clone().take();
 
-                        let child: Archive = map.next_value()?;
-                        self.build.paths.insert(key, child);
-                    } else {
-                        let value: serde_json::Value = map.next_value()?;
-                        self.build.values.insert(key, value);
+                    while let Some(mut key) = map.next_key::<CompactString>()? {
+                        if !key.is_empty() && rule.is_category(&key) {
+                            key.remove(0); // Exclude initial tilde
+
+                            let child: Archive = map.next_value()?;
+                            self.build.paths.insert(key, child);
+                        } else {
+                            let value: serde_json::Value = map.next_value()?;
+                            self.build.values.insert(key, value);
+                        }
                     }
-                }
 
-                Ok(self.build)
+                    Ok(self.build)
+                })
             }
         }
 
@@ -169,14 +248,18 @@ impl Serialize for Archive {
         S: serde::Serializer,
     {
         let mut map = se.serialize_map(Some(self.paths.len() + self.values.len()))?;
-        let mut key_b = String::with_capacity(10);
 
-        for (k, v) in &self.paths {
-            key_b.push('~');
-            key_b.push_str(&k);
-            map.serialize_entry(&key_b, v)?;
-            key_b.clear();
-        }
+        CATEGORY_RULE.with(|rule| {
+            let rule = rule.clone().take();
+            let mut key_b = CompactString::default();
+
+            for (k, v) in &self.paths {
+                rule.make_category(&k, &mut key_b);
+                map.serialize_entry(&key_b, v)?;
+            }
+
+            Ok(())
+        })?;
 
         for (k, v) in &self.values {
             debug_assert!(
@@ -207,7 +290,7 @@ fn test_archive_basic() {
                 "value1": null,
                 "value2": 31.4,
                 "value3": "hoho-haha",
-                "value-obj": { 
+                "value-obj": {
                     "~pathlike": 3.141
                 }
             }
@@ -258,7 +341,7 @@ fn test_archive_basic() {
                 "value1": null,
                 "value2": 31.4,
                 "value3": "hoho-haha",
-                "value-obj": { 
+                "value-obj": {
                     "~pathlike": 3.141
                 }
             }

@@ -379,6 +379,7 @@ pub mod storage;
 pub use compact_str::CompactString;
 
 pub use archive::Archive;
+pub use archive::CategoryRule as ArchiveCategoryRule;
 pub use config::Group;
 pub use config::Template;
 pub use storage::ExportOptions;
