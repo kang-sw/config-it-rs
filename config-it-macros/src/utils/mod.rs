@@ -43,10 +43,10 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
             None
         };
 
-        let default_to_meta = default.as_ref().map_or(quote!(Default::default()), |v| quote!(#v));
-        let min = x.min.as_ref().map_or(quote!{None}, |x| quote!{Some(#x)} );
-        let max = x.max.as_ref().map_or(quote!{None}, |x| quote!(Some(#x)) );
-        let one_of = x.one_of.as_ref().map_or(quote!(), |x| {
+        let default_to_meta = default.as_ref().map_or_else(|| quote!(Default::default()), |v| quote!(#v));
+        let min = x.min.as_ref().map_or_else(|| quote!{None}, |x| quote!{Some(#x)} );
+        let max = x.max.as_ref().map_or_else(|| quote!{None}, |x| quote!(Some(#x)) );
+        let one_of = x.one_of.as_ref().map_or_else(|| quote!(), |x| {
             let args = x.nested.iter().map(|x| quote!{#x.into(), });
             quote!{#(#args)*}
         });
@@ -153,6 +153,11 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
 
         // If given property has 'env' option, try find corresponding environment variable,
         //  and if one is found, try to parse it. Otherwise, don't touch or use default.
+        let default_init = quote! {Default::default()};
+        let default_init = default.as_ref().map_or(&default_init, |x| x);
+        let default_init = quote! {
+            #ident: #default_init,
+        };
 
         let default_val = default.as_ref().map_or(
             quote!{}, |x| quote!{
@@ -185,19 +190,43 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
                 }
             }
         );
+        
 
         indexer += 1;
-        (meta_gen, elem_at, default_val)
+        (meta_gen, elem_at, default_val, default_init)
     });
 
+    let vec_invis = ty.invisibles.iter().map(|x| {
+        let ident = &x.identifier;
+        let default = match &x.default_expr {
+            Some(Lit::Str(x)) => {
+                let x = x.value();
+                TokenStream::from_str(&x).unwrap()
+            }
+            Some(x) => {
+                quote! {#x.try_into().expect("config_it: Invalid default value specified")}
+            }
+            None => match &x.default_tokens {
+                Some(x) => x.clone(),
+                None => quote! {Default::default()},
+            },
+        };
+        
+        quote! {
+            #ident: #default,
+        }
+    });
+    
     let mut vec_fields = Vec::with_capacity(num_fields);
     let mut vec_idents = Vec::with_capacity(num_fields);
     let mut vec_defaults = Vec::with_capacity(num_fields);
+    let mut vec_inits = Vec::with_capacity(num_fields);
 
-    fields.for_each(|(a, b, c)| {
+    fields.for_each(|(a, b, c, d)| {
         vec_fields.push(a);
         vec_idents.push(b);
         vec_defaults.push(c);
+        vec_inits.push(d);
     });
 
     Ok(quote! {
@@ -228,6 +257,13 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
 
             fn fill_default(&mut self) {
                 #(#vec_defaults)*
+            }
+            
+            fn default_config() -> Self {
+                Self {
+                    #(#vec_inits)*
+                    #(#vec_invis)*
+                }
             }
 
             fn template_name() -> (&'static str, &'static str) {

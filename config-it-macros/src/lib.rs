@@ -9,8 +9,31 @@ mod utils;
 ///
 /// Generates required properties for config set properties
 /// 
+#[cfg(all(not(feature="more_attr"), not(feature="nocfg")))]
 #[proc_macro_derive(Template, attributes(config_it))]
 pub fn derive_collect_fn(item: TokenStream) -> TokenStream {
+    derive_collect_fn_impl(item)
+}
+
+#[cfg(all(not(feature="more_attr"), feature="nocfg"))]
+#[proc_macro_derive(Template, attributes(config_it, nocfg))]
+pub fn derive_collect_fn(item: TokenStream) -> TokenStream {
+    derive_collect_fn_impl(item)
+}
+
+#[cfg(all(feature="more_attr", not(feature="nocfg")))]
+#[proc_macro_derive(Template, attributes(config_it, cfg, config))]
+pub fn derive_collect_fn(item: TokenStream) -> TokenStream {
+    derive_collect_fn_impl(item)
+}
+
+#[cfg(all(feature="more_attr", feature="nocfg"))]
+#[proc_macro_derive(Template, attributes(config_it, nocfg, cfg, config))]
+pub fn derive_collect_fn(item: TokenStream) -> TokenStream {
+    derive_collect_fn_impl(item)
+}
+
+fn derive_collect_fn_impl(item: TokenStream) -> TokenStream{
     let Ok(result) = syn::parse::<DeriveInput>(item) else { 
         panic!("Failed to parse syntax!")
     };
@@ -31,19 +54,6 @@ pub fn derive_collect_fn(item: TokenStream) -> TokenStream {
             )
     };
     
-    #[cfg(any())]
-    {
-        use quote::quote;
-        
-        let generated_str = generated.to_string();
-    
-        return quote!{
-            fn hello() -> &'static str {
-                #generated_str
-            }
-            
-        }.into();
-    }
-    
     generated.into()
+    
 }

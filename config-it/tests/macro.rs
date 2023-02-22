@@ -12,7 +12,7 @@ use std::{
     thread,
 };
 
-#[derive(Clone, config_it::Template, Default, Debug)]
+#[derive(Clone, config_it::Template, Debug)]
 pub struct MyStruct {
     #[config_it(min = -35)]
     minimal: i32,
@@ -51,6 +51,12 @@ pub struct MyStruct {
 
     #[allow(unused)]
     my_invisible: f32,
+
+    #[nocfg = "[1,2,3,4]"]
+    this_is_invisible_default: [i32; 4],
+
+    #[nocfg(Into::into("pewpew"))]
+    this_is_invisible_default2: String,
 }
 
 #[cfg(any())]
@@ -113,6 +119,8 @@ fn config_set_valid_operations() {
         assert_eq!(group.array, [1, 2, 3, 4, 5]);
         assert_eq!(group.array_env, 14141);
         assert_eq!(group.data, "3@");
+        assert_eq!(group.this_is_invisible_default, [1, 2, 3, 4]);
+        assert_eq!(group.this_is_invisible_default2, "pewpew");
 
         assert!(group.update(), "Initial update always returns true.");
         assert!(!group.update(), "Now dirty flag cleared");

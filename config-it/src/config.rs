@@ -11,12 +11,15 @@ use std::sync::Arc;
 ///
 /// Base trait that is automatically generated
 ///
-pub trait Template: Default + Clone {
+pub trait Template: Clone {
     /// Returns table mapping to <offset_from_base:property_metadata>
     fn prop_desc_table__() -> &'static HashMap<usize, PropData>;
 
     /// Get path of this config template (module path, struct name)
     fn template_name() -> (&'static str, &'static str);
+
+    /// Create default object
+    fn default_config() -> Self;
 
     /// Fill defaulted values
     fn fill_default(&mut self);
@@ -126,7 +129,7 @@ impl<T: Template> Group<T> {
     ) -> Self {
         let mut gen = Self {
             core,
-            __body: T::default(),
+            __body: T::default_config(),
             fence: 0,
             local: vec![PropLocalContext::default(); T::prop_desc_table__().len()].into(),
             _unregister_hook: unregister_anchor,
@@ -309,6 +312,10 @@ fn _verify_send_impl() {
 
         fn template_name() -> (&'static str, &'static str) {
             unimplemented!()
+        }
+
+        fn default_config() -> Self {
+            Self::default()
         }
     }
 

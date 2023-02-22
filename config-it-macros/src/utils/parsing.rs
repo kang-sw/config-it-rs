@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
-use proc_macro2::{Span, TokenTree};
-use quote::ToTokens;
+use proc_macro2::{Span, TokenStream, TokenTree};
+use quote::{quote_spanned, ToTokens};
 
 use syn::spanned::Spanned;
 use syn::Data::Struct;
@@ -18,6 +18,7 @@ pub struct TypeDesc {
     pub generics: syn::Generics,
 
     pub fields: Vec<FieldDesc>,
+    pub invisibles: Vec<InvisibleFieldDesc>,
 }
 
 pub struct FieldDesc {
@@ -42,6 +43,13 @@ pub struct FieldDesc {
     pub flag_hidden: bool,
 }
 
+pub struct InvisibleFieldDesc {
+    pub identifier: syn::Ident,
+    pub src_type: syn::Type,
+    pub default_expr: Option<syn::Lit>,
+    pub default_tokens: Option<TokenStream>,
+}
+
 ///
 ///
 /// Parses incoming derive input, then publish it as
@@ -59,6 +67,7 @@ pub fn decompose_input(input: DeriveInput) -> Result<TypeDesc, (Span, String)> {
         identifier: input.ident,
         generics: input.generics,
         fields: Vec::with_capacity(data.fields.len()),
+        invisibles: Vec::new(),
     };
 
     for field in data.fields {
@@ -87,13 +96,60 @@ pub fn decompose_input(input: DeriveInput) -> Result<TypeDesc, (Span, String)> {
         };
 
         let mut has_any_valid_attr = false;
+
+        #[cfg(feature = "nocfg")]
+        let mut invis_default_attr = None;
+
         for attr in field.attrs {
+            #[cfg(feature = "nocfg")]
+            if attr.path.is_ident("nocfg") {
+                invis_default_attr = Some(attr);
+                continue;
+            }
+
             has_any_valid_attr = has_any_valid_attr | decompose_attribute(&mut desc, attr)?;
         }
 
         if has_any_valid_attr {
             desc.docstring.shrink_to_fit();
             out.fields.push(desc);
+
+            continue;
+        } else {
+            #[allow(unused_mut)]
+            let mut invis_desc = InvisibleFieldDesc {
+                identifier: desc.identifier,
+                src_type: desc.src_type,
+                default_expr: None,
+                default_tokens: None,
+            };
+
+            #[cfg(feature = "nocfg")]
+            match invis_default_attr.as_ref().map(|x| x.parse_meta()) {
+                Some(Ok(syn::Meta::NameValue(MetaNameValue { lit, .. }))) => {
+                    invis_desc.default_expr = Some(lit);
+                }
+
+                Some(Ok(syn::Meta::List(lst))) => {
+                    invis_desc.default_tokens = Some(lst.nested.to_token_stream());
+                }
+
+                Some(Err(e)) => {
+                    panic!(
+                        concat!(
+                            "nocfg parse error at {arg:?} for error {e:?},",
+                            " the original attribute was: {attr:?}"
+                        ),
+                        arg = invis_desc.identifier,
+                        e = e,
+                        attr = invis_default_attr.to_token_stream().to_string()
+                    )
+                }
+
+                _ => (),
+            }
+
+            out.invisibles.push(invis_desc);
         }
     }
 
@@ -166,7 +222,12 @@ fn decompose_attribute(desc: &mut FieldDesc, attr: syn::Attribute) -> Result<boo
         return Ok(false);
     }
 
-    if false == attr.path.is_ident("config_it") {
+    #[cfg(feature = "more_attr")]
+    const ATTRS: [&str; 3] = ["config_it", "config", "cfg"];
+    #[cfg(not(feature = "more_attr"))]
+    const ATTRS: [&str; 1] = ["config_it"];
+
+    if ATTRS.into_iter().all(|x| attr.path.is_ident(x) == false) {
         return Ok(false);
     };
 

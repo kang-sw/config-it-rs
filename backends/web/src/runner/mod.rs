@@ -61,7 +61,7 @@ impl Runner {
         };
 
         // Create routes for service API and websocket creation
-        let (tx, mut rx) = mpsc::unbounded_channel();
+        let (tx, rx) = mpsc::unbounded_channel();
         let router_task = api::ApiRouter::run(sys_info, desc.bind_port, tx, create_close_signal());
 
         // TODO: Create directive runner

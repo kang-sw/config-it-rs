@@ -1,6 +1,6 @@
 [package]
 name = "config-it-macros"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 authors = ["kang-sw <ki6080@gmail.com>"]
 categories = ["config"]
@@ -15,3 +15,8 @@ proc-macro = true
 proc-macro2 = "1"
 quote = "1"
 syn = { version = "1" }
+
+[features]
+default = ["more_attr", "nocfg"]
+more_attr = []
+nocfg = []
