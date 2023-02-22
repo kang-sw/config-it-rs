@@ -3,19 +3,27 @@ pub mod parsing;
 
 use parsing::*;
 use proc_macro2::{Span, TokenStream};
+use proc_macro_crate::{crate_name, FoundCrate};
 use quote::quote;
 use std::mem::replace;
 use std::str::FromStr;
 use syn::Lit;
 
 pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
-    // TODO: Change hard-coded 'config_it::'
+    // TODO: Change hard-coded '#this_crate::'
     // - We can't use `$crate` here since we're not in `config-it` crate.
     // - There's a crate `proc-macro-crate` for this purpose.
     // - To make it work with renamed imports, we should apply it here.
 
     let identifier = ty.identifier;
     let generics = ty.generics;
+    let this_crate = match crate_name("config-it").expect("config_it is present in `Cargo.toml`") {
+        FoundCrate::Itself => quote!(::config_it),
+        FoundCrate::Name(name) => {
+            let ident = syn::Ident::new(&name, Span::call_site());
+            quote!(::#ident)
+        }
+    };
 
     let fields = replace(&mut ty.fields, Default::default());
     let num_fields = fields.len();
@@ -108,7 +116,7 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
                 let doc_string = #doc;
                 let index = #indexer as usize;
 
-                let init = config_it::entity::MetadataValInit::<Type> {
+                let init = #this_crate::entity::MetadataValInit::<Type> {
                     fn_validate: |_meta, to| -> Option<bool> {
 
                         let to: &mut Type = to.downcast_mut().unwrap();
@@ -126,7 +134,7 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
                     v_min: #max,
                 };
 
-                let props = config_it::entity::MetadataProps {
+                let props = #this_crate::entity::MetadataProps {
                     description: doc_string,
                     varname,
                     disable_import: #disable_import,
@@ -134,9 +142,9 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
                     hidden: #hidden,
                 };
 
-                let meta = config_it::entity::Metadata::create_for_base_type(identifier, init, props);
+                let meta = #this_crate::entity::Metadata::create_for_base_type(identifier, init, props);
 
-                let prop_data = config_it::config::PropData {
+                let prop_data = #this_crate::config::PropData {
                     index,
                     type_id: std::any::TypeId::of::<Type>(),
                     meta: std::sync::Arc::new(meta),
@@ -231,12 +239,12 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
 
     Ok(quote! {
         #[allow(dead_code)]
-        impl #generics config_it::Template for #identifier #generics {
-            fn prop_desc_table__() -> &'static std::collections::HashMap<usize, config_it::config::PropData> {
-                use config_it::lazy_static;
+        impl #generics #this_crate::Template for #identifier #generics {
+            fn prop_desc_table__() -> &'static std::collections::HashMap<usize, #this_crate::config::PropData> {
+                use #this_crate::lazy_static;
 
                 lazy_static! {
-                    static ref TABLE: std::sync::Arc<std::collections::HashMap<usize, config_it::config::PropData>> = {
+                    static ref TABLE: std::sync::Arc<std::collections::HashMap<usize, #this_crate::config::PropData>> = {
                         let mut s = std::collections::HashMap::new();
 
                         #(#vec_fields)*

@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use proc_macro2::{Span, TokenStream, TokenTree};
-use quote::{quote_spanned, ToTokens};
+use quote::ToTokens;
 
 use syn::spanned::Spanned;
 use syn::Data::Struct;
