@@ -7,6 +7,7 @@ categories = ["config"]
 repository = "https://github.com/kang-sw/config-it-rs"
 keywords = ["config"]
 license = "MIT"
+build = "build.rs"
 
 [lib]
 path = "lib.rs"

@@ -53,14 +53,20 @@ fn try_compile_flatc() -> anyhow::Result<()> {
         //  as a dependency for recompilation.
         println!("cargo:rerun-if-changed=protocol.fbs");
 
+        // Remove old generated files
+        std::fs::remove_dir_all("protocol").ok();
+
         // Generate Rust code from flatbuffer schema
         let mut cmd = std::process::Command::new(&flatc);
         cmd.args(["--rust", "--no-prefix", "--rust-module-root-file"]);
         cmd.args(["-o", "protocol"]);
         cmd.arg("protocol.fbs");
 
-        if let Err(e) = cmd.status() {
-            panic!("Failed to generate Rust code from flatbuffer schema: {}", e);
+        match cmd.status().map(|x| x.code()) {
+            Ok(Some(0)) | Ok(None) => (),
+            Err(e) => panic!("Failed to execute 'flatc' command: {e}"),
+
+            Ok(Some(val)) => panic!("Failed to execute 'flatc' command: ERR {val}",),
         }
     }
 

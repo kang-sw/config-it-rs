@@ -1,10 +1,18 @@
+
+// Access level of individual client.
+enum UsrAccessLv: byte {
+    Rejected,
+    Read,
+    Write,
+    Admin
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
 // 
 // Registers a collector with the server.
 // 
-table CollectorRegistration {
-    // If empty, authentication will not set.
-    auth_infos: [AuthEntity];
-    
+table ClRegisterInfo {
     // user defined name.
     name: string;
     
@@ -21,10 +29,62 @@ table CollectorRegistration {
     epoch_utc: ulong;
 }
 
-// Authentication information for a collector. 
-table AuthEntity {
+// Authentication information entity of collector. A client can access to the collector
+// through data sink server, using this authentication information. 
+//
+// This request is issued from frontend's client, and routed to collector.
+table ClAuthInfo {
     id: string;
-    pw_sha256: string;
-    write_access: bool;
+    pw: string; // Hashed one.
+    
+    // This should be logged in the collector instance
+    client_info: string;
+}
+
+// Reply for authentication request.
+table ClAuthRep {
+    // If `access_lv` is `UsrAccessLv::Rejected`, all other fileds remain invalid.
+    access_lv: UsrAccessLv;
+}
+
+// Request to add a new user to the collector.
+table ClAddAuth {
+    // Unlike simple config edit operations, this request does not trust data-sink server's
+    // authentication validation. Therefore, this request should be issued with admin 
+    // athentication.
+    admin_auth: ClAuthInfo;
+    
+    id: string;
+    pw: string; // Hashed one.
+    access_lv: UsrAccessLv;
+}
+
+// Request to remove a user from the collector. If all admin authentication is removed, 
+// the fallback authentication that was hard-coded should be used. e.g. guest:guest
+table ClDelAuth {
+    admin_auth: ClAuthInfo;
+    id: string;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//
+// Synchronize data-sink
+//
+
+table SynLayoutUpdate {
+    
+}
+
+table SynEntityUpdate {
+    updates: [SynEntityArg];
+}
+
+table SynLayoutArg {
+    
+}
+
+table SynEntityArg {
+    
 }
 
