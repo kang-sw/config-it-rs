@@ -68,23 +68,50 @@ table ClDelAuth {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+// Represents single value payload of a property. Should be parsed as `msgpack` object.
+table Value { msgpack: [ubyte]; }
+
 //
-// Synchronize data-sink
+// Synchronizes data-sink
 //
+// `SynNewTemplate + SynPropDef` -> `SynNewGroup` -> `SynPropUpdate`
 
-table SynLayoutUpdate {
+table SynNewGroup {
+    // Path to this group. Must be unique, 
+    path: [string];
+    template_key: string;
+}
+
+table SynRemoveGroup {
+    path: [string];
+}
+
+table SynNewTemplate {
+    template_key: string;
+    defs: [SynPropDef];
+}
+
+table SynPropDef {
+    def_id: long;
+    
+    name: string;
+    desc: string;
+    source_pos: string;
+    
+    default: Value;
+    min: Value;
+    max: Value;
+    one_of: [Value];
+    
+    no_export: bool;
+    no_import: bool;
+    
+            
+}
+
+table SynPropUpdate {
+    id: long;
     
 }
 
-table SynEntityUpdate {
-    updates: [SynEntityArg];
-}
-
-table SynLayoutArg {
-    
-}
-
-table SynEntityArg {
-    
-}
 

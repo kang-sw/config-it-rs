@@ -60,7 +60,7 @@ pub struct Metadata {
 
     pub props: MetadataProps,
 
-    pub fn_default: fn() -> Box<dyn EntityTrait>,
+    pub fn_default: Box<dyn Fn() -> Box<dyn EntityTrait> + Send + Sync>,
     pub fn_copy_to: fn(&dyn Any, &mut dyn Any),
     pub fn_serialize_to: fn(&dyn Any, &mut dyn Serializer) -> Result<(), erased_serde::Error>,
     pub fn_deserialize_from:
@@ -100,7 +100,7 @@ impl Metadata {
         props: MetadataProps,
     ) -> Self
     where
-        T: EntityTrait + Default + Clone + serde::de::DeserializeOwned + serde::ser::Serialize,
+        T: EntityTrait + Clone + serde::de::DeserializeOwned + serde::ser::Serialize,
     {
         let retrive_opt_minmax = |val| {
             if let Some(v) = val {
@@ -121,12 +121,12 @@ impl Metadata {
         Self {
             name,
             type_id: TypeId::of::<T>(),
-            v_default: Arc::new(init.v_default),
+            v_default: Arc::new(init.v_default.clone()),
             v_min,
             v_max,
             v_one_of,
             props,
-            fn_default: || Box::new(T::default()),
+            fn_default: Box::new(move || Box::new(init.v_default.clone())),
             fn_copy_to: |from, to| {
                 let from: &T = from.downcast_ref().unwrap();
                 let to: &mut T = to.downcast_mut().unwrap();

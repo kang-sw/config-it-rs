@@ -9,6 +9,15 @@ keywords = ["config"]
 license = "MIT"
 build = "build.rs"
 
+include = [
+    "protocol/**",
+    "build.rs",
+    "lib.rs",
+    "Cargo.toml",
+    "README.md",
+    "protocl.fbs",
+]
+
 [lib]
 path = "lib.rs"
 
