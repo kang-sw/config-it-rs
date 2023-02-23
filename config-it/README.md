@@ -19,12 +19,9 @@
 /// instantiation. Put required properties to configure
 /// your program.
 ///
-/// All 'Template' classes must be 'Clone'able, and
-/// 'Default'able.
-///
-/// (Trying to finding way to remove 'Default' constraint.
-///  However, 'Clone' will always be required.)
-#[derive(config_it::Template, Clone, Default)]
+/// All 'Template' classes must be 'Clone'able. Its alternative default constructor will be
+/// provided as [`config_it::Template::default_config`]
+#[derive(config_it::Template, Clone)]
 struct MyConfig {
     /// If you expose any field as config property, the
     /// field must be marked with `config_it` attribute.
@@ -81,6 +78,19 @@ struct MyConfig {
     /// `no_export` flags.
     #[config_it(transient)]
     no_imp_exp_2: Vec<f64>,
+    
+    /// Alternative attribute 1
+    #[cfg]
+    other_attr: i32,
+    
+    /// Alternative attribute 2
+    #[config]
+    another_attr: i32,
+    
+    /// If any non-default-able but excluded field exists, you can provide
+    /// your own default value to make this struct default-constructible.
+    #[nocfg = "std::num::NonZeroUsize(1).unwrap()"]
+    nonzero_var: std::num::NonZeroUsize,
 }
 
 // USAGE ///////////////////////////////////////////////////////////////////////////////////////
