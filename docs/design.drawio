@@ -1,6 +1,6 @@
 <mxfile host="65bd71144e">
     <diagram id="pQlmIpJ8IYanK10ipWJB" name="Classes">
-        <mxGraphModel dx="565" dy="806" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+        <mxGraphModel dx="1222" dy="1500" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -104,7 +104,7 @@
         </mxGraphModel>
     </diagram>
     <diagram id="8whLHvzPgUOjQ3z2aK4g" name="View">
-        <mxGraphModel dx="524" dy="522" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+        <mxGraphModel dx="1222" dy="1500" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
             <root>
                 <mxCell id="jIJrQ6zMe0PSYJjzpbTq-0"/>
                 <mxCell id="jIJrQ6zMe0PSYJjzpbTq-1" parent="jIJrQ6zMe0PSYJjzpbTq-0"/>
@@ -248,6 +248,70 @@
                 </mxCell>
                 <mxCell id="yIPLFvmAb2gzOuEUs1av-18" value="Once followed, it elevates to become sibling of its parent." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=Lucida Console;" parent="jIJrQ6zMe0PSYJjzpbTq-1" vertex="1">
                     <mxGeometry x="660" y="630" width="270" height="50" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+    <diagram id="FvNFko6wkOlI_jniI2pj" name="Configs">
+        <mxGraphModel dx="841" dy="1034" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="lbMsu8-DKgExfi_Wtx3x-5" value="* registeration&lt;br&gt;* layout update&lt;br&gt;* field update" style="edgeStyle=none;sketch=1;hachureGap=4;jiggle=2;curveFitting=1;html=1;fontFamily=Architects Daughter;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;fontSize=16;curved=1;" parent="1" source="lbMsu8-DKgExfi_Wtx3x-1" target="lbMsu8-DKgExfi_Wtx3x-4" edge="1">
+                    <mxGeometry x="0.2486" y="23" relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="320" y="210"/>
+                        </Array>
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="lbMsu8-DKgExfi_Wtx3x-1" value="Application" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=20;fontFamily=Architects Daughter;sketch=1;hachureGap=4;jiggle=2;curveFitting=1;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;" parent="1" vertex="1">
+                    <mxGeometry x="380" y="110" width="120" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="lbMsu8-DKgExfi_Wtx3x-8" value="* contact&lt;br&gt;* Login" style="edgeStyle=none;sketch=1;hachureGap=4;jiggle=2;curveFitting=1;html=1;fontFamily=Architects Daughter;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;fontSize=16;curved=1;" parent="1" source="lbMsu8-DKgExfi_Wtx3x-7" target="lbMsu8-DKgExfi_Wtx3x-4" edge="1">
+                    <mxGeometry x="-0.1532" y="16" relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="680" y="350"/>
+                        </Array>
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="R1AXY-jvkQKEjW8_8i0l-14" value="* field update" style="edgeStyle=none;curved=1;sketch=1;hachureGap=4;jiggle=2;curveFitting=1;html=1;fontFamily=Architects Daughter;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;fontSize=16;" parent="1" source="lbMsu8-DKgExfi_Wtx3x-4" target="lbMsu8-DKgExfi_Wtx3x-1" edge="1">
+                    <mxGeometry x="-0.0025" relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="580" y="160"/>
+                        </Array>
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="NKJwu_FYcODLxG2hL-an-3" value="* list of peers&lt;br&gt;* layout update&lt;br&gt;* field update" style="edgeStyle=none;sketch=1;hachureGap=4;jiggle=2;curveFitting=1;html=1;fontFamily=Architects Daughter;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;fontSize=16;curved=1;" edge="1" parent="1" source="lbMsu8-DKgExfi_Wtx3x-4" target="lbMsu8-DKgExfi_Wtx3x-7">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="400" y="380"/>
+                            <mxPoint x="510" y="490"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="lbMsu8-DKgExfi_Wtx3x-4" value="Data Sink" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=20;fontFamily=Architects Daughter;sketch=1;hachureGap=4;jiggle=2;curveFitting=1;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;" parent="1" vertex="1">
+                    <mxGeometry x="450" y="280" width="110" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="lbMsu8-DKgExfi_Wtx3x-7" value="Frontend" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=20;fontFamily=Architects Daughter;sketch=1;hachureGap=4;jiggle=2;curveFitting=1;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;" parent="1" vertex="1">
+                    <mxGeometry x="630" y="480" width="110" height="40" as="geometry"/>
+                </mxCell>
+                <mxCell id="NKJwu_FYcODLxG2hL-an-8" value="Registration" style="swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;whiteSpace=wrap;html=1;sketch=1;hachureGap=4;jiggle=2;curveFitting=1;fontFamily=Architects Daughter;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;fontSize=20;" vertex="1" parent="1">
+                    <mxGeometry x="40" y="50" width="140" height="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="NKJwu_FYcODLxG2hL-an-9" value="+ Auth Set" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;fontSize=16;sketch=1;hachureGap=4;jiggle=2;curveFitting=1;fontFamily=Architects Daughter;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;" vertex="1" parent="NKJwu_FYcODLxG2hL-an-8">
+                    <mxGeometry y="30" width="140" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="NKJwu_FYcODLxG2hL-an-11" value="+ Introduction" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;fontSize=16;sketch=1;hachureGap=4;jiggle=2;curveFitting=1;fontFamily=Architects Daughter;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;" vertex="1" parent="NKJwu_FYcODLxG2hL-an-8">
+                    <mxGeometry y="60" width="140" height="30" as="geometry"/>
+                </mxCell>
+                <mxCell id="NKJwu_FYcODLxG2hL-an-10" value="* ID/PW&lt;br&gt;* R/W access" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;fontSize=16;sketch=1;hachureGap=4;jiggle=2;curveFitting=1;fontFamily=Architects Daughter;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;" vertex="1" parent="1">
+                    <mxGeometry x="230" y="40" width="140" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="NKJwu_FYcODLxG2hL-an-22" style="edgeStyle=none;curved=1;sketch=1;hachureGap=4;jiggle=2;curveFitting=1;html=1;fontFamily=Architects Daughter;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;fontSize=16;" edge="1" parent="1" source="NKJwu_FYcODLxG2hL-an-9" target="NKJwu_FYcODLxG2hL-an-10">
+                    <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
             </root>
         </mxGraphModel>

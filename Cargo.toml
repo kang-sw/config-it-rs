@@ -2,8 +2,9 @@
 resolver = "2"
 
 members = [
-    "backends/web",
     "config-it",
     "config-it-macros",
     "config-it-macros-impl",
+
+    "config-it-monitor/collect-it",
 ]

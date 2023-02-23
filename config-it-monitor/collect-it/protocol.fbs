@@ -1,0 +1,30 @@
+// 
+// Registers a collector with the server.
+// 
+table CollectorRegistration {
+    // If empty, authentication will not set.
+    auth_infos: [AuthEntity];
+    
+    // user defined name.
+    name: string;
+    
+    // <pid>@<device_name>
+    // 
+    // If single application has multiple collectors, device_key would be same since they 
+    // would share same pid. In this case, `name` should be different.
+    app_key: string;
+    
+    // Description for this collector
+    description: string;
+    
+    // The collector's epoch
+    epoch_utc: ulong;
+}
+
+// Authentication information for a collector. 
+table AuthEntity {
+    id: string;
+    pw_sha256: string;
+    write_access: bool;
+}
+

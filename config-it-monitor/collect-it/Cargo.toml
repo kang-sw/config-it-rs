@@ -1,0 +1,20 @@
+[package]
+name = "config-it-collect"
+version = "0.1.0"
+edition = "2021"
+authors = ["kang-sw <ki6080@gmail.com>"]
+categories = ["config"]
+repository = "https://github.com/kang-sw/config-it-rs"
+keywords = ["config"]
+license = "MIT"
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+flatbuffers = "23"
+anyhow = "*"
+
+[build-dependencies]
+which = "*"
+anyhow = "*"
