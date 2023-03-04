@@ -10,19 +10,19 @@ use std::str::FromStr;
 use syn::Lit;
 
 pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
-    // TODO: Change hard-coded '#this_crate::'
-    // - We can't use `$crate` here since we're not in `config-it` crate.
-    // - There's a crate `proc-macro-crate` for this purpose.
-    // - To make it work with renamed imports, we should apply it here.
-
     let identifier = ty.identifier;
     let generics = ty.generics;
-    let this_crate = match crate_name("config-it").expect("config_it is present in `Cargo.toml`") {
-        FoundCrate::Itself => quote!(::config_it),
-        FoundCrate::Name(name) => {
+    
+    // Check if it's aliased during manifest.    
+    let this_crate = match crate_name("config-it") {
+        Ok(FoundCrate::Itself) => quote!(::config_it),
+        Ok(FoundCrate::Name(name)) => {
             let ident = syn::Ident::new(&name, Span::call_site());
             quote!(::#ident)
         }
+        
+        // HACK: We may handle the re-exported crate that was aliased as 'config_it'
+        Err(_) => { quote!(config_it) }
     };
 
     let fields = replace(&mut ty.fields, Default::default());
