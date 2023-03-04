@@ -92,26 +92,24 @@ table SynNewTemplate {
 }
 
 table SynPropDef {
-    def_id: long;
+    def_id: long; // In practice, usually pointer address of metadata.
     
-    name: string;
-    desc: string;
+    name: string (required);
+    description: string;
     source_pos: string;
     
-    default: Value;
+    default: Value (required);
     min: Value;
     max: Value;
     one_of: [Value];
     
     no_export: bool;
     no_import: bool;
-    
-            
 }
 
-table SynPropUpdate {
+table SynPropUpdateArg {
     id: long;
-    
+    new_value: Value;
 }
 
 

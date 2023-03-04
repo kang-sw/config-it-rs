@@ -9,7 +9,7 @@ fn test_use_case() {
     ///
     /// (Trying to finding way to remove 'Default' constraint.
     ///  However, 'Clone' will always be required.)
-    #[derive(config_it::Template, Clone, Default)]
+    #[derive(config_it::Template, Clone)]
     struct MyConfig {
         /// If you expose any field as config property, the
         /// field must be marked with `config_it` attribute.
@@ -66,6 +66,15 @@ fn test_use_case() {
         /// `no_export` flags.
         #[config_it(transient)]
         no_imp_exp_2: Vec<f64>,
+
+        /// Alternative attribute is allowed.
+        #[config]
+        another_attr: i32,
+
+        /// If any non-default-able but excluded field exists, you can provide
+        /// your own default value to make this template default-constructible.
+        #[nocfg = "std::num::NonZeroUsize::new(1).unwrap()"]
+        _nonzero_var: std::num::NonZeroUsize,
     }
 
     // USAGE ///////////////////////////////////////////////////////////////////////////////////////

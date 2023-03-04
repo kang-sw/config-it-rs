@@ -22,13 +22,13 @@ pub fn derive_collect_fn(item: TokenStream) -> TokenStream {
 }
 
 #[cfg(all(feature="more_attr", not(feature="nocfg")))]
-#[proc_macro_derive(Template, attributes(config_it, cfg, config))]
+#[proc_macro_derive(Template, attributes(config_it, config))]
 pub fn derive_collect_fn(item: TokenStream) -> TokenStream {
     derive_collect_fn_impl(item)
 }
 
 #[cfg(all(feature="more_attr", feature="nocfg"))]
-#[proc_macro_derive(Template, attributes(config_it, nocfg, cfg, config))]
+#[proc_macro_derive(Template, attributes(config_it, nocfg, config))]
 pub fn derive_collect_fn(item: TokenStream) -> TokenStream {
     derive_collect_fn_impl(item)
 }

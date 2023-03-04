@@ -14,6 +14,8 @@
 
 # Usage
 
+- See #[example](tests/api.rs)
+
 ```rust
 /// This is a 'Template' struct, which is minimal unit of
 /// instantiation. Put required properties to configure
@@ -79,18 +81,14 @@ struct MyConfig {
     #[config_it(transient)]
     no_imp_exp_2: Vec<f64>,
     
-    /// Alternative attribute 1
-    #[cfg]
-    other_attr: i32,
-    
-    /// Alternative attribute 2
+    /// Alternative attribute is allowed.
     #[config]
     another_attr: i32,
-    
+
     /// If any non-default-able but excluded field exists, you can provide
-    /// your own default value to make this struct default-constructible.
-    #[nocfg = "std::num::NonZeroUsize(1).unwrap()"]
-    nonzero_var: std::num::NonZeroUsize,
+    /// your own default value to make this template default-constructible.
+    #[nocfg = "std::num::NonZeroUsize::new(1).unwrap()"]
+    _nonzero_var: std::num::NonZeroUsize,
 }
 
 // USAGE ///////////////////////////////////////////////////////////////////////////////////////
