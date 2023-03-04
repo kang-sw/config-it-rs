@@ -532,14 +532,14 @@ mod detail {
                         _apply_archive(&patch);
 
                         if option.merge_onto_cache {
-                            self.archive.merge_onto(body);
+                            self.archive.merge_from(body);
                         } else {
-                            body.merge_onto(patch);
+                            body.merge_from(patch);
                             self.archive = body;
                         }
                     } else {
                         if option.merge_onto_cache {
-                            self.archive.merge_onto(body);
+                            self.archive.merge_from(body);
                         } else {
                             self.archive = body;
                         }
@@ -566,10 +566,10 @@ mod detail {
                         }
                     } else {
                         if option.replace_import_cache {
-                            self.archive.merge_onto(archive);
+                            self.archive.merge_from(archive);
                             self.archive.clone()
                         } else {
-                            self.archive.clone().merge(archive)
+                            archive.merge(self.archive.clone())
                         }
                     };
 

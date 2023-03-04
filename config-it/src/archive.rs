@@ -16,39 +16,48 @@ type Map<T, V> = BTreeMap<T, V>;
 /// This rule can be changed by serialize or deserialize objects within boundary of
 /// [`with_category_rule`].
 ///
-pub enum CategoryRule {
+pub enum CategoryRule<'a> {
     /// Category name is prefixed with this token.
-    Prefix(&'static str),
+    Prefix(&'a str),
 
     /// Category name is suffixed with this token.
-    Suffix(&'static str),
+    Suffix(&'a str),
 
     /// Category name is wrapped with this token.
-    Wrap(&'static str, &'static str),
+    Wrap(&'a str, &'a str),
 }
 
 thread_local! {
-    static CATEGORY_RULE: Cell<CategoryRule> = Cell::new(Default::default());
+    static CATEGORY_RULE: Cell<CategoryRule<'static>> = Cell::new(Default::default());
 }
 
 ///
 /// Serialize or deserialize a map with customized category rule support.
 ///
-pub fn with_category_rule(rule: CategoryRule, f: impl FnOnce()) {
-    CATEGORY_RULE.with(|x| {
-        x.replace(rule);
-        f();
+pub fn with_category_rule(rule: CategoryRule, f: impl FnOnce() + std::panic::UnwindSafe) {
+    CATEGORY_RULE.with(|x| unsafe {
+        // SAFETY: The `x` is guaranteed to be restored to its original value on function exit,
+        //         even if a panic occurs.
+        x.replace(std::mem::transmute(rule));
+
+        let err = std::panic::catch_unwind(|| {
+            f();
+        });
+
         x.replace(Default::default());
+
+        // Let panic propagate
+        err.unwrap();
     })
 }
 
-impl Default for CategoryRule {
+impl<'a> Default for CategoryRule<'a> {
     fn default() -> Self {
         Self::Prefix("~")
     }
 }
 
-impl CategoryRule {
+impl<'a> CategoryRule<'a> {
     pub fn is_category(&self, key: &str) -> bool {
         match self {
             Self::Prefix(prefix) => key.starts_with(prefix),
@@ -177,10 +186,10 @@ impl Archive {
         self.paths.is_empty() && self.values.is_empty()
     }
 
-    pub fn merge_onto(&mut self, other: Self) {
+    pub fn merge_from(&mut self, other: Self) {
         // Recursively merge p
         for (k, v) in other.paths {
-            self.paths.entry(k).or_default().merge_onto(v);
+            self.paths.entry(k).or_default().merge_from(v);
         }
 
         // Value merge is done with simple replace
@@ -191,7 +200,7 @@ impl Archive {
 
     #[must_use]
     pub fn merge(mut self, other: Self) -> Self {
-        self.merge_onto(other);
+        self.merge_from(other);
         self
     }
 }
