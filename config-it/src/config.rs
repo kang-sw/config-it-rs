@@ -1,4 +1,5 @@
 use crate::entity::{EntityData, EntityTrait, Metadata};
+use crate::BroadcastReceiver;
 use compact_str::CompactString;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
@@ -122,6 +123,7 @@ impl Default for PropLocalContext {
 }
 
 impl<T: Template> Group<T> {
+    #[doc(hidden)]
     pub(crate) fn create_with__(
         core: Arc<GroupContext>,
         unregister_anchor: Arc<dyn Any + Send + Sync>,
@@ -138,9 +140,8 @@ impl<T: Template> Group<T> {
         gen
     }
 
-    ///
-    /// Update this storage
-    ///
+    /// Fetch underlying object's updates and apply to local cache. Returns true if there was
+    /// any update available.
     pub fn update(&mut self) -> bool {
         let Self { local, .. } = self;
 
@@ -176,9 +177,8 @@ impl<T: Template> Group<T> {
         has_update
     }
 
-    ///
-    /// Check update from entity address
-    ///
+    /// Check element update from its address, and clears dirty flag on given element.
+    /// This is only meaningful when followed by [`Group::update`] call.
     pub fn check_elem_update<U: 'static>(&mut self, e: *const U) -> bool {
         let Some(index) = self.get_index_by_ptr(e) else { return false };
         let ref_dirty_flag = &mut self.local[index].dirty_flag;
@@ -186,9 +186,7 @@ impl<T: Template> Group<T> {
         replace(ref_dirty_flag, false)
     }
 
-    ///
-    /// Get index of element
-    ///
+    /// Get index of element based on element address.
     pub fn get_index_by_ptr<U: 'static>(&self, e: *const U) -> Option<usize> {
         if let Some(prop) = self.get_prop_by_ptr(e) {
             Some(prop.index)
@@ -197,6 +195,7 @@ impl<T: Template> Group<T> {
         }
     }
 
+    /// Get property descriptor by element address. Provides primitive guarantee for type safety.
     pub fn get_prop_by_ptr<U: 'static>(&self, e: *const U) -> Option<&PropData> {
         let ptr = e as *const u8 as isize;
         let base = &self.__body as *const _ as *const u8 as isize;
@@ -216,10 +215,8 @@ impl<T: Template> Group<T> {
         }
     }
 
-    ///
-    /// Commit entity value to storage (silently)
-    ///
     pub fn commit_elem<U: Clone + EntityTrait + Send>(&self, e: &U, notify: bool) {
+        //!
         // Create new value pointer from input argument.
         let cloned_value = Arc::new(e.clone()) as Arc<dyn EntityTrait>;
 
@@ -229,46 +226,51 @@ impl<T: Template> Group<T> {
         elem.__notify_value_change(notify)
     }
 
-    ///
-    /// Get update receiver
-    ///
-    pub fn watch_update(&self) -> async_broadcast::Receiver<()> {
+    /// Clones new update receiver channel. Given channel will be notified whenever call to
+    /// `update()` method meaningful. However, as the event can be generated manually even
+    /// if there's no actual update, it's not recommended to make critical logics rely on
+    /// this signal.
+    pub fn watch_update(&self) -> BroadcastReceiver<()> {
         self.core.update_receiver_channel.clone().activate()
     }
 
+    /// Spawns new broadcast receiver, and forcibly generates update event.
     ///
-    /// Mark all elements dirty
-    ///
+    /// This is useful when you want to make sure that first monitoring event is always triggered,
+    /// however, note that this method will incur all other watchdogs to be notified as well.
+    pub fn watch_update_with_event_broadcast(&self) -> BroadcastReceiver<()> {
+        let rx = self.watch_update();
+        let _ = rx.new_sender().try_broadcast(());
+        rx
+    }
+
+    /// Mark all elements dirty. Next call to [`Group::update()`] may not return true if there
+    /// wasn't any actual update, however, every call to [`Group::check_elem_update()`] for
+    /// each elements will return true.
     pub fn mark_all_elem_dirty(&mut self) {
         // Raising dirty flag does not incur remote reload.
         self.local.iter_mut().for_each(|e| e.dirty_flag = true);
     }
 
-    ///
-    /// Mark this group dirty.
-    ///
+    /// Mark this group dirty. Next call to `update()` method will return true, regardless of
+    /// whether there's any actual update.
     pub fn mark_group_dirty(&mut self) {
         self.fence = 0;
     }
 
-    ///
     /// Mark given element dirty.
-    ///
     pub fn mark_dirty<U: 'static>(&mut self, elem: &U) {
         let index = self.get_index_by_ptr(elem).unwrap();
         self.local[index].dirty_flag = true;
     }
 
-    ///
     /// Get generated metadata of given element
-    ///
     pub fn get_metadata<U: 'static>(&self, elem: &U) -> Arc<Metadata> {
         self.get_prop_by_ptr(elem).unwrap().meta.clone()
     }
 
-    ///
-    /// Get allocated group prefix
-    ///
+    /// Get instance path of `self`. This value is same as the list of tokens that you have
+    /// provided to [`crate::Storage::create_group`] method.
     pub fn get_path(&self) -> Arc<Vec<CompactString>> {
         self.core.path.clone()
     }

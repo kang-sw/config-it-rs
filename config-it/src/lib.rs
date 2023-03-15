@@ -380,6 +380,7 @@ pub use compact_str::CompactString;
 
 pub use archive::Archive;
 pub use archive::CategoryRule as ArchiveCategoryRule;
+pub use async_broadcast::Receiver as BroadcastReceiver;
 pub use config::Group;
 pub use config::Template;
 pub use storage::ExportOptions;
