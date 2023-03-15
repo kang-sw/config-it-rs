@@ -1,6 +1,5 @@
 use crate::entity::{EntityData, EntityTrait, Metadata};
 use compact_str::CompactString;
-use parking_lot::Mutex;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::iter::zip;
@@ -71,7 +70,7 @@ pub struct Group<T> {
     fence: usize,
 
     /// Property-wise contexts
-    local: Mutex<Vec<PropLocalContext>>,
+    local: Vec<PropLocalContext>,
 
     /// List of managed properties. This act as source container
     core: Arc<GroupContext>,
@@ -88,7 +87,7 @@ impl<T: Clone> Clone for Group<T> {
         Self {
             __body: self.__body.clone(),
             fence: self.fence.clone(),
-            local: self.local.lock().clone().into(),
+            local: self.local.clone(),
             core: self.core.clone(),
             _unregister_hook: self._unregister_hook.clone(),
         }
@@ -143,6 +142,8 @@ impl<T: Template> Group<T> {
     /// Update this storage
     ///
     pub fn update(&mut self) -> bool {
+        let Self { local, .. } = self;
+
         // Forces initial update always return true.
         let mut has_update = self.fence == 0;
 
@@ -152,16 +153,13 @@ impl<T: Template> Group<T> {
             v => self.fence = v,
         }
 
-        let mut local_ctx = self.local.lock();
         debug_assert_eq!(
-            local_ctx.len(),
+            local.len(),
             self.core.sources.len(),
             "Logic Error: set was not correctly initialized!"
         );
 
-        for ((index, local), source) in
-            zip(zip(0..local_ctx.len(), &mut *local_ctx), &*self.core.sources)
-        {
+        for ((index, local), source) in zip(zip(0..local.len(), &mut *local), &*self.core.sources) {
             // Perform quick check to see if given config entity has any update.
             match source.get_update_fence() {
                 v if v == local.update_fence => continue,
@@ -181,9 +179,9 @@ impl<T: Template> Group<T> {
     ///
     /// Check update from entity address
     ///
-    pub fn check_elem_update<U: 'static>(&self, e: &U) -> bool {
+    pub fn check_elem_update<U: 'static>(&mut self, e: *const U) -> bool {
         let Some(index) = self.get_index_by_ptr(e) else { return false };
-        let ref_dirty_flag = &mut (*self.local.lock())[index].dirty_flag;
+        let ref_dirty_flag = &mut self.local[index].dirty_flag;
 
         replace(ref_dirty_flag, false)
     }
@@ -191,7 +189,7 @@ impl<T: Template> Group<T> {
     ///
     /// Get index of element
     ///
-    pub fn get_index_by_ptr<U: 'static>(&self, e: &U) -> Option<usize> {
+    pub fn get_index_by_ptr<U: 'static>(&self, e: *const U) -> Option<usize> {
         if let Some(prop) = self.get_prop_by_ptr(e) {
             Some(prop.index)
         } else {
@@ -199,8 +197,8 @@ impl<T: Template> Group<T> {
         }
     }
 
-    pub fn get_prop_by_ptr<U: 'static>(&self, e: &U) -> Option<&PropData> {
-        let ptr = e as *const _ as *const u8 as isize;
+    pub fn get_prop_by_ptr<U: 'static>(&self, e: *const U) -> Option<&PropData> {
+        let ptr = e as *const u8 as isize;
         let base = &self.__body as *const _ as *const u8 as isize;
 
         match ptr - base {
@@ -209,7 +207,7 @@ impl<T: Template> Group<T> {
             v => {
                 if let Some(prop) = T::prop_desc_table__().get(&(v as usize)) {
                     debug_assert_eq!(prop.type_id, TypeId::of::<U>());
-                    debug_assert!(prop.index < self.local.lock().len());
+                    debug_assert!(prop.index < self.local.len());
                     Some(prop)
                 } else {
                     None
@@ -241,12 +239,9 @@ impl<T: Template> Group<T> {
     ///
     /// Mark all elements dirty
     ///
-    pub fn mark_all_elem_dirty(&self) {
+    pub fn mark_all_elem_dirty(&mut self) {
         // Raising dirty flag does not incur remote reload.
-        self.local
-            .lock()
-            .iter_mut()
-            .for_each(|e| e.dirty_flag = true);
+        self.local.iter_mut().for_each(|e| e.dirty_flag = true);
     }
 
     ///
@@ -259,9 +254,9 @@ impl<T: Template> Group<T> {
     ///
     /// Mark given element dirty.
     ///
-    pub fn mark_dirty<U: 'static>(&self, elem: &U) {
+    pub fn mark_dirty<U: 'static>(&mut self, elem: &U) {
         let index = self.get_index_by_ptr(elem).unwrap();
-        self.local.lock()[index].dirty_flag = true;
+        self.local[index].dirty_flag = true;
     }
 
     ///
