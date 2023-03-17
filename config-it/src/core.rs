@@ -53,6 +53,8 @@ pub(crate) enum ControlDirective {
         destination: oneshot::Sender<archive::Archive>,
         option: ExportOptions,
     },
+
+    Close,
 }
 
 pub(crate) struct GroupRegisterParam {

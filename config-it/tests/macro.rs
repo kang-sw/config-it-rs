@@ -131,7 +131,7 @@ fn config_set_valid_operations() {
         assert!(group.consume_update(&group.noimp), "Now dirty flag is cleared");
         assert!(!group.consume_update(&group.median), "Now dirty flag is cleared");
 
-        dbg!(&group.__body);
+        dbg!(&*group);
 
         let json = json!({
             "~hello": {
@@ -168,7 +168,7 @@ fn config_set_valid_operations() {
         assert!(!group.consume_update(&group.data), "Before 'update()' call, nothing changes.");
         assert!(group.update(), "Config successfully imported.");
 
-        dbg!(&group.__body);
+        dbg!(&*group);
 
         let meta = group.get_metadata(&group.my_value);
         dbg!((meta.name, &meta.props));

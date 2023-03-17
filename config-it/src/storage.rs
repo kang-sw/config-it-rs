@@ -79,9 +79,15 @@ pub fn create() -> (Storage, impl Future<Output = ()>) {
             let mut context = detail::StorageDriveContext::new();
             loop {
                 match rx.recv_async().await {
+                    Ok(ControlDirective::Close) => {
+                        debug!("closing storage driver ...");
+                        break;
+                    }
+
                     Ok(msg) => {
                         context.handle_once(msg).await;
                     }
+
                     Err(e) => {
                         let ptr = &rx as *const _;
                         debug!("[{ptr:p}] ({e:?}) All sender channel has been closed. Closing storage ...");
@@ -105,6 +111,12 @@ impl Storage {
     #[deprecated(note = "Use global function 'create' instead")]
     pub fn new() -> (Self, impl Future<Output = ()>) {
         create()
+    }
+
+    pub fn close(&self) -> Result<(), core::Error> {
+        self.tx
+            .send(ControlDirective::Close)
+            .map_err(|_| core::Error::ExpiredStorage)
     }
 
     ///
@@ -579,6 +591,8 @@ mod detail {
                 Fence(reply) => {
                     reply.send(()).ok();
                 }
+
+                Close => unreachable!(),
             }
         }
 

@@ -83,6 +83,8 @@ fn concepts() {
         assert_eq!(john.name, "John");
         assert_eq!(john.age, 30);
         assert_eq!(john.position, "unspecified", "invalid value is ignored");
+
+        storage.close().unwrap();
     });
 }
 
@@ -110,7 +112,9 @@ fn serde_struct() {
         let archive = storage.export(Default::default()).await.unwrap();
 
         let dump = serde_json::to_string(&archive).unwrap();
-        assert_eq!(dump, r#"{"~outer":{"inner":{"age":30,"name":"John"}}}"#)
+        assert_eq!(dump, r#"{"~outer":{"inner":{"age":30,"name":"John"}}}"#);
+
+        storage.close().unwrap();
     };
 
     futures::executor::block_on(async {
