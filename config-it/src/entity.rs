@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 pub trait EntityTrait: Send + Sync + Any {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
-    fn serialize(&self, se: &mut dyn erased_serde::Serializer) -> Result<(), erased_serde::Error>;
+    fn to_json_value(&self) -> Result<serde_json::Value, serde_json::Error>;
     fn deserialize(
         &mut self,
         de: &mut dyn erased_serde::Deserializer,
@@ -29,16 +29,16 @@ where
         self as &mut dyn Any
     }
 
-    fn serialize(&self, se: &mut dyn erased_serde::Serializer) -> Result<(), erased_serde::Error> {
-        Serialize::erased_serialize(self, se).map(|_| ())
-    }
-
     fn deserialize(
         &mut self,
         de: &mut dyn erased_serde::Deserializer,
     ) -> Result<(), erased_serde::Error> {
         *self = T::deserialize(de)?;
         Ok(())
+    }
+
+    fn to_json_value(&self) -> Result<serde_json::Value, serde_json::Error> {
+        serde_json::to_value(self as &dyn erased_serde::Serialize)
     }
 }
 

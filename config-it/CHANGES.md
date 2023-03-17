@@ -2,6 +2,8 @@
 - [ ] JsonSchema generation support (using [schemars](https://crates.io/crates/schemars))
 
 ## 0.5.0
+- [x] Remove inefficient serialization-deserialzation to create json::Value.
+- [x] Remove rmp_serde dependency.
 - [x] Deprecate `check_elem_update`, new API which have clearer name
 - [x] New docs
 

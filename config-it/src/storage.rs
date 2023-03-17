@@ -637,7 +637,6 @@ mod detail {
 
             // Clear existing values before dumping.
             node.values.clear();
-            let mut buf = Vec::<u8>::with_capacity(128);
 
             for (meta, val) in ctx
                 .sources
@@ -646,33 +645,9 @@ mod detail {
                 .filter(|(meta, _)| !meta.props.disable_export)
             {
                 let dst = node.values.entry(meta.name.into()).or_default();
-
-                // HACK: Find more efficient way to create json::Value from EntityValue ...
-                // HACK: Current implementation naively dumps json -> load it back to serde_json::Value
-                buf.clear();
-
-                #[cfg(not(feature = "use_binary_archive"))]
-                let mut ser = serde_json::Serializer::new(&mut buf);
-
-                #[cfg(feature = "use_binary_archive")]
-                let mut ser = rmp_serde::Serializer::new(&mut buf).with_struct_map();
-
-                if val
-                    .serialize(&mut <dyn erased_serde::Serializer>::erase(&mut ser))
-                    .is_err()
-                {
-                    // Serialization has failed, do not use the result.
-                    continue;
-                }
-
-                #[cfg(not(feature = "use_binary_archive"))]
-                let val = serde_json::from_slice(&buf[0..]);
-
-                #[cfg(feature = "use_binary_archive")]
-                let val = rmp_serde::from_slice(&buf[0..]);
-
-                if let Ok(val) = val {
-                    *dst = val;
+                match val.to_json_value() {
+                    Ok(val) => *dst = val,
+                    Err(e) => log::warn!("failed to dump {}: {}", meta.name, e),
                 }
             }
         }
