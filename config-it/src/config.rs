@@ -65,7 +65,7 @@ pub struct GroupContext {
 ///
 pub struct Group<T> {
     /// Cached local content
-    pub __body: T,
+    __body: T,
 
     /// Cached update fence
     fence: usize,
@@ -177,9 +177,14 @@ impl<T: Template> Group<T> {
         has_update
     }
 
+    #[deprecated(since = "0.4.0", note = "use `clear_flag` instead")]
+    pub fn check_elem_update<U: 'static>(&mut self, e: *const U) -> bool {
+        self.consume_update(e)
+    }
+
     /// Check element update from its address, and clears dirty flag on given element.
     /// This is only meaningful when followed by [`Group::update`] call.
-    pub fn check_elem_update<U: 'static>(&mut self, e: *const U) -> bool {
+    pub fn consume_update<U: 'static>(&mut self, e: *const U) -> bool {
         let Some(index) = self.get_index_by_ptr(e) else { return false };
         let ref_dirty_flag = &mut self.local[index].dirty_flag;
 
@@ -245,7 +250,7 @@ impl<T: Template> Group<T> {
     }
 
     /// Mark all elements dirty. Next call to [`Group::update()`] may not return true if there
-    /// wasn't any actual update, however, every call to [`Group::check_elem_update()`] for
+    /// wasn't any actual update, however, every call to [`Group::clear_flag()`] for
     /// each elements will return true.
     pub fn mark_all_elem_dirty(&mut self) {
         // Raising dirty flag does not incur remote reload.
@@ -412,7 +417,7 @@ mod emulate_generation {
 
         assert!(group.update());
         assert!(!group.update());
-        assert!(group.check_elem_update(&group.my_string));
-        assert!(!group.check_elem_update(&group.my_string));
+        assert!(group.clear_flag(&group.my_string));
+        assert!(!group.clear_flag(&group.my_string));
     }
 }

@@ -140,31 +140,31 @@ fn test_use_case() {
         assert!(group.update() == false);
 
         // Every individual properties has their own dirty flag.
-        assert!(true == group.check_elem_update(&group.array_init));
-        assert!(true == group.check_elem_update(&group.c_string_type));
-        assert!(true == group.check_elem_update(&group.env_var));
-        assert!(true == group.check_elem_update(&group.no_imp_exp));
-        assert!(true == group.check_elem_update(&group.no_imp_exp_2));
-        assert!(true == group.check_elem_update(&group.non_alias));
-        assert!(true == group.check_elem_update(&group.int_field));
-        assert!(true == group.check_elem_update(&group.one_of_field));
-        assert!(true == group.check_elem_update(&group.string_field));
+        assert!(true == group.consume_update(&group.array_init));
+        assert!(true == group.consume_update(&group.c_string_type));
+        assert!(true == group.consume_update(&group.env_var));
+        assert!(true == group.consume_update(&group.no_imp_exp));
+        assert!(true == group.consume_update(&group.no_imp_exp_2));
+        assert!(true == group.consume_update(&group.non_alias));
+        assert!(true == group.consume_update(&group.int_field));
+        assert!(true == group.consume_update(&group.one_of_field));
+        assert!(true == group.consume_update(&group.string_field));
 
-        assert!(false == group.check_elem_update(&group.array_init));
-        assert!(false == group.check_elem_update(&group.c_string_type));
-        assert!(false == group.check_elem_update(&group.env_var));
-        assert!(false == group.check_elem_update(&group.no_imp_exp));
-        assert!(false == group.check_elem_update(&group.no_imp_exp_2));
-        assert!(false == group.check_elem_update(&group.int_field));
-        assert!(false == group.check_elem_update(&group.non_alias));
-        assert!(false == group.check_elem_update(&group.one_of_field));
-        assert!(false == group.check_elem_update(&group.string_field));
+        assert!(false == group.consume_update(&group.array_init));
+        assert!(false == group.consume_update(&group.c_string_type));
+        assert!(false == group.consume_update(&group.env_var));
+        assert!(false == group.consume_update(&group.no_imp_exp));
+        assert!(false == group.consume_update(&group.no_imp_exp_2));
+        assert!(false == group.consume_update(&group.int_field));
+        assert!(false == group.consume_update(&group.non_alias));
+        assert!(false == group.consume_update(&group.one_of_field));
+        assert!(false == group.consume_update(&group.string_field));
 
         // Any field that wasn't marked as 'config_it' attribute will not be part of
         // config_it system.
 
         // // Invoking next line will panic:
-        // group.check_elem_update(&group.nothing_here);
+        // group.clear_flag(&group.nothing_here);
 
         // 3. Properties
         //
@@ -267,21 +267,21 @@ fn test_use_case() {
         assert!(group.one_of_field == "default"); // Not in the 'one_of' list. no change.
 
         // Only updated properties' dirty flag will be set.
-        assert!(true == group.check_elem_update(&group.non_alias));
-        assert!(true == group.check_elem_update(&group.array_init));
-        assert!(true == group.check_elem_update(&group.env_var));
+        assert!(true == group.consume_update(&group.non_alias));
+        assert!(true == group.consume_update(&group.array_init));
+        assert!(true == group.consume_update(&group.env_var));
 
         // Since this property had no change, dirty flag was not set.
-        assert!(false == group.check_elem_update(&group.int_field));
+        assert!(false == group.consume_update(&group.int_field));
 
         // Since this property was not in the 'one_of' list, it was ignored.
-        assert!(false == group.check_elem_update(&group.one_of_field));
+        assert!(false == group.consume_update(&group.one_of_field));
 
         // These were simply not in the list.
-        assert!(false == group.check_elem_update(&group.c_string_type));
-        assert!(false == group.check_elem_update(&group.no_imp_exp));
-        assert!(false == group.check_elem_update(&group.no_imp_exp_2));
-        assert!(false == group.check_elem_update(&group.string_field));
+        assert!(false == group.consume_update(&group.c_string_type));
+        assert!(false == group.consume_update(&group.no_imp_exp));
+        assert!(false == group.consume_update(&group.no_imp_exp_2));
+        assert!(false == group.consume_update(&group.string_field));
 
         // 5. Other features
 

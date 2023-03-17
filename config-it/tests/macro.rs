@@ -124,12 +124,12 @@ fn config_set_valid_operations() {
 
         assert!(group.update(), "Initial update always returns true.");
         assert!(!group.update(), "Now dirty flag cleared");
-        assert!(group.check_elem_update(&group.data), "Initial check returns true");
-        assert!(!group.check_elem_update(&group.data), "Now dirty flag is cleared");
-        assert!(!group.check_elem_update(&group.data), "Now dirty flag is cleared");
-        assert!(group.check_elem_update(&group.median), "Now dirty flag is cleared");
-        assert!(group.check_elem_update(&group.noimp), "Now dirty flag is cleared");
-        assert!(!group.check_elem_update(&group.median), "Now dirty flag is cleared");
+        assert!(group.consume_update(&group.data), "Initial check returns true");
+        assert!(!group.consume_update(&group.data), "Now dirty flag is cleared");
+        assert!(!group.consume_update(&group.data), "Now dirty flag is cleared");
+        assert!(group.consume_update(&group.median), "Now dirty flag is cleared");
+        assert!(group.consume_update(&group.noimp), "Now dirty flag is cleared");
+        assert!(!group.consume_update(&group.median), "Now dirty flag is cleared");
 
         dbg!(&group.__body);
 
@@ -165,7 +165,7 @@ fn config_set_valid_operations() {
         thread::sleep(Duration::from_millis(100));
 
         assert!(brd.try_recv().is_ok());
-        assert!(!group.check_elem_update(&group.data), "Before 'update()' call, nothing changes.");
+        assert!(!group.consume_update(&group.data), "Before 'update()' call, nothing changes.");
         assert!(group.update(), "Config successfully imported.");
 
         dbg!(&group.__body);
@@ -174,12 +174,12 @@ fn config_set_valid_operations() {
         dbg!((meta.name, &meta.props));
 
         assert!(!group.update(), "Re-request handled correctly.");
-        assert!(group.check_elem_update(&group.data), "Updated configs correctly applied.");
-        assert!(group.check_elem_update(&group.maximum));
-        assert!(group.check_elem_update(&group.minimal));
-        assert!(group.check_elem_update(&group.noexp));
-        assert!(!group.check_elem_update(&group.noimp), "No-import property correctly excluded");
-        assert!(!group.check_elem_update(&group.median), "Unspecified update correctly excluded.");
+        assert!(group.consume_update(&group.data), "Updated configs correctly applied.");
+        assert!(group.consume_update(&group.maximum));
+        assert!(group.consume_update(&group.minimal));
+        assert!(group.consume_update(&group.noexp));
+        assert!(!group.consume_update(&group.noimp), "No-import property correctly excluded");
+        assert!(!group.consume_update(&group.median), "Unspecified update correctly excluded.");
 
         let dumped = storage.export(Default::default()).await.unwrap();
         let dumped = serde_json::to_string_pretty(&dumped).unwrap();
