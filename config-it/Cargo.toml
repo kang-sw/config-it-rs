@@ -36,7 +36,7 @@ parking_lot = "0"
 futures = "0.3"
 serde_yaml = "0"
 indoc = "2"
-tokio = { version = "*", features = ["full"] }
+tokio = { version = "1", features = ["full"] }
 
 [features]
 default = ["more_attr", "nocfg"]
