@@ -532,7 +532,7 @@ mod detail {
                         _apply_archive(&patch);
 
                         if option.merge_onto_cache {
-                            self.archive.merge_from(body);
+                            self.archive.merge_from(patch);
                         } else {
                             body.merge_from(patch);
                             self.archive = body;
