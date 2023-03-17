@@ -641,7 +641,7 @@ mod detail {
                 let mut ser = serde_json::Serializer::new(&mut buf);
 
                 #[cfg(feature = "use_binary_archive")]
-                let mut ser = rmp_serde::Serializer::new(&mut buf);
+                let mut ser = rmp_serde::Serializer::new(&mut buf).with_struct_map();
 
                 if val
                     .serialize(&mut <dyn erased_serde::Serializer>::erase(&mut ser))
