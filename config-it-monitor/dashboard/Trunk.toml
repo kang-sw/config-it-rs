@@ -1,0 +1,6 @@
+[build]
+filehash = false
+
+[[proxy]]
+ws = true
+backend = "http://localhost:9000/"

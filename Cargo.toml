@@ -6,5 +6,6 @@ members = [
     "config-it-macros",
     "config-it-macros-impl",
 
-    "config-it-monitor/collect-it",
+    "config-it-monitor/monitor",
+    "config-it-monitor/dashboard",
 ]
