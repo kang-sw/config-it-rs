@@ -7,5 +7,6 @@ members = [
     "config-it-macros-impl",
 
     "config-it-monitor/monitor",
-    "config-it-monitor/dashboard",
 ]
+
+exclude = ["config-it-monitor/dashboard"]
