@@ -104,7 +104,7 @@ impl eframe::App for TemplateApp {
             },
 
             AppState::Active { rpc } => {
-                todo!();
+                log::debug!("UNIMPLEMENTED");
             }
 
             AppState::Broken(when) => {
@@ -234,6 +234,10 @@ mod ws_wasm32 {
                 drop(tx.send(Err(anyhow::anyhow!("observe failed"))));
                 return;
             };
+
+            log::debug!("connection successfully established. creating rpc instance ...");
+
+            // TODO: create RPC instance using websocket stream.
         });
 
         rx

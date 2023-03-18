@@ -11,5 +11,8 @@ pub(crate) struct Session {
 }
 
 impl Session {
-    pub fn execute(self) {}
+    pub async fn execute(self) {
+        log::info!("executing new session for {}", self.remote);
+        std::future::pending().await
+    }
 }

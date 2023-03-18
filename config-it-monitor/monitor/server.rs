@@ -156,7 +156,7 @@ mod driver {
         ) -> impl IntoResponse {
             log::debug!("new remote websocket upgrade request: {addr}");
 
-            ws.on_upgrade(move |ws| async move {
+            ws.on_upgrade(move |ws| {
                 crate::session::Session::builder()
                     .context(ctx)
                     .remote(addr)
