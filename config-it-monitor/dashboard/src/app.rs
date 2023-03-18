@@ -1,24 +1,33 @@
+use egui::Color32;
+use instant::{Duration, Instant};
+
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)] // if we add new fields, give them default values when deserializing old state
 pub struct TemplateApp {
-    // Example stuff:
-    label: String,
-
-    // this how you opt-out of serialization of a member
     #[serde(skip)]
-    value: f32,
+    state: AppState,
 }
 
 impl Default for TemplateApp {
     fn default() -> Self {
         Self {
-            // Example stuff:
-            label: "Hello World!".to_owned(),
-            value: 2.7,
+            state: AppState::Uninit,
         }
     }
 }
+
+enum AppState {
+    Uninit,
+
+    Connecting(Instant, ConnectionTask),
+
+    Active { rpc: rpc_it::Handle },
+
+    Broken(Instant),
+}
+
+type ConnectionTask = oneshot::Receiver<anyhow::Result<rpc_it::Handle>>;
 
 impl TemplateApp {
     /// Called once before the first frame.
@@ -42,6 +51,89 @@ impl eframe::App for TemplateApp {
         eframe::set_value(storage, eframe::APP_KEY, self);
     }
 
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        const MAX_WAIT: Duration = std::time::Duration::from_secs(5);
+
+        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+            egui::menu::bar(ui, |ui| {
+                ui.menu_button("Edit", |_| {});
+                ui.menu_button("View", |_| {});
+            })
+        });
+
+        match &mut self.state {
+            #[cfg(target_arch = "wasm32")]
+            AppState::Uninit => {
+                self.state = AppState::Connecting(Instant::now(), ws_wasm32::connect());
+            }
+
+            AppState::Connecting(epoch, task) => match task.try_recv() {
+                Ok(Ok(rpc)) => self.state = AppState::Active { rpc },
+
+                Ok(Err(err)) => {
+                    log::error!("Failed to connect: {}", err);
+                    self.state = AppState::Broken(Instant::now());
+                }
+
+                Err(oneshot::TryRecvError::Empty) => {
+                    egui::Window::new("Connecting")
+                        .id("conn-msg".into())
+                        .show(ctx, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label("connecting...");
+                                let rate = (epoch.elapsed().as_secs_f32() * 255. / 5.) as _;
+                                ui.colored_label(
+                                    Color32::from_rgb(rate, 255 - rate, 0),
+                                    format!("{:.2}s", epoch.elapsed().as_secs_f32()),
+                                );
+                            })
+                        });
+
+                    if epoch.elapsed() > MAX_WAIT {
+                        log::warn!("failed to connect in time");
+                        self.state = AppState::Broken(Instant::now());
+                    }
+
+                    ctx.request_repaint();
+                }
+
+                Err(oneshot::TryRecvError::Disconnected) => {
+                    log::error!("Failed to connect: channel closed");
+                    self.state = AppState::Broken(Instant::now());
+                }
+            },
+
+            AppState::Active { rpc } => {
+                todo!();
+            }
+
+            AppState::Broken(when) => {
+                egui::Window::new("Connection Broken")
+                    .id("conn-msg".into())
+                    .show(ctx, |ui| {
+                        ui.label("Failed to connect to server");
+                        ui.horizontal(|ui| {
+                            ui.label("retrying in ");
+                            ui.colored_label(
+                                Color32::GREEN,
+                                format!(
+                                    "{:.2}s",
+                                    (MAX_WAIT.saturating_sub(when.elapsed())).as_secs_f32()
+                                ),
+                            )
+                        })
+                    });
+
+                if when.elapsed() > MAX_WAIT {
+                    self.state = AppState::Uninit;
+                }
+
+                ctx.request_repaint();
+            }
+        }
+    }
+
+    #[cfg(any())]
     /// Called each time the UI needs repainting, which may be many times per second.
     /// Put your widgets into a `SidePanel`, `TopPanel`, `CentralPanel`, `Window` or `Area`.
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -111,4 +203,47 @@ impl eframe::App for TemplateApp {
             ui.label("You would normally choose either panels OR windows.");
         });
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+mod ws_wasm32 {
+    use pharos::{Observable, ObserveConfig};
+    use ws_stream_wasm::WsMeta;
+
+    use super::{spawn_task, ConnectionTask};
+
+    pub fn connect() -> ConnectionTask {
+        let (tx, rx) = oneshot::channel::<anyhow::Result<rpc_it::Handle>>();
+        spawn_task(async move {
+            let remote = web_sys::window().unwrap().location().host().unwrap();
+            let url = format!("ws://{}/ws", remote);
+            log::debug!("connecting to: {url}");
+
+            let (mut ws_meta, _ws_io) = match WsMeta::connect(url.as_str(), None).await {
+                Ok(ws) => ws,
+
+                Err(e) => {
+                    log::error!("Failed to connect: {}", e);
+                    drop(tx.send(Err(e.into())));
+                    return;
+                }
+            };
+
+            let Ok(observer) = ws_meta.observe(ObserveConfig::default()).await else {
+                log::error!("Failed to connect: observe failed");
+                drop(tx.send(Err(anyhow::anyhow!("observe failed"))));
+                return;
+            };
+        });
+
+        rx
+    }
+}
+
+pub fn spawn_task(fut: impl std::future::Future<Output = ()> + 'static) {
+    #[cfg(target_arch = "wasm32")]
+    wasm_bindgen_futures::spawn_local(fut);
+
+    #[cfg(not(target_arch = "wasm32"))]
+    tokio::task::spawn_local(fut)
 }

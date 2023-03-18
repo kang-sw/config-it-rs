@@ -1,11 +1,15 @@
 #![warn(clippy::all, rust_2018_idioms)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
+use std::future::Future;
+
 // When compiling natively:
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result<()> {
     // Log to stdout (if you run with `RUST_LOG=debug`).
     tracing_subscriber::fmt::init();
+
+    // TODO: spawn_local support
 
     let native_options = eframe::NativeOptions::default();
     eframe::run_native(
@@ -23,6 +27,7 @@ fn main() {
 
     // Redirect tracing to console.log and friends:
     tracing_wasm::set_as_global_default();
+    tracing_log::LogTracer::init().expect("failed to set logger");
 
     let web_options = eframe::WebOptions::default();
 

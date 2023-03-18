@@ -15,19 +15,33 @@ eframe = { version = "0.21.0", default-features = false, features = [
     "persistence",   # Enable restoring app state when restarting the app.
 ] }
 
+rpc-it = "0.2"
+capture-it = "0.2"
+
+log = "^0.4"
+anyhow = "^1.0.70"
+
+oneshot = "^0.1"
+
 # You only need serde if you want app persistence:
 serde = { version = "1", features = ["derive"] }
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tracing-subscriber = "0.3"
+tokio = "^1.26"
+instant = { version = "0.1" }
 
 # web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 console_error_panic_hook = "0.1.6"
 tracing-wasm = "0.2"
+tracing-log = "0.1"
 wasm-bindgen-futures = "0.4"
-
+web-sys = "^0.3.61"
+instant = { version = "0.1", features = ["wasm-bindgen", "inaccurate"] }
+ws_stream_wasm = "0.7"
+pharos = "0.5"
 
 [profile.release]
 opt-level = 2 # fast and small wasm
