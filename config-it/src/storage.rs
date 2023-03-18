@@ -157,7 +157,6 @@ impl Storage {
             source_update_fence: AtomicUsize::new(1), // NOTE: This will trigger initial check_update() always.
             update_receiver_channel: broad_rx.deactivate(),
             path: path.clone(),
-            template_name: T::template_name(),
         });
 
         let (tx, rx) = oneshot::channel();
@@ -387,7 +386,7 @@ mod detail {
         ///
         /// On every monitor event, storage driver will iterate each session channels
         ///  and will try replication.
-        monitors: Vec<flume::Sender<ReplicationEvent>>,
+        monitors: MonitorList,
 
         /// Registered path hashes. Used to quickly compare if there are any path name
         ///  duplication.

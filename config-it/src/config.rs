@@ -51,9 +51,6 @@ pub struct GroupContext {
     /// Path of instantiated config set.
     pub path: Arc<Vec<CompactString>>,
 
-    ///
-    pub template_name: (&'static str, &'static str),
-
     /// Broadcast subscriber to receive updates from backend.
     pub(crate) update_receiver_channel: async_broadcast::InactiveReceiver<()>,
 }
