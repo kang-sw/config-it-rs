@@ -235,7 +235,7 @@ mod ws_adapt {
     /* --------------------------------------- Source Impl -------------------------------------- */
     struct Source {
         ws: SplitStream<WebSocket>,
-        inbounds: VecDeque<Message>,
+        inbound: Option<Message>,
 
         // cursor for front-post inbound message
         head_cursor: usize,
@@ -245,7 +245,7 @@ mod ws_adapt {
         fn new(ws: SplitStream<WebSocket>) -> Self {
             Self {
                 ws,
-                inbounds: VecDeque::new(),
+                inbound: None,
                 head_cursor: 0,
             }
         }
@@ -260,7 +260,7 @@ mod ws_adapt {
             let mut this = &mut *self;
 
             loop {
-                match this.inbounds.front() {
+                match this.inbound.take() {
                     Some(Message::Binary(head)) => {
                         let head = &head[this.head_cursor..];
                         let len = std::cmp::min(head.len(), buf.len());
@@ -269,8 +269,10 @@ mod ws_adapt {
                         this.head_cursor += len;
 
                         if this.head_cursor == head.len() {
-                            this.inbounds.pop_front();
                             this.head_cursor = 0;
+                        } else {
+                            // partially consumed ... put it back
+                            this.inbound = Some(Message::Binary(head.to_vec()));
                         }
 
                         break Poll::Ready(Ok(len));
@@ -280,13 +282,11 @@ mod ws_adapt {
                         break Poll::Ready(Ok(0));
                     }
 
-                    Some(_) => {
-                        this.inbounds.pop_front();
-                    }
+                    Some(_) => {}
 
                     None => match this.ws.poll_next_unpin(cx) {
                         Poll::Ready(Some(Ok(msg))) => {
-                            this.inbounds.push_back(msg);
+                            this.inbound = Some(msg);
                         }
                         Poll::Ready(Some(Err(e))) => {
                             break Poll::Ready(Err(map_err(e)));

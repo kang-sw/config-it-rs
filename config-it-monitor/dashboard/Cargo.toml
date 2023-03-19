@@ -22,6 +22,7 @@ log = "^0.4"
 anyhow = "^1.0.70"
 
 oneshot = "^0.1"
+futures = "^0.3"
 
 # You only need serde if you want app persistence:
 serde = { version = "1", features = ["derive"] }
@@ -41,7 +42,6 @@ wasm-bindgen-futures = "0.4"
 web-sys = "^0.3.61"
 instant = { version = "0.1", features = ["wasm-bindgen", "inaccurate"] }
 ws_stream_wasm = "0.7"
-pharos = "0.5"
 
 [profile.release]
 opt-level = 2 # fast and small wasm

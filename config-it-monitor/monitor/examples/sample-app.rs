@@ -25,6 +25,8 @@ struct SubCfg {
 fn main() {
     tracing_subscriber::fmt()
         .compact()
+        .with_target(false)
+        .with_file(true)
         .with_max_level(LevelFilter::DEBUG)
         .init();
 
