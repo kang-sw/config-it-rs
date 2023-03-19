@@ -9,7 +9,7 @@ fn main() -> eframe::Result<()> {
     // Log to stdout (if you run with `RUST_LOG=debug`).
     tracing_subscriber::fmt::init();
 
-    // TODO: spawn_local support
+    // TODO: spawn_local support -> using `futures::LocalPool::run_until_stalled`
 
     let native_options = eframe::NativeOptions::default();
     eframe::run_native(
