@@ -81,10 +81,10 @@ pub struct Service {
     table: StorageTable,
 
     /// Name of this system.
-    #[builder(default = "<unknown>".into())]
+    #[builder(default = "<unknown>".into(), setter(transform=|s:impl Into<String>| s.into()))]
     system_name: String,
 
-    #[builder(default)]
+    #[builder(default, setter(transform=|s:impl Into<String>| s.into()))]
     system_desc: String,
 
     /// Computer name should be hidden?

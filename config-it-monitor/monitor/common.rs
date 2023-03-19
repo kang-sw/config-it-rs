@@ -1,6 +1,6 @@
 pub mod util {
     use anyhow::anyhow;
-    use rpc_it::{ReplyError, RetrievePayload};
+    use rpc_it::RetrievePayload;
 
     pub trait JsonPayload {
         fn json_payload<'de, D: serde::de::Deserialize<'de>>(
@@ -74,30 +74,32 @@ pub enum AuthLevel {
     Admin = 4,
 }
 
-macro_rules! declare_route {
-    ($ident:ident) => {
-        pub const $ident: &str = concat!(module_path!(), "::", stringify!($ident));
-    };
-}
-
 pub mod handshake {
     //!
     //! Handshake protocols right after establishing websocket connection
     //!
+    //! 0. C->S send 'hello' -> reply 'world'
     //! 1. C->S request for system info
     //! ...
     //! FINAL. C->S request for login
     //! -> start primary session
     //!
 
-    use base64::{engine::general_purpose::STANDARD, Engine};
+    use base64::engine::general_purpose::STANDARD;
     use base64_serde::base64_serde_type;
 
     base64_serde_type!(Base64Standard, STANDARD);
 
     use sha2::Digest;
 
+    macro_rules! declare_route {
+        ($ident:ident) => {
+            pub const $ident: &str = concat!("handshake::", stringify!($ident));
+        };
+    }
+
     // TODO: Implement authentication
+    declare_route!(HELLO);
     declare_route!(SYSTEM_INTRODUCE);
     declare_route!(LOGIN);
 

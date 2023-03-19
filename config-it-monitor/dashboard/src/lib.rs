@@ -2,4 +2,5 @@
 
 mod app;
 mod common;
+mod session;
 pub use app::TemplateApp;

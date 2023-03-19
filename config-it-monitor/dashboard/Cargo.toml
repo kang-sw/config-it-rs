@@ -26,6 +26,9 @@ anyhow = "^1.0.70"
 oneshot = "^0.1"
 futures = "^0.3"
 
+typed-builder = "0.14"
+flume = "0.10"
+
 sha2 = "0.10"
 
 # You only need serde if you want app persistence:

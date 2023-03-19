@@ -50,6 +50,8 @@ async fn async_main() {
                     .add_access_key("admin:admin", true)
                     .submit(),
             )
+            .system_name("example")
+            .system_desc("sample system")
             .build()
             .serve()
             .await

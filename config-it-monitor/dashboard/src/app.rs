@@ -1,5 +1,10 @@
+use std::{cell::RefCell, rc::Rc};
+
+use anyhow::anyhow;
 use egui::Color32;
 use instant::{Duration, Instant};
+
+use crate::session;
 
 /// We derive Deserialize/Serialize so we can persist app state on shutdown.
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -7,12 +12,15 @@ use instant::{Duration, Instant};
 pub struct TemplateApp {
     #[serde(skip)]
     state: AppState,
+
+    consistent_sess_state: Rc<RefCell<session::UIState>>,
 }
 
 impl Default for TemplateApp {
     fn default() -> Self {
         Self {
             state: AppState::Uninit,
+            consistent_sess_state: default(),
         }
     }
 }
@@ -22,9 +30,9 @@ enum AppState {
 
     Connecting(Instant, ConnectionTask),
 
-    Active { rpc: rpc_it::Handle },
+    Active(session::Instance),
 
-    Broken(Instant),
+    Broken(Instant, anyhow::Error),
 }
 
 type ConnectionTask = oneshot::Receiver<anyhow::Result<rpc_it::Handle>>;
@@ -68,11 +76,16 @@ impl eframe::App for TemplateApp {
             }
 
             AppState::Connecting(epoch, task) => match task.try_recv() {
-                Ok(Ok(rpc)) => self.state = AppState::Active { rpc },
+                Ok(Ok(rpc)) => {
+                    self.state = AppState::Active(session::Instance::new(
+                        rpc,
+                        self.consistent_sess_state.clone(),
+                    ))
+                }
 
                 Ok(Err(err)) => {
                     log::error!("Failed to connect: {}", err);
-                    self.state = AppState::Broken(Instant::now());
+                    self.state = AppState::Broken(Instant::now(), err);
                 }
 
                 Err(oneshot::TryRecvError::Empty) => {
@@ -88,12 +101,13 @@ impl eframe::App for TemplateApp {
                                     Color32::from_rgb(rate, 255 - rate, 0),
                                     format!("{:.2}s", epoch.elapsed().as_secs_f32()),
                                 );
-                            })
+                            });
                         });
 
                     if epoch.elapsed() > MAX_WAIT {
                         log::warn!("failed to connect in time");
-                        self.state = AppState::Broken(Instant::now());
+                        self.state =
+                            AppState::Broken(Instant::now(), anyhow!("connection timeout"));
                     }
 
                     ctx.request_repaint();
@@ -101,20 +115,27 @@ impl eframe::App for TemplateApp {
 
                 Err(oneshot::TryRecvError::Disconnected) => {
                     log::error!("Failed to connect: channel closed");
-                    self.state = AppState::Broken(Instant::now());
+                    self.state = AppState::Broken(Instant::now(), anyhow!("channel closed"));
                 }
             },
 
-            AppState::Active { rpc } => {
-                log::debug!("UNIMPLEMENTED");
-            }
+            AppState::Active(sess) => match sess.ui_update(ctx, frame) {
+                Ok(true) => (),
 
-            AppState::Broken(when) => {
+                Ok(false) => {
+                    log::info!("user requested reset");
+                    self.state = AppState::Uninit;
+                }
+
+                Err(e) => self.state = AppState::Broken(Instant::now(), e),
+            },
+
+            AppState::Broken(when, why) => {
                 egui::Window::new("conn-msg")
                     .title_bar(false)
                     .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
                     .show(ctx, |ui| {
-                        ui.colored_label(Color32::RED, "Failed to connect to server");
+                        ui.colored_label(Color32::RED, format!("Error: {why:#}"));
                         ui.horizontal(|ui| {
                             ui.label("retrying in ");
                             ui.colored_label(
@@ -277,6 +298,7 @@ mod ws_wasm32 {
             cx: &mut std::task::Context<'_>,
             _frame_size: usize,
         ) -> Poll<std::io::Result<()>> {
+            log::debug!("begin write ... {_frame_size} bytes");
             self.ws.poll_ready_unpin(cx).map_err(map_err)
         }
 
@@ -288,6 +310,8 @@ mod ws_wasm32 {
             let num_all_bytes = bufs.iter().map(|b| b.len()).sum();
             let mut buf = Vec::with_capacity(num_all_bytes);
 
+            log::debug!("writing {num_all_bytes} bytes ... from {} buffers", bufs.len());
+
             for b in bufs {
                 buf.extend_from_slice(b);
             }
@@ -295,6 +319,7 @@ mod ws_wasm32 {
             let msg = WsMessage::Binary(buf);
             self.ws.start_send_unpin(msg).map_err(map_err)?;
 
+            log::debug!("write completed. ({} bytes written)", num_all_bytes);
             Poll::Ready(Ok(num_all_bytes))
         }
 
@@ -335,8 +360,8 @@ mod ws_wasm32 {
 
             loop {
                 match this.inbound.take() {
-                    Some(WsMessage::Binary(head)) => {
-                        let head = &head[this.head_cursor..];
+                    Some(WsMessage::Binary(v_head)) => {
+                        let head = &v_head[this.head_cursor..];
                         let len = std::cmp::min(head.len(), buf.len());
 
                         buf[..len].copy_from_slice(&head[..len]);
@@ -346,7 +371,7 @@ mod ws_wasm32 {
                             this.head_cursor = 0;
                         } else {
                             // partially consumed ... put it back
-                            this.inbound = Some(WsMessage::Binary(head.to_vec()));
+                            this.inbound = Some(WsMessage::Binary(v_head));
                         }
 
                         break Poll::Ready(Ok(len));
