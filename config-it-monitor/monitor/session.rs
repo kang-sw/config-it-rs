@@ -51,7 +51,7 @@ impl Desc {
             match route_str {
                 handshake::LOGIN => {
                     drop(req);
-                    self.rpc.flush().await?;
+                    let _ = self.rpc.post_flush();
                     continue;
 
                     reply_as(

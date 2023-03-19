@@ -15,7 +15,7 @@ eframe = { version = "0.21.0", default-features = false, features = [
     "persistence",   # Enable restoring app state when restarting the app.
 ] }
 
-rpc-it = { version = "0.3.2", path = "../rpc-it-rs" }
+rpc-it = { path = "../rpc-it-rs", version = "0.3.2" }
 capture-it = "0.2"
 
 derive-getters = "0.2"

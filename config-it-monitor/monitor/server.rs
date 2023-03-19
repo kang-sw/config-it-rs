@@ -259,8 +259,6 @@ mod ws_adapt {
             let num_all_bytes = bufs.iter().map(|b| b.len()).sum();
             let mut buf = Vec::with_capacity(num_all_bytes);
 
-            log::debug!("sending {} bytes, from {} buffers", num_all_bytes, bufs.len());
-
             for b in bufs {
                 buf.extend_from_slice(b);
             }

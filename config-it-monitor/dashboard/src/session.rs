@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, mem::take, rc::Rc};
 
 use anyhow::anyhow;
 use capture_it::capture;
@@ -148,7 +148,6 @@ impl Instance {
             remote_call(&rpc, handshake::SYSTEM_INTRODUCE, &"").await?;
         log::debug!("System information fetched: {sys_info:#?}");
 
-        let auth_info = LoginRequest::default();
         let id = String::default();
         let pw = String::default();
 
@@ -156,7 +155,13 @@ impl Instance {
             add_stage("login", "logging in ...");
 
             // Send request first. This naively assumes the server would not require authentication
-            match remote_call::<LoginResult>(&rpc, handshake::LOGIN, &auth_info).await {
+            match remote_call::<LoginResult>(
+                &rpc,
+                handshake::LOGIN,
+                &LoginRequest::new(id.clone(), &pw),
+            )
+            .await
+            {
                 Ok(result) => {
                     break result;
                 }
@@ -179,24 +184,43 @@ impl Instance {
                 &render_fn,
                 capture!([*id, *pw, *tx = Some(tx_auth_info)], move |ui| {
                     ui.colored_label(Color32::WHITE, "🔑 login");
+                    ui.separator();
 
-                    ui.columns(2, |ui| {
-                        ui[0].label("id");
-                        ui[1].text_edit_singleline(&mut id);
+                    egui::Grid::new("grid").num_columns(2).show(ui, |ui| {
+                        ui.label("id");
+                        ui.text_edit_singleline(&mut id);
 
-                        ui[0].label("passwd");
-                        ui[1].text_edit_singleline(&mut pw);
+                        ui.end_row();
+
+                        let drag = ui.horizontal(|ui| {
+                            ui.label("password");
+                            ui.button("👁")
+                                .interact(egui::Sense::drag())
+                                .on_hover_text("👁 click to show")
+                                .dragged()
+                        });
+
+                        egui::TextEdit::singleline(&mut pw)
+                            .password(drag.inner == false)
+                            .show(ui);
                     });
 
-                    if false {
-                        tx.take()
-                            .map(|x| x.send(LoginRequest::new(id.clone(), &pw.clone())).unwrap());
-                    }
+                    ui.add_space(5.);
+
+                    ui.with_layout(egui::Layout::top_down_justified(egui::Align::Center), |ui| {
+                        if ui.button("\nLogin\n").clicked() {
+                            let pair = (take(&mut id), take(&mut pw));
+                            tx.take().map(|x| x.send(pair).unwrap());
+                        }
+                    });
+
                     Ok(None)
                 }),
             );
 
             let s = rx_auth_info.await;
+            // TODO: Implement actual login logic
+
             std::future::pending().await
         };
 
