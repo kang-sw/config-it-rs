@@ -5,7 +5,10 @@ use capture_it::capture;
 use egui::Color32;
 use wasm_bindgen_futures::spawn_local;
 
-use crate::common::{handshake, util::remote_call};
+use crate::common::{
+    handshake::{self, LoginResult, SystemIntroduce},
+    util::remote_call,
+};
 
 #[derive(Default, Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct UIState {}
@@ -24,7 +27,10 @@ enum State {
     Active(HandshakeResult),
 }
 
-struct HandshakeResult {}
+struct HandshakeResult {
+    sys_info: SystemIntroduce,
+    login_result: LoginResult,
+}
 
 type StateRenderFn = Box<dyn FnMut(&mut egui::Ui) -> anyhow::Result<Option<HandshakeResult>>>;
 
@@ -85,9 +91,8 @@ impl Instance {
         render_fn: Rc<RefCell<StateRenderFn>>,
     ) -> anyhow::Result<()> {
         let mut add_stage =
-            capture!([render_fn, *stages = Vec::default()], move |stage: &dyn AsRef<str>| {
-                let stage = stage.as_ref().to_string();
-                stages.push(stage);
+            capture!([render_fn, *stages = Vec::default()], move |stage: &str, desc: &str| {
+                stages.push((stage.to_string(), desc.to_string()));
 
                 new_state(
                     &render_fn,
@@ -95,12 +100,18 @@ impl Instance {
                         ui.colored_label(Color32::WHITE, "✴ handshaking in progress ...");
                         ui.separator();
 
-                        for (idx, stage) in stages.iter().enumerate() {
+                        for (idx, (stage, desc)) in stages.iter().enumerate() {
                             let is_last = idx == stages.len() - 1;
 
                             ui.horizontal(|ui| {
                                 ui.label("▪");
-                                ui.label(stage.as_str());
+
+                                ui.colored_label(
+                                    is_last.then(|| Color32::YELLOW).unwrap_or(Color32::GREEN),
+                                    stage.as_str(),
+                                );
+
+                                ui.label(desc.as_str());
                                 if !is_last {
                                     ui.colored_label(Color32::GREEN, "✔ done!");
                                 } else {
@@ -114,21 +125,22 @@ impl Instance {
                 );
             });
 
-        add_stage(&"HELLO - sending request");
+        add_stage("hello", "sending request");
         let rep = rpc.request(handshake::HELLO, &["hello"]).await?;
 
-        add_stage(&"HELLO - wait reply");
+        add_stage("hello", "waiting reply");
         let rep = rep.await.ok_or_else(|| anyhow!("RPC closed"))?.result()?;
 
         if rep.payload() != b"world" {
             return Err(anyhow!("unexpected reply: {:?}", std::str::from_utf8(rep.payload())));
         }
 
-        add_stage(&"fetch system information - request");
+        add_stage("system info", "fetching");
         let rep: handshake::SystemIntroduce =
             remote_call(&rpc, handshake::SYSTEM_INTRODUCE, &"").await?;
+        log::debug!("System information fetched: {rep:#?}");
 
-        // TODO: login
+        // TODO: Logging in ...
 
         std::future::pending().await
     }

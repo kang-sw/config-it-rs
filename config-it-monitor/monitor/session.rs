@@ -6,19 +6,17 @@ use rpc_it::{Inbound, RetrieveRoute};
 use crate::common::{handshake, util::reply_as};
 
 #[derive(typed_builder::TypedBuilder)]
-pub(crate) struct Session {
+pub(crate) struct Desc {
     context: Arc<crate::server::Context>,
     remote: SocketAddr,
     rpc: rpc_it::Handle,
-
-    #[builder(default = crate::common::AuthLevel::Chat, setter(skip))]
-    access_level: crate::common::AuthLevel,
-
-    #[builder(default, setter(skip))]
-    moa: u32,
 }
 
-impl Session {
+struct Context {
+    access_level: crate::common::AuthLevel,
+}
+
+impl Desc {
     #[tracing::instrument(skip(self), fields(remote = %self.remote))]
     pub async fn execute(mut self) {
         log::info!("executing new session for {}", self.remote);
@@ -61,7 +59,7 @@ impl Session {
                     .await?;
 
                     // TODO: Implement valid authntication reply:
-                    // - when auth is invalid -> retry
+                    // - when auth is invalid -> set error
 
                     break Ok(());
                 }

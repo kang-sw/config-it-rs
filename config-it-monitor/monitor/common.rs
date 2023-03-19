@@ -28,9 +28,10 @@ pub mod util {
         T: serde::de::DeserializeOwned,
     {
         let param = serde_json::to_vec(param).unwrap();
-        let reply = rpc
-            .request(method, [&param])
-            .await?
+        let reply = rpc.request(method, [&param]).await?;
+        rpc.flush().await?;
+
+        let reply = reply
             .await
             .ok_or_else(|| anyhow!("failed to acquire reply"))?
             .result()?;

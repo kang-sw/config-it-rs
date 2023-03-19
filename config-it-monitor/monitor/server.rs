@@ -202,7 +202,7 @@ mod driver {
             log::debug!("new remote websocket upgrade request: {addr}");
 
             ws.on_upgrade(move |ws| {
-                crate::session::Session::builder()
+                crate::session::Desc::builder()
                     .context(ctx)
                     .remote(addr)
                     .rpc(super::ws_adapt::create_rpc_from(ws))
@@ -306,18 +306,21 @@ mod ws_adapt {
 
             loop {
                 match this.inbound.take() {
-                    Some(Message::Binary(head)) => {
-                        let head = &head[this.head_cursor..];
+                    Some(Message::Binary(head_vec)) => {
+                        let head = &head_vec[this.head_cursor..];
                         let len = std::cmp::min(head.len(), buf.len());
+
+                        debug_assert!(head.len() > 0, "should not be empty");
+                        debug_assert!(len > 0, "should not be empty");
 
                         buf[..len].copy_from_slice(&head[..len]);
                         this.head_cursor += len;
 
-                        if this.head_cursor == head.len() {
+                        if this.head_cursor == head_vec.len() {
                             this.head_cursor = 0;
                         } else {
                             // partially consumed ... put it back
-                            this.inbound = Some(Message::Binary(head.to_vec()));
+                            this.inbound = Some(Message::Binary(head_vec));
                         }
 
                         break Poll::Ready(Ok(len));

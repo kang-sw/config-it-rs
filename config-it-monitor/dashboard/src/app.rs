@@ -298,7 +298,6 @@ mod ws_wasm32 {
             cx: &mut std::task::Context<'_>,
             _frame_size: usize,
         ) -> Poll<std::io::Result<()>> {
-            log::debug!("begin write ... {_frame_size} bytes");
             self.ws.poll_ready_unpin(cx).map_err(map_err)
         }
 
@@ -310,8 +309,6 @@ mod ws_wasm32 {
             let num_all_bytes = bufs.iter().map(|b| b.len()).sum();
             let mut buf = Vec::with_capacity(num_all_bytes);
 
-            log::debug!("writing {num_all_bytes} bytes ... from {} buffers", bufs.len());
-
             for b in bufs {
                 buf.extend_from_slice(b);
             }
@@ -319,7 +316,6 @@ mod ws_wasm32 {
             let msg = WsMessage::Binary(buf);
             self.ws.start_send_unpin(msg).map_err(map_err)?;
 
-            log::debug!("write completed. ({} bytes written)", num_all_bytes);
             Poll::Ready(Ok(num_all_bytes))
         }
 
@@ -360,18 +356,18 @@ mod ws_wasm32 {
 
             loop {
                 match this.inbound.take() {
-                    Some(WsMessage::Binary(v_head)) => {
-                        let head = &v_head[this.head_cursor..];
+                    Some(WsMessage::Binary(head_vec)) => {
+                        let head = &head_vec[this.head_cursor..];
                         let len = std::cmp::min(head.len(), buf.len());
 
                         buf[..len].copy_from_slice(&head[..len]);
                         this.head_cursor += len;
 
-                        if this.head_cursor == head.len() {
+                        if this.head_cursor == head_vec.len() {
                             this.head_cursor = 0;
                         } else {
                             // partially consumed ... put it back
-                            this.inbound = Some(WsMessage::Binary(v_head));
+                            this.inbound = Some(WsMessage::Binary(head_vec));
                         }
 
                         break Poll::Ready(Ok(len));
