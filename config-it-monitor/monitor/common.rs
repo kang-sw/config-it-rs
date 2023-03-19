@@ -19,24 +19,20 @@ pub mod util {
         }
     }
 
-    pub async fn remote_call<T>(
+    pub async fn remote_call(
         rpc: &rpc_it::Handle,
         method: &str,
         param: &impl serde::Serialize,
-    ) -> anyhow::Result<T>
-    where
-        T: serde::de::DeserializeOwned,
-    {
+    ) -> anyhow::Result<rpc_it::Reply> {
         let param = serde_json::to_vec(param).unwrap();
         let reply = rpc.request(method, [&param]).await?;
         rpc.flush().await?;
 
         let reply = reply
             .await
-            .ok_or_else(|| anyhow!("failed to acquire reply"))?
-            .result()?;
+            .ok_or_else(|| anyhow!("failed to acquire reply"))?;
 
-        Ok(serde_json::from_slice(reply.payload())?)
+        Ok(reply)
     }
 
     pub async fn reply_as(

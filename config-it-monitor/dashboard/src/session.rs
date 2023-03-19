@@ -3,11 +3,12 @@ use std::{cell::RefCell, mem::take, rc::Rc};
 use anyhow::anyhow;
 use capture_it::capture;
 use egui::Color32;
+use rpc_it::RetrievePayload;
 use wasm_bindgen_futures::spawn_local;
 
 use crate::common::{
     handshake::{self, LoginRequest, LoginResult, SystemIntroduce},
-    util::remote_call,
+    util::{remote_call, JsonPayload},
 };
 
 #[derive(Default, Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -145,7 +146,10 @@ impl Instance {
 
         add_stage("system info", "fetching");
         let sys_info: handshake::SystemIntroduce =
-            remote_call(&rpc, handshake::SYSTEM_INTRODUCE, &"").await?;
+            remote_call(&rpc, handshake::SYSTEM_INTRODUCE, &"")
+                .await?
+                .result()?
+                .json_payload()?;
         log::debug!("System information fetched: {sys_info:#?}");
 
         let mut id = String::default();
@@ -154,25 +158,21 @@ impl Instance {
 
         let login_result = loop {
             // Send request first. This naively assumes the server would not require authentication
-            match remote_call::<LoginResult>(
-                &rpc,
-                handshake::LOGIN,
-                &LoginRequest::new(id.clone(), &pw),
-            )
-            .await
+            match remote_call(&rpc, handshake::LOGIN, &LoginRequest::new(id.clone(), &pw))
+                .await?
+                .result()
+                .map(|x| x.json_payload::<LoginResult>())
             {
-                Ok(result) => {
+                Ok(Ok(result)) => {
                     break result;
                 }
 
-                Err(e) => {
-                    log::warn!("failed to login: {e:#}");
+                Ok(Err(e)) => {
+                    log::debug!("failed to parse json payload: {e:#}");
+                }
 
-                    if let Some(_) = e.downcast_ref::<rpc_it::ReplyError>() {
-                        log::debug!("this is plain authentication error, retrying");
-                    } else {
-                        return Err(e);
-                    }
+                Err(e) => {
+                    log::debug!("authentication failed, retrying ({e:#})");
                 }
             }
 
