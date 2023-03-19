@@ -3,6 +3,8 @@ use futures::{future::BoxFuture, FutureExt};
 use sha2::Digest;
 use std::collections::HashMap;
 
+use crate::common::handshake::SystemIntroduce;
+
 pub type Hash512 = [u8; 64];
 
 /* ---------------------------------------- Storage Desc ---------------------------------------- */
@@ -78,6 +80,17 @@ pub struct Service {
     /// Storage contents
     table: StorageTable,
 
+    /// Name of this system.
+    #[builder(default = "<unknown>".into())]
+    system_name: String,
+
+    #[builder(default)]
+    system_desc: String,
+
+    /// Computer name should be hidden?
+    #[builder(default = false)]
+    hide_host_name: bool,
+
     /// The port to bind to. An axum router will be created and bound to this port.
     bind_port: u16,
 
@@ -92,12 +105,15 @@ pub struct Service {
 }
 
 pub(crate) struct Context {
-    pub(crate) table: StorageTable,
+    pub table: StorageTable,
+    pub sys_info: SystemIntroduce,
     // TODO: Tracing subscriber replication
 }
 
 mod driver {
-    use std::{net::SocketAddr, sync::Arc};
+    use std::{net::SocketAddr, sync::Arc, time::SystemTime};
+
+    use crate::common::handshake::SystemIntroduce;
 
     use super::{Context, Service};
     use axum::{
@@ -118,9 +134,38 @@ mod driver {
     impl Service {
         /// Start the service. This function will (asynchronosuly) block until the service
         /// is closed. May return error if any of provided arguments is invalid.
+        ///
+        /// This requires `tokio` runtime which was configured with 'enable_all()' to be running.
         pub async fn serve(self) -> Result<(), Error> {
+            // - Collect system information
+            let sys_info = SystemIntroduce {
+                system_name: self.system_name,
+                monitor_version: env!("CARGO_PKG_VERSION").into(),
+                system_description: self.system_desc,
+                desktop_name: if self.hide_host_name {
+                    "<hidden>".into()
+                } else {
+                    hostname::get()
+                        .ok()
+                        .and_then(|s| s.into_string().ok())
+                        .unwrap_or_else(|| "<unknown>".into())
+                },
+                num_cores: std::thread::available_parallelism()
+                    .map(|x| x.get())
+                    .unwrap_or(1),
+                epoch_utc: SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .map(|x| x.as_secs())
+                    .unwrap_or(0),
+            };
+            log::debug!("System info constructed: {sys_info:#?}");
+
             // - create axum router -> routes for /index.html and /api/ ...
-            let context = Arc::new(Context { table: self.table });
+            let context = Arc::new(Context {
+                table: self.table,
+                sys_info,
+            });
+
             let route = axum::Router::default()
                 .route("/", get(|| async { "Hello, world!" }))
                 .route("/ws", get(Self::__on_ws))
@@ -169,7 +214,7 @@ mod driver {
 }
 
 mod ws_adapt {
-    use std::{collections::VecDeque, pin::Pin, task::Poll};
+    use std::{pin::Pin, task::Poll};
 
     use axum::extract::ws::{Message, WebSocket};
     use futures::{
