@@ -275,6 +275,13 @@ mod ws_adapt {
         ) -> Poll<std::io::Result<()>> {
             self.ws.poll_flush_unpin(cx).map_err(map_err)
         }
+
+        fn poll_shutdown(
+            mut self: Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            self.ws.poll_close_unpin(cx).map_err(map_err)
+        }
     }
 
     /* --------------------------------------- Source Impl -------------------------------------- */

@@ -148,12 +148,11 @@ impl Instance {
             remote_call(&rpc, handshake::SYSTEM_INTRODUCE, &"").await?;
         log::debug!("System information fetched: {sys_info:#?}");
 
-        let id = String::default();
-        let pw = String::default();
+        let mut id = String::default();
+        let mut pw = String::default();
+        add_stage("login", "setup");
 
         let login_result = loop {
-            add_stage("login", "logging in ...");
-
             // Send request first. This naively assumes the server would not require authentication
             match remote_call::<LoginResult>(
                 &rpc,
@@ -218,14 +217,24 @@ impl Instance {
                 }),
             );
 
-            let s = rx_auth_info.await;
-            // TODO: Implement actual login logic
+            let Ok(s) = rx_auth_info.await else {
+                anyhow::bail!("login canceled")
+            };
 
-            std::future::pending().await
+            (id, pw) = s;
+            add_stage("login", "logging in ...");
         };
 
+        log::debug!("login successful. {login_result:#?}");
         add_stage("login successful", "starting ...");
-        std::future::pending().await
+
+        let result = HandshakeResult {
+            login_result,
+            sys_info,
+        };
+
+        new_state(&render_fn, capture!([*result = Some(result)], move |_| { Ok(result.take()) }));
+        Ok(())
     }
 
     pub fn ui_update(
@@ -260,8 +269,14 @@ impl Instance {
                 }
             }
 
-            State::Active(_) => {
-                // TODO: do nothing
+            State::Active(HandshakeResult { .. }) => {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.colored_label(Color32::WHITE, "🚀 active");
+                });
+
+                if self.rpc.is_closed() {
+                    anyhow::bail!("RPC has been closed");
+                }
             }
         }
 

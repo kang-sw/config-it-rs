@@ -26,7 +26,7 @@ tokio = "^1.25"
 custom_debug = "0.5"
 
 sha2 = "0.10"
-rpc-it = { version = "0.3.2", path = "../rpc-it-rs" }
+rpc-it = { version = "0.3.3", path = "../rpc-it-rs" }
 
 thiserror = "1.0"
 anyhow = "^1.0.70"

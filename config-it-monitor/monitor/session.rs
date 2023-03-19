@@ -50,14 +50,23 @@ impl Desc {
 
             match route_str {
                 handshake::LOGIN => {
-                    drop(req);
-                    let _ = self.rpc.post_flush();
-                    continue;
+                    let collect_all_storage = || {
+                        self.context
+                            .table
+                            .0
+                            .iter()
+                            .map(|(key, val)| handshake::StorageDesc {
+                                key: key.to_string(),
+                                has_auth: val.access_keys.is_empty() == false,
+                            })
+                            .collect()
+                    };
 
                     reply_as(
                         req,
                         &handshake::LoginResult {
                             auth_level: crate::common::AuthLevel::Admin,
+                            storages: collect_all_storage(),
                         },
                     )
                     .await?;
@@ -65,6 +74,7 @@ impl Desc {
                     // TODO: Implement valid authntication reply:
                     // - when auth is invalid -> set error
 
+                    self.rpc.flush().await?;
                     break Ok(());
                 }
 
@@ -88,6 +98,6 @@ impl Desc {
 
     async fn __loop(mut self) {
         // TODO: implement me!
-        log::error!("we're just expiring this connection ...")
+        log::error!("we're just expiring this connection ...");
     }
 }

@@ -91,6 +91,7 @@ pub mod handshake {
 
     base64_serde_type!(Base64Standard, STANDARD);
 
+    use serde::{Deserialize, Serialize};
     use sha2::Digest;
 
     macro_rules! declare_route {
@@ -104,7 +105,7 @@ pub mod handshake {
     declare_route!(SYSTEM_INTRODUCE);
     declare_route!(LOGIN);
 
-    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct SystemIntroduce {
         pub system_name: String,
         pub monitor_version: String,
@@ -143,8 +144,15 @@ pub mod handshake {
         }
     }
 
-    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct LoginResult {
         pub auth_level: super::AuthLevel,
+        pub storages: Vec<StorageDesc>,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct StorageDesc {
+        pub key: String,
+        pub has_auth: bool,
     }
 }

@@ -127,7 +127,10 @@ impl eframe::App for TemplateApp {
                     self.state = AppState::Uninit;
                 }
 
-                Err(e) => self.state = AppState::Broken(Instant::now(), e),
+                Err(e) => {
+                    ctx.request_repaint();
+                    self.state = AppState::Broken(Instant::now(), e);
+                }
             },
 
             AppState::Broken(when, why) => {
@@ -324,6 +327,13 @@ mod ws_wasm32 {
             cx: &mut std::task::Context<'_>,
         ) -> Poll<std::io::Result<()>> {
             self.ws.poll_flush_unpin(cx).map_err(map_err)
+        }
+
+        fn poll_shutdown(
+            mut self: Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            self.ws.poll_close_unpin(cx).map_err(map_err)
         }
     }
 
