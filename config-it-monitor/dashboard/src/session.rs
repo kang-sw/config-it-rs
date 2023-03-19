@@ -6,7 +6,7 @@ use egui::Color32;
 use wasm_bindgen_futures::spawn_local;
 
 use crate::common::{
-    handshake::{self, LoginResult, SystemIntroduce},
+    handshake::{self, LoginRequest, LoginResult, SystemIntroduce},
     util::remote_call,
 };
 
@@ -92,7 +92,15 @@ impl Instance {
     ) -> anyhow::Result<()> {
         let mut add_stage =
             capture!([render_fn, *stages = Vec::default()], move |stage: &str, desc: &str| {
-                stages.push((stage.to_string(), desc.to_string()));
+                if stages
+                    .last()
+                    .map(|(s, d)| *s == stage && *d == desc)
+                    .unwrap_or(false)
+                {
+                    // Skip adding when the stage duplicates ...
+                } else {
+                    stages.push((stage.to_string(), desc.to_string()));
+                }
 
                 new_state(
                     &render_fn,
@@ -136,12 +144,63 @@ impl Instance {
         }
 
         add_stage("system info", "fetching");
-        let rep: handshake::SystemIntroduce =
+        let sys_info: handshake::SystemIntroduce =
             remote_call(&rpc, handshake::SYSTEM_INTRODUCE, &"").await?;
-        log::debug!("System information fetched: {rep:#?}");
+        log::debug!("System information fetched: {sys_info:#?}");
 
-        // TODO: Logging in ...
+        let auth_info = LoginRequest::default();
+        let id = String::default();
+        let pw = String::default();
 
+        let login_result = loop {
+            add_stage("login", "logging in ...");
+
+            // Send request first. This naively assumes the server would not require authentication
+            match remote_call::<LoginResult>(&rpc, handshake::LOGIN, &auth_info).await {
+                Ok(result) => {
+                    break result;
+                }
+
+                Err(e) => {
+                    log::warn!("failed to login: {e:#}");
+
+                    if let Some(_) = e.downcast_ref::<rpc_it::ReplyError>() {
+                        log::debug!("this is plain authentication error, retrying");
+                    } else {
+                        return Err(e);
+                    }
+                }
+            }
+
+            // Spawn auth_info modifier
+            let (tx_auth_info, rx_auth_info) = oneshot::channel();
+
+            new_state(
+                &render_fn,
+                capture!([*id, *pw, *tx = Some(tx_auth_info)], move |ui| {
+                    ui.colored_label(Color32::WHITE, "🔑 login");
+
+                    ui.columns(2, |ui| {
+                        ui[0].label("id");
+                        ui[1].text_edit_singleline(&mut id);
+
+                        ui[0].label("passwd");
+                        ui[1].text_edit_singleline(&mut pw);
+                    });
+
+                    if false {
+                        tx.take()
+                            .map(|x| x.send(LoginRequest::new(id.clone(), &pw.clone())).unwrap());
+                    }
+                    Ok(None)
+                }),
+            );
+
+            let s = rx_auth_info.await;
+            std::future::pending().await
+        };
+
+        add_stage("login successful", "starting ...");
         std::future::pending().await
     }
 

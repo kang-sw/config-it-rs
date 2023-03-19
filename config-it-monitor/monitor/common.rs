@@ -115,7 +115,13 @@ pub mod handshake {
         pub epoch_utc: u64,
     }
 
-    #[derive(derive_getters::Getters, serde::Serialize, serde::Deserialize)]
+    #[derive(
+        derive_getters::Getters,
+        serde::Serialize,
+        serde::Deserialize,
+        Default,
+        Clone
+    )]
     pub struct LoginRequest {
         id: String,
 

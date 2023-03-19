@@ -50,6 +50,10 @@ impl Desc {
 
             match route_str {
                 handshake::LOGIN => {
+                    drop(req);
+                    self.rpc.flush().await?;
+                    continue;
+
                     reply_as(
                         req,
                         &handshake::LoginResult {
