@@ -21,7 +21,8 @@ log = "^0.4"
 derive-getters = "0.2"
 
 futures = "0.3"
-tokio = "^1.25"
+tokio = { version = "^1.25", features = ["full"] }
+flume = "0.10"
 
 custom_debug = "0.5"
 

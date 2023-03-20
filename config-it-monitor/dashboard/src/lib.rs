@@ -3,4 +3,5 @@
 mod app;
 mod common;
 mod session;
+mod tabs;
 pub use app::TemplateApp;

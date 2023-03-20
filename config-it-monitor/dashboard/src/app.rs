@@ -62,12 +62,12 @@ impl eframe::App for TemplateApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         const MAX_WAIT: Duration = std::time::Duration::from_secs(5);
 
-        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            egui::menu::bar(ui, |ui| {
-                ui.menu_button("Edit", |_| {});
-                ui.menu_button("View", |_| {});
-            })
-        });
+        // egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+        //     egui::menu::bar(ui, |ui| {
+        //         ui.menu_button("Edit", |_| {});
+        //         ui.menu_button("View", |_| {});
+        //     })
+        // });
 
         match &mut self.state {
             #[cfg(target_arch = "wasm32")]

@@ -3,43 +3,37 @@ use std::{cell::RefCell, mem::take, rc::Rc};
 use anyhow::anyhow;
 use capture_it::capture;
 use egui::Color32;
+use egui_dock::NodeIndex;
 use rpc_it::RetrievePayload;
 use wasm_bindgen_futures::spawn_local;
 
-use crate::common::{
-    handshake::{self, LoginRequest, LoginResult, SystemIntroduce},
-    util::{remote_call, JsonPayload},
+use crate::{
+    app::default,
+    common::{
+        handshake::{self, LoginRequest, LoginResult, SystemIntroduce},
+        util::{remote_call, JsonPayload},
+    },
+    tabs,
 };
 
+type StateRenderFn = Box<dyn FnMut(&mut egui::Ui) -> anyhow::Result<Option<SessionStageActive>>>;
+
+/* ---------------------------------------------------------------------------------------------- */
+/*                                      CONSISTENT UI STATES                                      */
+/* ---------------------------------------------------------------------------------------------- */
 #[derive(Default, Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct UIState {}
 
+/* ---------------------------------------------------------------------------------------------- */
+/*                                     INSTANCE IMPLEMENTATION                                    */
+/* ---------------------------------------------------------------------------------------------- */
 pub struct Instance {
     rpc: rpc_it::Handle,
     ui_state: Rc<RefCell<UIState>>,
 
-    state: State,
+    state: SessionStage,
 
     tx_flush: flume::Sender<()>,
-}
-
-enum State {
-    HandShake(Rc<RefCell<StateRenderFn>>),
-    Active(HandshakeResult),
-}
-
-struct HandshakeResult {
-    sys_info: SystemIntroduce,
-    login_result: LoginResult,
-}
-
-type StateRenderFn = Box<dyn FnMut(&mut egui::Ui) -> anyhow::Result<Option<HandshakeResult>>>;
-
-fn new_state<T: 'static + FnMut(&mut egui::Ui) -> anyhow::Result<Option<HandshakeResult>>>(
-    s: &RefCell<StateRenderFn>,
-    f: T,
-) {
-    *s.borrow_mut() = Box::new(f);
 }
 
 impl Instance {
@@ -74,14 +68,16 @@ impl Instance {
         spawn_local(capture!([rpc, state, render_fn], async move {
             if let Err(e) = Self::__handshake(rpc, state, render_fn.clone()).await {
                 let mut e = Some(e);
-                new_state(&render_fn, move |_| e.take().map(|x| Err(x)).unwrap_or(Ok(None)));
+                replace_handshake_rendering(&render_fn, move |_| {
+                    e.take().map(|x| Err(x)).unwrap_or(Ok(None))
+                });
             }
         }));
 
         Self {
             rpc,
             ui_state: state,
-            state: State::HandShake(render_fn),
+            state: SessionStage::HandShake(render_fn),
             tx_flush,
         }
     }
@@ -103,7 +99,7 @@ impl Instance {
                     stages.push((stage.to_string(), desc.to_string()));
                 }
 
-                new_state(
+                replace_handshake_rendering(
                     &render_fn,
                     capture!([stages], move |ui| {
                         ui.colored_label(Color32::WHITE, "✴ handshaking in progress ...");
@@ -179,7 +175,7 @@ impl Instance {
             // Spawn auth_info modifier
             let (tx_auth_info, rx_auth_info) = oneshot::channel();
 
-            new_state(
+            replace_handshake_rendering(
                 &render_fn,
                 capture!([*id, *pw, *tx = Some(tx_auth_info)], move |ui| {
                     ui.colored_label(Color32::WHITE, "🔑 login");
@@ -228,24 +224,37 @@ impl Instance {
         log::debug!("login successful. {login_result:#?}");
         add_stage("login successful", "starting ...");
 
-        let result = HandshakeResult {
+        let session_context: Rc<_> = SessionContext {
             login_result,
             sys_info,
+            rpc: rpc.clone(),
+            ui_state: state.clone(),
+        }
+        .into();
+
+        let result = SessionStageActive {
+            session_context: session_context.clone(),
+            ui_tree: egui_dock::Tree::new(vec![Box::new(SysView {
+                context: session_context.clone(),
+            })]),
         };
 
-        new_state(&render_fn, capture!([*result = Some(result)], move |_| { Ok(result.take()) }));
+        replace_handshake_rendering(
+            &render_fn,
+            capture!([*result = Some(result)], move |_| { Ok(result.take()) }),
+        );
         Ok(())
     }
 
     pub fn ui_update(
         &mut self,
         ctx: &egui::Context,
-        frame: &mut eframe::Frame,
+        _frame: &mut eframe::Frame,
     ) -> anyhow::Result<bool> {
         let _ = self.tx_flush.try_send(());
 
         match &mut self.state {
-            State::HandShake(renderer) => {
+            SessionStage::HandShake(renderer) => {
                 let inner = egui::Window::new("Handshaking...")
                     .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
                     .title_bar(false)
@@ -265,21 +274,130 @@ impl Instance {
                 };
 
                 if let Some(result) = next {
-                    self.state = State::Active(result);
+                    self.state = SessionStage::Active(result);
                 }
             }
 
-            State::Active(HandshakeResult { .. }) => {
-                egui::CentralPanel::default().show(ctx, |ui| {
-                    ui.colored_label(Color32::WHITE, "🚀 active");
-                });
-
+            SessionStage::Active(SessionStageActive {
+                ui_tree,
+                session_context,
+                ..
+            }) => {
                 if self.rpc.is_closed() {
                     anyhow::bail!("RPC has been closed");
                 }
+
+                let mut vwr = TabViewer {
+                    session_context: session_context.clone(),
+                    added_nodes: default(),
+                    ui_ctx: ctx,
+                };
+
+                egui_dock::DockArea::new(ui_tree)
+                    .style(
+                        egui_dock::StyleBuilder::from_egui(&ctx.style())
+                            .show_add_buttons(true)
+                            .show_add_popup(true)
+                            .show_close_buttons(true)
+                            .show_context_menu(true)
+                            .build(),
+                    )
+                    .show(ctx, &mut vwr)
             }
         }
 
         Ok(true)
+    }
+}
+
+/* ---------------------------------------------------------------------------------------------- */
+/*                                   AVAILABLE RENDERING STAGES                                   */
+/* ---------------------------------------------------------------------------------------------- */
+enum SessionStage {
+    HandShake(Rc<RefCell<StateRenderFn>>),
+    Active(SessionStageActive),
+}
+
+struct SessionStageActive {
+    session_context: Rc<SessionContext>,
+    ui_tree: egui_dock::Tree<Box<dyn tabs::Tab>>,
+}
+
+fn replace_handshake_rendering<
+    T: 'static + FnMut(&mut egui::Ui) -> anyhow::Result<Option<SessionStageActive>>,
+>(
+    s: &RefCell<StateRenderFn>,
+    f: T,
+) {
+    *s.borrow_mut() = Box::new(f);
+}
+
+struct SessionContext {
+    ui_state: Rc<RefCell<UIState>>,
+    rpc: rpc_it::Handle,
+
+    sys_info: SystemIntroduce,
+    login_result: LoginResult,
+    // TODO: list of storages, which are being watched
+    // TODO:
+}
+
+/* ---------------------------------------------------------------------------------------------- */
+/*                                    TAB VIEWER IMPLEMENTATION                                   */
+/* ---------------------------------------------------------------------------------------------- */
+struct TabViewer<'a> {
+    ui_ctx: &'a egui::Context,
+    added_nodes: Vec<(NodeIndex, Box<dyn tabs::Tab>)>,
+    session_context: Rc<SessionContext>,
+}
+
+impl<'a> egui_dock::TabViewer for TabViewer<'a> {
+    type Tab = Box<dyn tabs::Tab>;
+
+    fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
+        tab.ui(self.ui_ctx, ui)
+    }
+
+    fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
+        tab.title()
+    }
+
+    fn context_menu(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
+        tab.context_menu(ui)
+    }
+
+    fn on_tab_button(&mut self, tab: &mut Self::Tab, response: &egui::Response) {
+        tab.on_tab_button(response)
+    }
+
+    fn on_close(&mut self, tab: &mut Self::Tab) -> bool {
+        tab.on_close()
+    }
+
+    fn add_popup(&mut self, _ui: &mut egui::Ui, _node: NodeIndex) {
+        // TODO: add new storage view
+        // TODO: storage view / file view / log view / system view
+    }
+
+    fn force_close(&mut self, tab: &mut Self::Tab) -> bool {
+        tab.pending_close()
+    }
+
+    fn inner_margin_override(&self, style: &egui_dock::Style) -> egui::Margin {
+        style.default_inner_margin
+    }
+}
+
+struct SysView {
+    context: Rc<SessionContext>,
+}
+
+impl tabs::Tab for SysView {
+    fn ui(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui) {
+        ui.label("todo!(system view here)");
+    }
+
+    fn title(&mut self) -> egui::WidgetText {
+        egui::RichText::new("placeholder").into()
     }
 }

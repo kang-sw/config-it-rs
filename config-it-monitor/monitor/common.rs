@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 pub mod util {
     use anyhow::anyhow;
     use rpc_it::RetrievePayload;
@@ -149,6 +151,20 @@ pub mod handshake {
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct StorageDesc {
         pub key: String,
-        pub has_auth: bool,
+        pub require_auth: bool,
     }
+}
+
+pub mod config {
+    macro_rules! declare_route {
+        ($ident:ident) => {
+            pub const $ident: &str = concat!("cfg::", stringify!($ident));
+        };
+    }
+
+    declare_route!(CREQ_STORAGE_TRY_LOGIN);
+    declare_route!(CREQ_COMMIT_MODIFICATION);
+    declare_route!(CNOTI_PUB_CHAT);
+    declare_route!(SNOTI_NEW_CHAT);
+    declare_route!(CREQ_COMMIT_CHANGES);
 }
