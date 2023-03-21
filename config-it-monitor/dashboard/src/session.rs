@@ -1,9 +1,11 @@
-use std::{cell::RefCell, mem::take, rc::Rc};
+use std::{cell::RefCell, collections::BTreeSet, mem::take, rc::Rc};
 
 use anyhow::anyhow;
 use capture_it::capture;
-use egui::Color32;
+use chrono::TimeZone;
+use egui::{text::LayoutJob, Color32};
 use egui_dock::NodeIndex;
+use instant::Duration;
 use rpc_it::RetrievePayload;
 use wasm_bindgen_futures::spawn_local;
 
@@ -229,14 +231,14 @@ impl Instance {
             sys_info,
             rpc: rpc.clone(),
             ui_state: state.clone(),
+            tracking_storages: default(),
+            added_nodes: default(),
         }
         .into();
 
         let result = SessionStageActive {
             session_context: session_context.clone(),
-            ui_tree: egui_dock::Tree::new(vec![Box::new(SysView {
-                context: session_context.clone(),
-            })]),
+            ui_tree: egui_dock::Tree::new(vec![Box::new(sys_view::SysView::new(session_context))]),
         };
 
         replace_handshake_rendering(
@@ -289,9 +291,12 @@ impl Instance {
 
                 let mut vwr = TabViewer {
                     session_context: session_context.clone(),
-                    added_nodes: default(),
                     ui_ctx: ctx,
                 };
+
+                for nodes in session_context.added_nodes.borrow_mut().drain(..) {
+                    // TODO: handle added tab nodes
+                }
 
                 egui_dock::DockArea::new(ui_tree)
                     .style(
@@ -339,7 +344,10 @@ struct SessionContext {
     sys_info: SystemIntroduce,
     login_result: LoginResult,
     // TODO: list of storages, which are being watched
-    // TODO:
+    tracking_storages: RefCell<BTreeSet<String>>,
+
+    /// List of nodes pending added
+    added_nodes: RefCell<Vec<Box<dyn tabs::Tab>>>,
 }
 
 /* ---------------------------------------------------------------------------------------------- */
@@ -347,7 +355,6 @@ struct SessionContext {
 /* ---------------------------------------------------------------------------------------------- */
 struct TabViewer<'a> {
     ui_ctx: &'a egui::Context,
-    added_nodes: Vec<(NodeIndex, Box<dyn tabs::Tab>)>,
     session_context: Rc<SessionContext>,
 }
 
@@ -374,8 +381,22 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
         tab.on_close()
     }
 
-    fn add_popup(&mut self, _ui: &mut egui::Ui, _node: NodeIndex) {
+    fn add_popup(&mut self, ui: &mut egui::Ui, _node: NodeIndex) {
         // TODO: add new storage view
+        use egui::*;
+
+        ui.menu_button("Track Storage ...", |ui| {
+            for storage in &self.session_context.login_result.storages {
+                ui.horizontal(|ui| {
+                    ui.label(&storage.key);
+
+                    if storage.require_auth {
+                        ui.label(RichText::new("🔐").color(Color32::WHITE));
+                    }
+                });
+            }
+        });
+
         // TODO: storage view / file view / log view / system view
     }
 
@@ -388,16 +409,4 @@ impl<'a> egui_dock::TabViewer for TabViewer<'a> {
     }
 }
 
-struct SysView {
-    context: Rc<SessionContext>,
-}
-
-impl tabs::Tab for SysView {
-    fn ui(&mut self, _ctx: &egui::Context, ui: &mut egui::Ui) {
-        ui.label("todo!(system view here)");
-    }
-
-    fn title(&mut self) -> egui::WidgetText {
-        egui::RichText::new("placeholder").into()
-    }
-}
+mod sys_view;

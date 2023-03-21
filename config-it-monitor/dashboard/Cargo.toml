@@ -20,6 +20,7 @@ rpc-it = { path = "../rpc-it-rs", version = "0.3.3" }
 capture-it = "0.2"
 
 derive-getters = "0.2"
+derive-new = "0.5"
 
 log = "^0.4"
 anyhow = "^1.0.70"
@@ -31,6 +32,8 @@ typed-builder = "0.14"
 flume = "0.10"
 
 sha2 = "0.10"
+chrono = "0.4"
+humantime = "2.1"
 
 # You only need serde if you want app persistence:
 serde = { version = "1", features = ["derive"] }
