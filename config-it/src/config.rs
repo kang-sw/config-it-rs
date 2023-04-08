@@ -193,6 +193,7 @@ impl<T: Template> Group<T> {
     }
 
     /// Get index of element based on element address.
+    #[doc(hidden)]
     pub fn get_index_by_ptr<U: 'static>(&self, e: *const U) -> Option<usize> {
         if let Some(prop) = self.get_prop_by_ptr(e) {
             Some(prop.index)
@@ -202,6 +203,7 @@ impl<T: Template> Group<T> {
     }
 
     /// Get property descriptor by element address. Provides primitive guarantee for type safety.
+    #[doc(hidden)]
     pub fn get_prop_by_ptr<U: 'static>(&self, e: *const U) -> Option<&PropData> {
         let ptr = e as *const u8 as isize;
         let base = &self.__body as *const _ as *const u8 as isize;
@@ -221,6 +223,8 @@ impl<T: Template> Group<T> {
         }
     }
 
+    /// Commit changes on element to core context, thus it will be propagated to all other groups
+    /// which shares same core context.
     pub fn commit_elem<U: Clone + EntityTrait + Send>(&self, e: &U, notify: bool) {
         //!
         // Create new value pointer from input argument.

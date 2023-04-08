@@ -127,6 +127,7 @@ impl Storage {
     /// First tries to find existing config set from path hash, and if it doesn't exist,
     /// tries to create new group.
     ///
+    #[doc(hidden)]
     pub async fn group_find<T: config::Template>(
         &self,
         path_hash: PathHash,
@@ -188,6 +189,7 @@ impl Storage {
     ///
     /// If path is duplicated for existing config set, the program will panic.
     ///
+    #[doc(hidden)]
     pub async fn group_create<T: config::Template>(
         &self,
         path: Vec<CompactString>,

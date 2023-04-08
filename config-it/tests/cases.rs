@@ -149,11 +149,19 @@ fn find_or() {
         let mut a = storage.create::<TemplateA>(path()).await.unwrap();
         assert!(a.update() == true);
         assert!(a.consume_update(&a.name) == true);
+        assert!(a.name == "unspecified");
+        a.name.clear();
+        a.name.push_str("John");
+        a.commit_elem(&a.name, false);
+
+        // wait for all update jobs from this thread to be done.
+        storage.fence().await;
 
         assert!(storage.create::<TemplateA>(path()).await.is_err());
         let mut a2 = storage.find_or_create::<TemplateA>(path()).await.unwrap();
         assert!(a2.update() == true);
         assert!(a2.consume_update(&a2.name) == true);
+        assert!(a2.name == "John");
 
         assert!(matches!(
             storage.find::<TemplateB>(path()).await,
