@@ -1,4 +1,5 @@
-use crate::entity::{EntityData, EntityEventHook, EntityTrait, Metadata};
+use crate::core::GroupID;
+use crate::entity::{EntityData, EntityTrait, Metadata};
 use crate::BroadcastReceiver;
 use compact_str::CompactString;
 use std::any::{Any, TypeId};
@@ -44,7 +45,7 @@ pub struct PropData {
 /// May storage implement this
 ///
 pub struct GroupContext {
-    pub group_id: u64,
+    pub group_id: GroupID,
     pub template_type_id: TypeId,
     pub sources: Arc<Vec<EntityData>>,
 
@@ -57,9 +58,6 @@ pub struct GroupContext {
     /// Broadcast subscriber to receive updates from backend.
     pub(crate) update_receiver_channel: async_broadcast::InactiveReceiver<()>,
 }
-
-#[derive(Debug, Clone, Copy, Hash, derive_more::From)]
-pub struct GroupID(pub u64);
 
 ///
 /// Primary interface that end user may interact with

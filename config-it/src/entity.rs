@@ -1,8 +1,10 @@
 use erased_serde::{Deserializer, Serialize, Serializer};
 use serde::de::DeserializeOwned;
 use std::any::{Any, TypeId};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+
+use crate::core::ItemID;
 
 ///
 /// Config entity type must satisfy this constraint
@@ -209,7 +211,7 @@ pub mod gen_helper {
 ///
 pub struct EntityData {
     /// Unique entity id for program run-time
-    id: u64,
+    id: ItemID,
 
     meta: Arc<Metadata>,
     fence: AtomicUsize,
@@ -220,10 +222,8 @@ pub struct EntityData {
 
 impl EntityData {
     pub(crate) fn new(meta: Arc<Metadata>, hook: Arc<dyn EntityEventHook>) -> Self {
-        static ID_GEN: AtomicU64 = AtomicU64::new(0);
-
         Self {
-            id: 1 + ID_GEN.fetch_add(1, Ordering::Relaxed),
+            id: ItemID::new_unique(),
             fence: AtomicUsize::new(0), // This forces initial
             value: Mutex::new(meta.v_default.clone()),
             meta,
@@ -231,7 +231,7 @@ impl EntityData {
         }
     }
 
-    pub fn get_id(&self) -> u64 {
+    pub fn get_id(&self) -> ItemID {
         self.id
     }
 

@@ -127,11 +127,11 @@
 //!
 //!     // A `Template` can be instantiated as `Group<T:Template>` type.
 //!     let mut scorch = storage
-//!         .create_group::<Profile>(["profile", "scorch"])
+//!         .create::<Profile>(["profile", "scorch"])
 //!         .await
 //!         .unwrap();
 //!     let mut john = storage
-//!         .create_group::<Profile>(["profile", "john"])
+//!         .create::<Profile>(["profile", "john"])
 //!         .await
 //!         .unwrap();
 //!
@@ -180,7 +180,7 @@
 //!
 //! let (storage, runner) = config_it::create_storage();
 //! let task = async {
-//!     let mut outer = storage.create_group::<Outer>(["outer"]).await.unwrap();
+//!     let mut outer = storage.create::<Outer>(["outer"]).await.unwrap();
 //!     outer.inner.name = "John".to_owned();
 //!     outer.inner.age = 30;
 //!

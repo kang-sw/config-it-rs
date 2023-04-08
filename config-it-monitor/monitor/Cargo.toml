@@ -7,7 +7,7 @@ edition = "2021"
 path = "lib.rs"
 
 [dependencies.config-it]
-version = "0.5"
+version = "0.6"
 path = "../../config-it"
 
 [dependencies]
@@ -46,4 +46,4 @@ version = "0.6"
 features = ["ws"]
 
 [dev-dependencies]
-capture-it = "0.2"
+capture-it = "0.3"

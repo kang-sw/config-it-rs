@@ -2,7 +2,7 @@ use std::{
     any::{Any, TypeId},
     future::Future,
     sync::{
-        atomic::{AtomicU64, AtomicUsize, Ordering},
+        atomic::{AtomicUsize, Ordering},
         Arc,
     },
 };
@@ -11,11 +11,10 @@ use crate::{
     archive,
     config::{self, GroupContext},
     core::{
-        self, ControlDirective, Error as ConfigError, GroupFindError, MonitorEvent,
-        ReplicationEvent,
+        self, ControlDirective, Error as ConfigError, GroupFindError, GroupID, MonitorEvent,
+        PathHash, ReplicationEvent,
     },
     entity::{self, EntityEventHook},
-    storage::detail::PathHash,
 };
 use compact_str::{CompactString, ToCompactString};
 use log::debug;
@@ -128,13 +127,13 @@ impl Storage {
     /// First tries to find existing config set from path hash, and if it doesn't exist,
     /// tries to create new group.
     ///
-    pub async fn find_group_ex<T: config::Template>(
+    pub async fn group_find<T: config::Template>(
         &self,
         path_hash: PathHash,
     ) -> Result<config::Group<T>, GroupFindError> {
         let (tx, rx) = oneshot::channel();
         let msg = ControlDirective::TryFindGroup {
-            path_hash: path_hash.0,
+            path_hash,
             type_id: TypeId::of::<T>(),
             reply: tx,
         };
@@ -167,9 +166,9 @@ impl Storage {
             .collect::<Vec<_>>();
 
         let path_hash = PathHash::new(paths.iter().map(|x| x.as_str()));
-        match self.find_group_ex::<T>(path_hash).await {
+        match self.group_find::<T>(path_hash).await {
             Ok(group) => Ok(group),
-            Err(GroupFindError::PathNotFound) => Ok(self.create_group_ex::<T>(paths).await?),
+            Err(GroupFindError::PathNotFound) => Ok(self.group_create::<T>(paths).await?),
             Err(GroupFindError::ExpiredStorage) => Err(ConfigError::ExpiredStorage),
             Err(GroupFindError::MismatchedTypeID) => Err(ConfigError::MismatchedTypeID),
         }
@@ -180,7 +179,7 @@ impl Storage {
         &self,
         path: impl IntoIterator<Item = &'a (impl AsRef<str> + ?Sized + 'a)>,
     ) -> Result<config::Group<T>, GroupFindError> {
-        self.find_group_ex::<T>(PathHash::new(path.into_iter().map(|x| x.as_ref())))
+        self.group_find::<T>(PathHash::new(path.into_iter().map(|x| x.as_ref())))
             .await
     }
 
@@ -189,7 +188,7 @@ impl Storage {
     ///
     /// If path is duplicated for existing config set, the program will panic.
     ///
-    pub async fn create_group_ex<T: config::Template>(
+    pub async fn group_create<T: config::Template>(
         &self,
         path: Vec<CompactString>,
     ) -> Result<config::Group<T>, ConfigError> {
@@ -197,8 +196,7 @@ impl Storage {
         assert!(path.iter().all(|x| !x.is_empty()), "Empty path argument is not allowed!");
 
         // NOTE: this increments ID_GEN whether the creation succeeds or not
-        static ID_GEN: AtomicU64 = AtomicU64::new(0);
-        let register_id = 1 + ID_GEN.fetch_add(1, Ordering::Relaxed);
+        let register_id = GroupID::new_unique();
         let path = Arc::new(path);
 
         // Collect metadata
@@ -262,18 +260,6 @@ impl Storage {
         Ok(group)
     }
 
-    /// A easy-to-use version of `create_group_ex`.
-    #[deprecated(note = "Use 'create()' instead")]
-    pub async fn create_group<T>(
-        &self,
-        path: impl IntoIterator<Item = impl ToCompactString>,
-    ) -> Result<config::Group<T>, ConfigError>
-    where
-        T: config::Template,
-    {
-        self.create(path).await
-    }
-
     pub async fn create<T>(
         &self,
         path: impl IntoIterator<Item = impl ToCompactString>,
@@ -281,7 +267,7 @@ impl Storage {
     where
         T: config::Template,
     {
-        self.create_group_ex::<T>(
+        self.group_create::<T>(
             path.into_iter()
                 .map(|x| x.to_compact_string())
                 .collect::<Vec<_>>(),
@@ -407,7 +393,7 @@ impl Storage {
 pub type ReplicationChannel = flume::Receiver<ReplicationEvent>;
 
 struct GroupUnregisterHook {
-    register_id: u64,
+    register_id: GroupID,
     tx: flume::Sender<ControlDirective>,
 }
 
@@ -422,7 +408,7 @@ impl Drop for GroupUnregisterHook {
 }
 
 struct EntityHookImpl {
-    register_id: u64,
+    register_id: GroupID,
     tx: flume::Sender<ControlDirective>,
 }
 
@@ -447,24 +433,7 @@ mod detail {
     };
 
     use super::*;
-    use std::{
-        collections::{hash_map::DefaultHasher, HashMap},
-        hash::{Hash, Hasher},
-    };
-
-    ///
-    /// A hash type for hash name
-    ///
-    #[derive(Debug, Clone, Copy, Hash, derive_more::From)]
-    pub struct PathHash(pub u64);
-
-    impl PathHash {
-        pub fn new<'a>(paths: impl IntoIterator<Item = &'a str>) -> Self {
-            let mut hasher = DefaultHasher::new();
-            paths.into_iter().for_each(|x| x.hash(&mut hasher));
-            Self(hasher.finish())
-        }
-    }
+    use std::collections::HashMap;
 
     ///
     /// Drives storage internal events.
@@ -476,7 +445,7 @@ mod detail {
         /// List of all config sets registered in this storage.
         ///
         /// Uses group id as key.
-        all_groups: HashMap<u64, GroupRegistration>,
+        all_groups: HashMap<GroupID, GroupRegistration>,
 
         /// List of all registered monitors within this storage.
         ///
@@ -488,7 +457,7 @@ mod detail {
         ///  duplication.
         ///
         /// Uses path hash as key, group id as value.
-        path_hashes: HashMap<u64, u64>,
+        path_hashes: HashMap<PathHash, GroupID>,
 
         /// Cached archive. May contain contents for currently non-exist groups.
         archive: archive::Archive,
@@ -498,7 +467,7 @@ mod detail {
 
     struct GroupRegistration {
         /// Hash calculated from `context.path`.
-        path_hash: u64,
+        path_hash: PathHash,
         context: Arc<GroupContext>,
         evt_on_update: async_broadcast::Sender<()>,
     }
@@ -522,7 +491,7 @@ mod detail {
                 // Registers config set to `all_sets` table, and publish replication event
                 TryGroupRegister(msg) => {
                     // Check if same named group exists inside of this storage
-                    let path_hash = PathHash::new(msg.context.path.iter().map(|x| x.as_str())).0;
+                    let path_hash = PathHash::new(msg.context.path.iter().map(|x| x.as_str()));
                     let mut inserted = false;
 
                     self.path_hashes.entry(path_hash).or_insert_with(|| {
@@ -739,9 +708,7 @@ mod detail {
                     updates.dedup();
 
                     for group_id in updates {
-                        let group = if let Some(g) = self.all_groups.get(&group_id) {
-                            g
-                        } else {
+                        let Some(group) = self.all_groups.get(&group_id) else {
                             log::warn!("ValueUpdateNotify request failed for group [{group_id}]");
                             continue;
                         };

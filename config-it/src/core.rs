@@ -1,13 +1,64 @@
 use std::{
     any::{Any, TypeId},
+    hash::Hasher,
     sync::Arc,
 };
 
 use compact_str::CompactString;
+use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
 use crate::{archive, config::GroupContext, ExportOptions, ImportOptions};
 
+macro_rules! id_type {
+    ($id:ident) => {
+        #[derive(
+            Debug,
+            Clone,
+            Copy,
+            Hash,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            derive_more::From,
+            derive_more::Display,
+            Serialize,
+            Deserialize
+        )]
+        pub struct $id(pub u64);
+    };
+}
+
+id_type!(PathHash);
+id_type!(GroupID);
+id_type!(ItemID);
+
+impl PathHash {
+    pub fn new<'a>(paths: impl IntoIterator<Item = &'a str>) -> Self {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        paths.into_iter().for_each(|x| hasher.write(x.as_bytes()));
+        Self(hasher.finish())
+    }
+}
+
+impl GroupID {
+    pub(crate) fn new_unique() -> Self {
+        static ID_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        Self(ID_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+    }
+}
+
+impl ItemID {
+    pub(crate) fn new_unique() -> Self {
+        static ID_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        Self(ID_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+    }
+}
+
+///
+/// ?
+///
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("Storage driver is disposed")]
@@ -36,19 +87,19 @@ pub(crate) enum ControlDirective {
     TryGroupRegister(Box<GroupRegisterParam>),
 
     TryFindGroup {
-        path_hash: u64,
+        path_hash: PathHash,
         type_id: TypeId,
 
         reply: oneshot::Sender<Result<FoundGroupInfo, GroupFindError>>,
     },
 
-    GroupDisposal(u64),
+    GroupDisposal(GroupID),
 
     Fence(oneshot::Sender<()>),
 
     EntityValueUpdate {
-        group_id: u64,
-        item_id: u64,
+        group_id: GroupID,
+        item_id: ItemID,
         silent_mode: bool,
     },
 
@@ -90,14 +141,14 @@ pub(crate) struct FoundGroupInfo {
 }
 
 pub(crate) struct GroupRegisterParam {
-    pub group_id: u64,
+    pub group_id: GroupID,
     pub context: Arc<GroupContext>,
     pub event_broadcast: async_broadcast::Sender<()>,
     pub reply_success: oneshot::Sender<Result<(), Error>>,
 }
 
 pub enum MonitorEvent {
-    GroupUpdateNotify { updates: SmallVec<[u64; 4]> },
+    GroupUpdateNotify { updates: SmallVec<[GroupID; 4]> },
 }
 
 ///
@@ -106,8 +157,8 @@ pub enum MonitorEvent {
 ///
 #[derive(Clone)]
 pub enum ReplicationEvent {
-    InitialGroups(Vec<(u64, Arc<GroupContext>)>),
-    GroupAdded(u64, Arc<GroupContext>),
-    GroupRemoved(u64),
-    EntityValueUpdated { group_id: u64, item_id: u64 },
+    InitialGroups(Vec<(GroupID, Arc<GroupContext>)>),
+    GroupAdded(GroupID, Arc<GroupContext>),
+    GroupRemoved(GroupID),
+    EntityValueUpdated { group_id: GroupID, item_id: ItemID },
 }
