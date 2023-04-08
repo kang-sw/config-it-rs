@@ -1,8 +1,6 @@
 use std::{
     any::{Any, TypeId},
-    collections::hash_map::DefaultHasher,
     future::Future,
-    hash::{Hash, Hasher},
     sync::{
         atomic::{AtomicU64, AtomicUsize, Ordering},
         Arc,
@@ -12,8 +10,12 @@ use std::{
 use crate::{
     archive,
     config::{self, GroupContext},
-    core::{self, ControlDirective, Error as ConfigError, MonitorEvent, ReplicationEvent},
+    core::{
+        self, ControlDirective, Error as ConfigError, GroupFindError, MonitorEvent,
+        ReplicationEvent,
+    },
     entity::{self, EntityEventHook},
+    storage::detail::PathHash,
 };
 use compact_str::{CompactString, ToCompactString};
 use log::debug;
@@ -126,52 +128,62 @@ impl Storage {
     /// First tries to find existing config set from path hash, and if it doesn't exist,
     /// tries to create new group.
     ///
-    pub async fn find_or_create_group_ex<T: config::Template>(
+    pub async fn find_group_ex<T: config::Template>(
         &self,
-        path: Vec<CompactString>,
-    ) -> Result<config::Group<T>, ConfigError> {
-        let mut hasher = DefaultHasher::new();
-        path.hash(&mut hasher);
-        let path_hash = hasher.finish();
-
+        path_hash: PathHash,
+    ) -> Result<config::Group<T>, GroupFindError> {
         let (tx, rx) = oneshot::channel();
         let msg = ControlDirective::TryFindGroup {
-            path_hash,
+            path_hash: path_hash.0,
             type_id: TypeId::of::<T>(),
             reply: tx,
         };
 
-        fn err_expire<T>(_: T) -> ConfigError {
-            ConfigError::ExpiredStorage
+        fn err_expire<T>(_: T) -> GroupFindError {
+            GroupFindError::ExpiredStorage
         }
 
         self.tx.send_async(msg).await.map_err(err_expire)?;
 
-        match rx.await.map_err(err_expire)? {
-            Ok(core::FoundGroupInfo {
-                context,
-                unregister_hook,
-            }) => Ok(<crate::Group<T>>::create_with__(context, unregister_hook)),
-            Err(core::GroupFindError::PathNotFound) => self.create_group_ex(path).await,
-            Err(core::GroupFindError::TypeIdMismatch) => Err(ConfigError::DuplicatedPath),
-        }
+        let core::FoundGroupInfo {
+            context,
+            unregister_hook,
+        } = rx.await.map_err(err_expire)??;
+
+        Ok(<crate::Group<T>>::create_with__(context, unregister_hook))
     }
 
-    /// A easy-to-use version of `create_group_ex`.
-    pub async fn find_or_create_group<T>(
+    /// Tries to find existing group from path name, and if it doesn't exist, tries to create new
+    pub async fn find_or_create<T>(
         &self,
         path: impl IntoIterator<Item = impl ToCompactString>,
     ) -> Result<config::Group<T>, ConfigError>
     where
         T: config::Template,
     {
-        self.find_or_create_group_ex::<T>(
-            path.into_iter()
-                .map(|x| x.to_compact_string())
-                .collect::<Vec<_>>(),
-        )
-        .await
+        let paths = path
+            .into_iter()
+            .map(|x| x.to_compact_string())
+            .collect::<Vec<_>>();
+
+        let path_hash = PathHash::new(paths.iter().map(|x| x.as_str()));
+        match self.find_group_ex::<T>(path_hash).await {
+            Ok(group) => Ok(group),
+            Err(GroupFindError::PathNotFound) => Ok(self.create_group_ex::<T>(paths).await?),
+            Err(GroupFindError::ExpiredStorage) => Err(ConfigError::ExpiredStorage),
+            Err(GroupFindError::MismatchedTypeID) => Err(ConfigError::MismatchedTypeID),
+        }
     }
+
+    /// A shortcut for find_group_ex
+    pub async fn find<'a, T: config::Template>(
+        &self,
+        path: impl IntoIterator<Item = &'a (impl AsRef<str> + ?Sized + 'a)>,
+    ) -> Result<config::Group<T>, GroupFindError> {
+        self.find_group_ex::<T>(PathHash::new(path.into_iter().map(|x| x.as_ref())))
+            .await
+    }
+
     ///
     /// Creates and register new config set.
     ///
@@ -184,6 +196,7 @@ impl Storage {
         assert!(!path.is_empty(), "First argument must exist!");
         assert!(path.iter().all(|x| !x.is_empty()), "Empty path argument is not allowed!");
 
+        // NOTE: this increments ID_GEN whether the creation succeeds or not
         static ID_GEN: AtomicU64 = AtomicU64::new(0);
         let register_id = 1 + ID_GEN.fetch_add(1, Ordering::Relaxed);
         let path = Arc::new(path);
@@ -250,7 +263,18 @@ impl Storage {
     }
 
     /// A easy-to-use version of `create_group_ex`.
+    #[deprecated(note = "Use 'create()' instead")]
     pub async fn create_group<T>(
+        &self,
+        path: impl IntoIterator<Item = impl ToCompactString>,
+    ) -> Result<config::Group<T>, ConfigError>
+    where
+        T: config::Template,
+    {
+        self.create(path).await
+    }
+
+    pub async fn create<T>(
         &self,
         path: impl IntoIterator<Item = impl ToCompactString>,
     ) -> Result<config::Group<T>, ConfigError>
@@ -419,12 +443,12 @@ mod detail {
 
     use crate::{
         archive::{self, Archive},
-        core::{MonitorEvent, ReplicationEvent},
+        core::{FoundGroupInfo, MonitorEvent, ReplicationEvent},
     };
 
     use super::*;
     use std::{
-        collections::{hash_map::DefaultHasher, HashMap, HashSet},
+        collections::{hash_map::DefaultHasher, HashMap},
         hash::{Hash, Hasher},
     };
 
@@ -498,10 +522,7 @@ mod detail {
                 // Registers config set to `all_sets` table, and publish replication event
                 TryGroupRegister(msg) => {
                     // Check if same named group exists inside of this storage
-                    let mut hasher = DefaultHasher::new();
-                    msg.context.path.hash(&mut hasher);
-
-                    let path_hash = hasher.finish();
+                    let path_hash = PathHash::new(msg.context.path.iter().map(|x| x.as_str())).0;
                     let mut inserted = false;
 
                     self.path_hashes.entry(path_hash).or_insert_with(|| {
@@ -544,11 +565,41 @@ mod detail {
                     path_hash,
                     type_id,
                     reply,
-                } => todo!(),
+                } => {
+                    let Some(group_id) = self.path_hashes.get(&path_hash) else {
+                        let _ = reply.send(Err(core::GroupFindError::PathNotFound));
+                        return
+                    };
+
+                    let group = self.all_groups.get(&group_id).expect("logic error!");
+                    if group.context.template_type_id != type_id {
+                        let _ = reply.send(Err(core::GroupFindError::MismatchedTypeID));
+                        return;
+                    }
+
+                    let Some(hook) = group.context.w_unregister_hook.upgrade() else {
+                        // this is pretty corner case ... the group was disposed before
+                        // `GroupDisposal` event being processed. This usually due to timing issue,
+                        // and technically the group is being unregistered, so we can just treat
+                        // this event as `PathNotFound` and let the caller retry registration.
+                        let _ = reply.send(Err(core::GroupFindError::PathNotFound));
+                        return
+                    };
+
+                    let _ = reply.send(Ok(FoundGroupInfo {
+                        context: group.context.clone(),
+                        unregister_hook: hook,
+                    }));
+                }
 
                 GroupDisposal(id) => {
                     // Before dispose, dump existing content to archive.
-                    let rg = self.all_groups.remove(&id).expect("Key must exist!");
+                    let Some(rg) = self.all_groups.remove(&id) else {
+                        // We can safely ignore not-found-group, as the logic has been changed to
+                        // create unregister hook first whether the group creation succeeds or not.
+                        return;
+                    };
+
                     Self::dump_node_(&rg.context, &mut self.archive);
 
                     Self::send_repl_event_(&mut self.monitors, ReplicationEvent::GroupRemoved(id));

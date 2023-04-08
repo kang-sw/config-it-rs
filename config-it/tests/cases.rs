@@ -1,3 +1,5 @@
+use config_it::core::GroupFindError;
+
 #[test]
 fn concepts() {
     use config_it::Template;
@@ -55,11 +57,11 @@ fn concepts() {
 
         // A `Template` can be instantiated as `Group<T:Template>` type.
         let mut scorch = storage
-            .create_group::<Profile>(["profile", "scorch"])
+            .create::<Profile>(["profile", "scorch"])
             .await
             .unwrap();
         let mut john = storage
-            .create_group::<Profile>(["profile", "john"])
+            .create::<Profile>(["profile", "john"])
             .await
             .unwrap();
 
@@ -104,7 +106,7 @@ fn serde_struct() {
 
     let (storage, runner) = config_it::create_storage();
     let task = async {
-        let mut outer = storage.create_group::<Outer>(["outer"]).await.unwrap();
+        let mut outer = storage.create::<Outer>(["outer"]).await.unwrap();
         outer.inner.name = "John".to_owned();
         outer.inner.age = 30;
 
@@ -120,4 +122,48 @@ fn serde_struct() {
     futures::executor::block_on(async {
         futures::join!(runner, task);
     });
+}
+
+#[test]
+fn find_or() {
+    #[derive(config_it::Template, Clone)]
+    struct TemplateA {
+        #[config(default = "unspecified")]
+        name: String,
+    }
+
+    #[derive(config_it::Template, Clone)]
+    struct TemplateB {
+        #[config(default = "unspecified")]
+        name_b: String,
+    }
+
+    let (storage, runner) = config_it::create_storage();
+    let task = async {
+        let path = || ["a"];
+        assert!(matches!(
+            storage.find::<TemplateA>(path()).await,
+            Err(GroupFindError::PathNotFound)
+        ));
+
+        let mut a = storage.create::<TemplateA>(path()).await.unwrap();
+        assert!(a.update() == true);
+        assert!(a.consume_update(&a.name) == true);
+
+        assert!(storage.create::<TemplateA>(path()).await.is_err());
+        let mut a2 = storage.find_or_create::<TemplateA>(path()).await.unwrap();
+        assert!(a2.update() == true);
+        assert!(a2.consume_update(&a2.name) == true);
+
+        assert!(matches!(
+            storage.find::<TemplateB>(path()).await,
+            Err(GroupFindError::MismatchedTypeID)
+        ));
+
+        drop(storage);
+    };
+
+    futures::executor::block_on(async {
+        futures::join!(runner, task);
+    })
 }

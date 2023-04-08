@@ -123,10 +123,10 @@ fn test_use_case() {
         //  key of a key-value store of some kind of data
         //  serialization formats, such as JSON, YAML, etc.)
         let path = &["path", "to", "my", "group"];
-        let mut group = storage.create_group::<MyConfig>(path).await.unwrap();
+        let mut group = storage.create::<MyConfig>(path).await.unwrap();
 
         // Note, duplicated path name is not allowed.
-        assert!(storage.create_group::<MyConfig>(path).await.is_err());
+        assert!(storage.create::<MyConfig>(path).await.is_err());
 
         // `update()` call to group, will check for asynchronously
         // queued updates, and apply changes to the group instance.

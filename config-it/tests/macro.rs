@@ -92,13 +92,13 @@ fn config_set_valid_operations() {
         assert_eq!(std::env::var("MY_ARRAY_VAR").unwrap(), "14141");
 
         let mut group = storage
-            .create_group::<MyStruct>(["hello", "world!"])
+            .create::<MyStruct>(["hello", "world!"])
             .await
             .unwrap();
 
         assert!(
             storage
-                .create_group::<MyStruct>(["hello", "world!"])
+                .create::<MyStruct>(["hello", "world!"])
                 .await
                 .is_err(),
             "Assert key duplication handled correctly"

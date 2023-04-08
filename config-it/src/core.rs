@@ -17,7 +17,7 @@ pub enum Error {
     GroupCreationFailed(Arc<Vec<CompactString>>),
 
     #[error("Path exist with different type")]
-    DuplicatedPath,
+    MismatchedTypeID,
 
     #[error("Deserialization failed")]
     DeserializationFailed(#[from] erased_serde::Error),
@@ -70,9 +70,14 @@ pub(crate) enum ControlDirective {
     Close,
 }
 
-pub(crate) enum GroupFindError {
+#[derive(thiserror::Error, Debug)]
+pub enum GroupFindError {
+    #[error("Given path was not found")]
     PathNotFound,
-    TypeIdMismatch,
+    #[error("Type ID mismatch from original registration")]
+    MismatchedTypeID,
+    #[error("The original group was already disposed")]
+    ExpiredStorage,
 }
 
 /// Contains all necessary information to construct a group

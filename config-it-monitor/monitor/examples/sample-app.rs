@@ -69,7 +69,7 @@ async fn async_main() {
             .unwrap();
     }));
 
-    let mut g_core = storage.create_group::<CoreCfg>(["core"]).await.unwrap();
+    let mut g_core = storage.create::<CoreCfg>(["core"]).await.unwrap();
     tokio::spawn(capture!([*g_core], async move {
         loop {
             g_core.tick += 1;
@@ -87,7 +87,7 @@ async fn async_main() {
                 g_core.commit_elem(&g_core.add_sub, false);
 
                 let mut g_sub = storage
-                    .create_group::<SubCfg>(["sub", &format!("{}", g_core.tick)])
+                    .create::<SubCfg>(["sub", &format!("{}", g_core.tick)])
                     .await
                     .unwrap();
 
