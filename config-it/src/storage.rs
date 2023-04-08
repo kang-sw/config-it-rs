@@ -1,5 +1,8 @@
 use std::{
+    any::{Any, TypeId},
+    collections::hash_map::DefaultHasher,
     future::Future,
+    hash::{Hash, Hasher},
     sync::{
         atomic::{AtomicU64, AtomicUsize, Ordering},
         Arc,
@@ -120,6 +123,56 @@ impl Storage {
     }
 
     ///
+    /// First tries to find existing config set from path hash, and if it doesn't exist,
+    /// tries to create new group.
+    ///
+    pub async fn find_or_create_group_ex<T: config::Template>(
+        &self,
+        path: Vec<CompactString>,
+    ) -> Result<config::Group<T>, ConfigError> {
+        let mut hasher = DefaultHasher::new();
+        path.hash(&mut hasher);
+        let path_hash = hasher.finish();
+
+        let (tx, rx) = oneshot::channel();
+        let msg = ControlDirective::TryFindGroup {
+            path_hash,
+            type_id: TypeId::of::<T>(),
+            reply: tx,
+        };
+
+        fn err_expire<T>(_: T) -> ConfigError {
+            ConfigError::ExpiredStorage
+        }
+
+        self.tx.send_async(msg).await.map_err(err_expire)?;
+
+        match rx.await.map_err(err_expire)? {
+            Ok(core::FoundGroupInfo {
+                context,
+                unregister_hook,
+            }) => Ok(<crate::Group<T>>::create_with__(context, unregister_hook)),
+            Err(core::GroupFindError::PathNotFound) => self.create_group_ex(path).await,
+            Err(core::GroupFindError::TypeIdMismatch) => Err(ConfigError::DuplicatedPath),
+        }
+    }
+
+    /// A easy-to-use version of `create_group_ex`.
+    pub async fn find_or_create_group<T>(
+        &self,
+        path: impl IntoIterator<Item = impl ToCompactString>,
+    ) -> Result<config::Group<T>, ConfigError>
+    where
+        T: config::Template,
+    {
+        self.find_or_create_group_ex::<T>(
+            path.into_iter()
+                .map(|x| x.to_compact_string())
+                .collect::<Vec<_>>(),
+        )
+        .await
+    }
+    ///
     /// Creates and register new config set.
     ///
     /// If path is duplicated for existing config set, the program will panic.
@@ -149,10 +202,19 @@ impl Storage {
             .map(|prop| entity::EntityData::new(prop.meta.clone(), entity_hook.clone()))
             .collect();
 
+        let unregister_anchor = Arc::new(GroupUnregisterHook {
+            register_id,
+            tx: self.tx.clone(),
+        });
+
         // Create core config set context with reflected target metadata set
         let (broad_tx, broad_rx) = async_broadcast::broadcast::<()>(1);
         let core = Arc::new(GroupContext {
             group_id: register_id,
+            template_type_id: TypeId::of::<T>(),
+            w_unregister_hook: Arc::downgrade(
+                &(unregister_anchor.clone() as Arc<dyn Any + Send + Sync>),
+            ),
             sources: Arc::new(sources),
             source_update_fence: AtomicUsize::new(1), // NOTE: This will trigger initial check_update() always.
             update_receiver_channel: broad_rx.deactivate(),
@@ -183,17 +245,11 @@ impl Storage {
             Err(_) => return Err(ConfigError::ExpiredStorage),
         };
 
-        let group = crate::Group::<T>::create_with__(
-            core,
-            Arc::new(GroupUnregisterHook {
-                register_id,
-                tx: self.tx.clone(),
-            }),
-        );
-
+        let group = crate::Group::<T>::create_with__(core, unregister_anchor);
         Ok(group)
     }
 
+    /// A easy-to-use version of `create_group_ex`.
     pub async fn create_group<T>(
         &self,
         path: impl IntoIterator<Item = impl ToCompactString>,
@@ -373,6 +429,20 @@ mod detail {
     };
 
     ///
+    /// A hash type for hash name
+    ///
+    #[derive(Debug, Clone, Copy, Hash, derive_more::From)]
+    pub struct PathHash(pub u64);
+
+    impl PathHash {
+        pub fn new<'a>(paths: impl IntoIterator<Item = &'a str>) -> Self {
+            let mut hasher = DefaultHasher::new();
+            paths.into_iter().for_each(|x| x.hash(&mut hasher));
+            Self(hasher.finish())
+        }
+    }
+
+    ///
     /// Drives storage internal events.
     ///
     /// - Receives update request
@@ -380,6 +450,8 @@ mod detail {
     #[derive(Default)]
     pub(super) struct StorageDriveContext {
         /// List of all config sets registered in this storage.
+        ///
+        /// Uses group id as key.
         all_groups: HashMap<u64, GroupRegistration>,
 
         /// List of all registered monitors within this storage.
@@ -390,7 +462,9 @@ mod detail {
 
         /// Registered path hashes. Used to quickly compare if there are any path name
         ///  duplication.
-        path_hashes: HashSet<u64>,
+        ///
+        /// Uses path hash as key, group id as value.
+        path_hashes: HashMap<u64, u64>,
 
         /// Cached archive. May contain contents for currently non-exist groups.
         archive: archive::Archive,
@@ -428,10 +502,16 @@ mod detail {
                     msg.context.path.hash(&mut hasher);
 
                     let path_hash = hasher.finish();
-                    if !self.path_hashes.insert(path_hash) {
-                        let _ = msg
-                            .reply_success
-                            .send(Err(ConfigError::GroupCreationFailed(msg.context.path.clone())));
+                    let mut inserted = false;
+
+                    self.path_hashes.entry(path_hash).or_insert_with(|| {
+                        inserted = true;
+                        msg.group_id
+                    });
+
+                    if inserted == false {
+                        let item = Err(ConfigError::GroupCreationFailed(msg.context.path.clone()));
+                        let _ = msg.reply_success.send(item);
                         return;
                     }
 
@@ -460,6 +540,12 @@ mod detail {
                     );
                 }
 
+                TryFindGroup {
+                    path_hash,
+                    type_id,
+                    reply,
+                } => todo!(),
+
                 GroupDisposal(id) => {
                     // Before dispose, dump existing content to archive.
                     let rg = self.all_groups.remove(&id).expect("Key must exist!");
@@ -468,7 +554,7 @@ mod detail {
                     Self::send_repl_event_(&mut self.monitors, ReplicationEvent::GroupRemoved(id));
 
                     // Erase from registry
-                    assert!(self.path_hashes.remove(&rg.path_hash));
+                    assert!(self.path_hashes.remove(&rg.path_hash).is_some());
                 }
 
                 EntityValueUpdate {

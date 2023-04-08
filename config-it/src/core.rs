@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::{
+    any::{Any, TypeId},
+    sync::Arc,
+};
 
 use compact_str::CompactString;
 use smallvec::SmallVec;
@@ -12,6 +15,9 @@ pub enum Error {
 
     #[error("Config name is duplicated {0:?}")]
     GroupCreationFailed(Arc<Vec<CompactString>>),
+
+    #[error("Path exist with different type")]
+    DuplicatedPath,
 
     #[error("Deserialization failed")]
     DeserializationFailed(#[from] erased_serde::Error),
@@ -28,6 +34,13 @@ pub(crate) enum ControlDirective {
     FromMonitor(MonitorEvent),
 
     TryGroupRegister(Box<GroupRegisterParam>),
+
+    TryFindGroup {
+        path_hash: u64,
+        type_id: TypeId,
+
+        reply: oneshot::Sender<Result<FoundGroupInfo, GroupFindError>>,
+    },
 
     GroupDisposal(u64),
 
@@ -55,6 +68,20 @@ pub(crate) enum ControlDirective {
     },
 
     Close,
+}
+
+pub(crate) enum GroupFindError {
+    PathNotFound,
+    TypeIdMismatch,
+}
+
+/// Contains all necessary information to construct a group
+pub(crate) struct FoundGroupInfo {
+    pub context: Arc<GroupContext>,
+
+    /// Locked before used, since if we deliver the weak pointer as-is, it might be expired
+    /// before the receiver uses it.
+    pub unregister_hook: Arc<dyn Any + Send + Sync>,
 }
 
 pub(crate) struct GroupRegisterParam {

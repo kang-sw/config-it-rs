@@ -27,7 +27,9 @@ oneshot = "0.1"
 log = "0.4"
 
 smallvec = { version = "1", features = ["serde", "write", "union"] }
-compact_str = { version = "0", features = ["serde"] }
+compact_str = { version = "0.7", features = ["serde"] }
+
+derive_more = "0.99"
 
 lazy_static = "1"
 parking_lot = "0"

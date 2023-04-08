@@ -1,4 +1,4 @@
-use crate::entity::{EntityData, EntityTrait, Metadata};
+use crate::entity::{EntityData, EntityEventHook, EntityTrait, Metadata};
 use crate::BroadcastReceiver;
 use compact_str::CompactString;
 use std::any::{Any, TypeId};
@@ -6,12 +6,12 @@ use std::collections::HashMap;
 use std::iter::zip;
 use std::mem::replace;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 ///
 /// Base trait that is automatically generated
 ///
-pub trait Template: Clone {
+pub trait Template: Clone + 'static {
     /// Returns table mapping to <offset_from_base:property_metadata>
     fn prop_desc_table__() -> &'static HashMap<usize, PropData>;
 
@@ -45,7 +45,10 @@ pub struct PropData {
 ///
 pub struct GroupContext {
     pub group_id: u64,
+    pub template_type_id: TypeId,
     pub sources: Arc<Vec<EntityData>>,
+
+    pub(crate) w_unregister_hook: Weak<dyn Any + Send + Sync>,
     pub(crate) source_update_fence: AtomicUsize,
 
     /// Path of instantiated config set.
@@ -54,6 +57,9 @@ pub struct GroupContext {
     /// Broadcast subscriber to receive updates from backend.
     pub(crate) update_receiver_channel: async_broadcast::InactiveReceiver<()>,
 }
+
+#[derive(Debug, Clone, Copy, Hash, derive_more::From)]
+pub struct GroupID(pub u64);
 
 ///
 /// Primary interface that end user may interact with
