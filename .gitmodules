@@ -1,3 +1,0 @@
-[submodule "config-it-monitor/rpc-it-rs"]
-	path = config-it-monitor/rpc-it-rs
-	url = git@github.com:kang-sw/rpc-it-rs.git

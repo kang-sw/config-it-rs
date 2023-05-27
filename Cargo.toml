@@ -1,12 +1,6 @@
 [workspace]
 resolver = "2"
 
-members = [
-    "config-it",
-    "config-it-macros",
-    "config-it-macros-impl",
-
-    "config-it-monitor/monitor",
-]
+members = ["config-it", "config-it-macros", "config-it-macros-impl"]
 
 exclude = ["config-it-monitor/dashboard"]
