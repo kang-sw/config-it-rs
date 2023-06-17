@@ -44,3 +44,6 @@ style = []
 
 # Javascript code file
 script = []
+
+[[web.proxy]]
+backend = "http://localhost:12144/api"

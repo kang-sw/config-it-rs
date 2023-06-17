@@ -7,11 +7,8 @@ fn main() {
     dioxus_web::launch(App);
 }
 
-// create a component that renders a div with the text "Hello, world!"
 fn App(cx: Scope) -> Element {
     cx.render(rsx! {
-        div {  class: "w-full h-screen bg-gray-300 flex items-center justify-center",
-               "Hello, world!"
-        }
+        div { class: "w-full h-screen bg-gray-300 flex items-center justify-center", "Hello, world!" }
     })
 }

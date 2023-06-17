@@ -7,4 +7,5 @@ edition = "2021"
 
 [dependencies]
 dioxus = "0.3.2"
-dioxus-web = "0.3.2"
+dioxus-web = "0.3.1"
+wasm-fut = { version = "0.4.35", package = "wasm-bindgen-futures" }
