@@ -12,7 +12,7 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-macros = { package = "config-it-macros", path = "../config-it-macros", version = "0.3.1" }
+macros = { package = "config-it-macros", path = "../config-it-macros", version = "0.3.2" }
 
 serde = { version = "1", features = ["derive"] }
 erased-serde = "0.3"
