@@ -33,6 +33,7 @@ derive_more = "0.99"
 
 lazy_static = "1"
 parking_lot = "0"
+schemars = { version = "0.8.12", features = ["preserve_order"] }
 
 [dev-dependencies]
 futures = "0.3"

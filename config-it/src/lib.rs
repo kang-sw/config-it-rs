@@ -225,3 +225,10 @@ pub use lazy_static::lazy_static;
 
 /// Primary macro for defining configuration group template.
 pub use macros::Template;
+
+pub use config::WatchUpdate;
+pub use schemars::schema::RootSchema as Schema;
+pub use serde_json::Value as ArchiveValue;
+
+pub extern crate schemars;
+pub extern crate serde;

@@ -123,6 +123,9 @@ impl Default for PropLocalContext {
     }
 }
 
+/// Type alias for broadcast receiver
+pub type WatchUpdate = BroadcastReceiver<()>;
+
 impl<T: Template> Group<T> {
     #[doc(hidden)]
     pub(crate) fn create_with__(
@@ -240,7 +243,7 @@ impl<T: Template> Group<T> {
     /// `update()` method meaningful. However, as the event can be generated manually even
     /// if there's no actual update, it's not recommended to make critical logics rely on
     /// this signal.
-    pub fn watch_update(&self) -> BroadcastReceiver<()> {
+    pub fn watch_update(&self) -> WatchUpdate {
         self.core.update_receiver_channel.clone().activate()
     }
 
@@ -248,7 +251,7 @@ impl<T: Template> Group<T> {
     ///
     /// This is useful when you want to make sure that first monitoring event is always triggered,
     /// however, note that this method will incur all other watchdogs to be notified as well.
-    pub fn watch_update_with_event_broadcast(&self) -> BroadcastReceiver<()> {
+    pub fn watch_update_with_event_broadcast(&self) -> WatchUpdate {
         let rx = self.watch_update();
         let _ = rx.new_sender().try_broadcast(());
         rx

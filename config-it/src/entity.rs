@@ -90,9 +90,34 @@ pub struct MetadataProps {
     pub disable_import: bool,
     pub hidden: bool,
 
+    pub schema: Option<crate::Schema>,
+
     /// Source variable name. Usually same as 'name' unless another name is specified for it.
     pub varname: &'static str,
     pub description: &'static str,
+}
+
+pub mod lookups {
+    pub trait HasSchema {
+        fn get_schema(&self) -> Option<crate::Schema>;
+    }
+
+    impl<T: schemars::JsonSchema> HasSchema for T {
+        fn get_schema(&self) -> Option<crate::Schema> {
+            Some(schemars::schema_for!(T))
+        }
+    }
+
+    pub trait NoSchema {
+        fn get_schema(&self) -> Option<crate::Schema> {
+            None
+        }
+    }
+
+    trait AnyType {}
+    impl<T> AnyType for T {}
+
+    impl<T: AnyType> NoSchema for &T {}
 }
 
 impl Metadata {

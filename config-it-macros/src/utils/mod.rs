@@ -115,6 +115,12 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
                 let varname = #ident_str;
                 let doc_string = #doc;
                 let index = #indexer as usize;
+                
+                #[allow(unused)]
+                use #this_crate::entity::lookups::{HasSchema, NoSchema};
+                
+                let v_default: Type = #default_to_meta;
+                let schema = (&v_default).get_schema();
 
                 let init = #this_crate::entity::MetadataValInit::<Type> {
                     fn_validate: |_meta, to| -> Option<bool> {
@@ -128,7 +134,7 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
 
                         result
                     },
-                    v_default: #default_to_meta,
+                    v_default,
                     v_one_of: [#one_of].into(),
                     v_max: #min,
                     v_min: #max,
@@ -140,6 +146,7 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
                     disable_import: #disable_import,
                     disable_export: #disable_export,
                     hidden: #hidden,
+                    schema,
                 };
 
                 let meta = #this_crate::entity::Metadata::create_for_base_type(identifier, init, props);

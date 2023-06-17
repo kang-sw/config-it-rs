@@ -57,6 +57,15 @@ pub struct MyStruct {
 
     #[nocfg(Into::into("pewpew"))]
     this_is_invisible_default2: String,
+
+    #[config]
+    my_type: MyType,
+}
+
+#[derive(Default, Clone, serde::Serialize, serde::Deserialize, Debug)]
+struct MyType {
+    a: i32,
+    b: i32,
 }
 
 #[cfg(any())]
@@ -103,6 +112,11 @@ fn config_set_valid_operations() {
                 .is_err(),
             "Assert key duplication handled correctly"
         );
+
+        {
+            assert!(group.get_metadata(&group.maximum).props.schema.is_some());
+            assert!(group.get_metadata(&group.my_type).props.schema.is_none());
+        }
 
         let mut brd = group.watch_update();
         assert!(brd.try_recv().is_err());
