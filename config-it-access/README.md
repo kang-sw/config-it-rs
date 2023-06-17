@@ -18,24 +18,6 @@
 
 ## `Source <-> Relay`
 
-- `POST /api/s/register/<path>`
-  - Returns HTTP stream of `Modification Request`
-    - modification id, path, new value
-  - As long as the stream is alive, the session will be retained.
-  - Every server-issued commands will be received from given stream input.
-- `[POST|PATCH|DELETE] /api/s/prop/<path>`
-  - `POST` - Uploads single `PropDesc`
-    - path, access level, description (markdown), default value, constraints, editor, ...
-  - `PATCH` - Notifies update on property, with `PropUpdate`
-    - path, [optional] modification id, [optional] new value or error
-  - `DELETE` - Deletes single property, with path.
-- `POST /api/s/log/<path>`
-  - Flushes log message in internal trace format:
-    - Span-New: span id, parent span id, values
-      - unknown parent will be auto-generated
-    - Span-Delete: span id
-    - Event: belonging span id, content
-
 ## `Relay <-> Client`
 
 - Login -> Get session token
