@@ -1,4 +1,8 @@
-# Concept
+# Config-it-Access
+
+Centralized configuration management system
+
+# Design Note
 
 - The `Source` mandates all authorities of configurations to `Relay`
   - There are 3 levels of access: `View` / `Modify` / `Admin`
@@ -18,11 +22,22 @@
 
 ## `Source <-> Relay`
 
+- SRC --> REL : Register & Open `SSE` Recv
+- SRC --> REL : Status Update (CPU / Memory / NET usage, etc ...)
+- SRC --> REL : Property Register & UPDATE & DELETE
+- SRC --> REL : Upload Log & Trace
+- SRC <-- REL : `SSE` Update Config
+
 ## `Relay <-> Client`
 
-- Login -> Get session token
-- Get list of accessible `Source`s
-- Get information of given `Source`
-- Open `Configs` stream to `Source`
-- Open `Tracing` stream to `Source`
-- Send commit to `Source` path
+### Access Management
+
+- CLI >-> REL : Login ID/PW
+  - Session ID -> Use it for Access
+- CLI >-> REL : Admin : User Authority Control
+- CLI >-> REL : Admin : Access Rule Management
+  - e.g. `sites/seoul/base/**` -> `Role::Admin`, `sites/seoul/
+- CLI >-> REL : Manager : User <-> Rule(s) Binding
+- CLI >-> REL : Manager : User Create / Delete
+
+### Browse
