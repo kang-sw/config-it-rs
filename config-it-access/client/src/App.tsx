@@ -16,8 +16,6 @@ function App() {
   const [isLogin, setIsLogin] = React.useState(false);
   const [isMgmtVisible, setIsMgmtVisible] = React.useState(false);
 
-  const logInOutText = isLogin ? "Logout" : "Login";
-
   return (
     <Router>
       <div className='app-container flex flex-col h-screen'>

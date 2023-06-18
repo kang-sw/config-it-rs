@@ -41,3 +41,10 @@ Centralized configuration management system
 - CLI >-> REL : Manager : User Create / Delete
 
 ### Browse
+
+- CLI >-> REL : Fetch Session List (Id, Path, State)
+- CLI >-> REL : Fetch Session Details
+- CLI --> REL : Open Session Monitor `SSE` Recv
+- CLI <-- REL : Props, Prop Updates, Log, Trace
+- CLI >-> REL : Fetch unknown trace ID / Older log-traces
+- CLI --> REL : Commit property update
