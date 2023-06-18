@@ -1,11 +1,22 @@
 [package]
-name = "client"
+name = "config-it-access-web-client"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+capture-it = "0.4.1"
+config-it = { version = "0.6.2", path = "../../config-it" }
 dioxus = "0.3.2"
 dioxus-web = "0.3.1"
+lazy_static = "1.4.0"
+reqwest = "0.11.17"
+schemars = "0.8.12"
+serde = { version = "1.0.162", features = ["derive"] }
 wasm-fut = { version = "0.4.35", package = "wasm-bindgen-futures" }
+web-sys = "0.3.64"
+
+[profile.release]
+lto = true
+opt-level = 'z'
