@@ -139,11 +139,8 @@ impl Metadata {
 
         let v_min = retrive_opt_minmax(init.v_min);
         let v_max = retrive_opt_minmax(init.v_max);
-        let v_one_of: Vec<_> = init
-            .v_one_of
-            .iter()
-            .map(|v| Box::new(v.clone()) as Box<dyn EntityTrait>)
-            .collect();
+        let v_one_of: Vec<_> =
+            init.v_one_of.iter().map(|v| Box::new(v.clone()) as Box<dyn EntityTrait>).collect();
 
         Self {
             name,
@@ -214,10 +211,7 @@ pub mod gen_helper {
         }
 
         let to: &T = val.downcast_ref().unwrap();
-        meta.v_one_of
-            .iter()
-            .map(|v| v.as_any().downcast_ref::<T>().unwrap())
-            .any(|v| *v == *to)
+        meta.v_one_of.iter().map(|v| v.as_any().downcast_ref::<T>().unwrap()).any(|v| *v == *to)
     }
 }
 

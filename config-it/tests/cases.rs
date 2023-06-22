@@ -56,14 +56,8 @@ fn concepts() {
         storage.fence().await;
 
         // A `Template` can be instantiated as `Group<T:Template>` type.
-        let mut scorch = storage
-            .create::<Profile>(["profile", "scorch"])
-            .await
-            .unwrap();
-        let mut john = storage
-            .create::<Profile>(["profile", "john"])
-            .await
-            .unwrap();
+        let mut scorch = storage.create::<Profile>(["profile", "scorch"]).await.unwrap();
+        let mut john = storage.create::<Profile>(["profile", "john"]).await.unwrap();
 
         // Before calling 'update' method on group, every property remain in default.
         assert_eq!(scorch.name, "");

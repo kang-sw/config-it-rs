@@ -98,10 +98,7 @@ impl<T: Clone> Clone for Group<T> {
 
 impl<T: std::fmt::Debug> std::fmt::Debug for Group<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Group")
-            .field("__body", &self.__body)
-            .field("fence", &self.fence)
-            .finish()
+        f.debug_struct("Group").field("__body", &self.__body).field("fence", &self.fence).finish()
     }
 }
 
@@ -387,11 +384,8 @@ mod emulate_generation {
 
                         let meta = Metadata::create_for_base_type(identifier, init, props);
 
-                        let prop_data = PropData {
-                            index,
-                            type_id: TypeId::of::<Type>(),
-                            meta: Arc::new(meta),
-                        };
+                        let prop_data =
+                            PropData { index, type_id: TypeId::of::<Type>(), meta: Arc::new(meta) };
 
                         s.insert(offset, prop_data);
                     }

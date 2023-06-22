@@ -305,11 +305,7 @@ fn test_input(input: TokenStream) -> TokenStream {
         let fields = v.fields;
         for (i, f) in (0..fields.len()).zip(fields.iter()) {
             let ty = f.ty.to_token_stream().to_string();
-            let id = if let Some(s) = &f.ident {
-                s.to_string()
-            } else {
-                "<NO_IDENT>".into()
-            };
+            let id = if let Some(s) = &f.ident { s.to_string() } else { "<NO_IDENT>".into() };
             let vis = f.vis.to_token_stream().to_string();
 
             println!("  LN {}: {} {} : {}", i, vis, id, ty);

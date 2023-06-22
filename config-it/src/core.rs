@@ -24,7 +24,7 @@ macro_rules! id_type {
             derive_more::From,
             derive_more::Display,
             Serialize,
-            Deserialize
+            Deserialize,
         )]
         pub struct $id(pub u64);
     };

@@ -12,17 +12,19 @@ use syn::Lit;
 pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
     let identifier = ty.identifier;
     let generics = ty.generics;
-    
-    // Check if it's aliased during manifest.    
+
+    // Check if it's aliased during manifest.
     let this_crate = match crate_name("config-it") {
         Ok(FoundCrate::Itself) => quote!(::config_it),
         Ok(FoundCrate::Name(name)) => {
             let ident = syn::Ident::new(&name, Span::call_site());
             quote!(::#ident)
         }
-        
+
         // HACK: We may handle the re-exported crate that was aliased as 'config_it'
-        Err(_) => { quote!(config_it) }
+        Err(_) => {
+            quote!(config_it)
+        }
     };
 
     let fields = replace(&mut ty.fields, Default::default());
@@ -115,10 +117,10 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
                 let varname = #ident_str;
                 let doc_string = #doc;
                 let index = #indexer as usize;
-                
+
                 #[allow(unused)]
                 use #this_crate::entity::lookups::{HasSchema, NoSchema};
-                
+
                 let v_default: Type = #default_to_meta;
                 let schema = (&v_default).get_schema();
 
@@ -195,7 +197,7 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
                             self.#ident = x;
                             env_parsed = true;
                         } else {
-                            ()                            
+                            ()
                         }
                     }
 
@@ -205,7 +207,7 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
                 }
             }
         );
-        
+
 
         indexer += 1;
         (meta_gen, elem_at, default_val, default_init)
@@ -226,12 +228,12 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
                 None => quote! {Default::default()},
             },
         };
-        
+
         quote! {
             #ident: #default,
         }
     });
-    
+
     let mut vec_fields = Vec::with_capacity(num_fields);
     let mut vec_idents = Vec::with_capacity(num_fields);
     let mut vec_defaults = Vec::with_capacity(num_fields);
@@ -273,7 +275,7 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
             fn fill_default(&mut self) {
                 #(#vec_defaults)*
             }
-            
+
             fn default_config() -> Self {
                 Self {
                     #(#vec_inits)*

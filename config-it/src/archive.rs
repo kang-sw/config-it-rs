@@ -245,9 +245,7 @@ impl<'a> Deserialize<'a> for Archive {
             }
         }
 
-        deserializer.deserialize_map(PathNodeVisit {
-            build: Default::default(),
-        })
+        deserializer.deserialize_map(PathNodeVisit { build: Default::default() })
     }
 }
 
@@ -319,13 +317,7 @@ fn test_archive_basic() {
     assert!(sp1.values.contains_key("value1"));
     assert!(sp1.values.contains_key("value2"));
     assert!(sp1.values.get("value1").unwrap().is_null());
-    assert!(sp1
-        .values
-        .get("value2")
-        .unwrap()
-        .as_object()
-        .unwrap()
-        .is_empty());
+    assert!(sp1.values.get("value2").unwrap().as_object().unwrap().is_empty());
 
     let p2 = arch.paths.get("root_path_2").unwrap();
     assert!(p2.paths.is_empty());

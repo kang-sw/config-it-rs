@@ -43,10 +43,7 @@ pub struct ImportOptions {
 
 impl Default for ImportOptions {
     fn default() -> Self {
-        Self {
-            merge_onto_cache: true,
-            apply_as_patch: true,
-        }
+        Self { merge_onto_cache: true, apply_as_patch: true }
     }
 }
 
@@ -65,10 +62,7 @@ pub struct ExportOptions {
 
 impl Default for ExportOptions {
     fn default() -> Self {
-        Self {
-            merge_onto_dumped: true,
-            replace_import_cache: true,
-        }
+        Self { merge_onto_dumped: true, replace_import_cache: true }
     }
 }
 
@@ -118,9 +112,7 @@ impl Storage {
     }
 
     pub fn close(&self) -> Result<(), core::Error> {
-        self.tx
-            .send(ControlDirective::Close)
-            .map_err(|_| core::Error::ExpiredStorage)
+        self.tx.send(ControlDirective::Close).map_err(|_| core::Error::ExpiredStorage)
     }
 
     ///
@@ -133,11 +125,8 @@ impl Storage {
         path_hash: PathHash,
     ) -> Result<config::Group<T>, GroupFindError> {
         let (tx, rx) = oneshot::channel();
-        let msg = ControlDirective::TryFindGroup {
-            path_hash,
-            type_id: TypeId::of::<T>(),
-            reply: tx,
-        };
+        let msg =
+            ControlDirective::TryFindGroup { path_hash, type_id: TypeId::of::<T>(), reply: tx };
 
         fn err_expire<T>(_: T) -> GroupFindError {
             GroupFindError::ExpiredStorage
@@ -145,10 +134,7 @@ impl Storage {
 
         self.tx.send_async(msg).await.map_err(err_expire)?;
 
-        let core::FoundGroupInfo {
-            context,
-            unregister_hook,
-        } = rx.await.map_err(err_expire)??;
+        let core::FoundGroupInfo { context, unregister_hook } = rx.await.map_err(err_expire)??;
 
         Ok(<crate::Group<T>>::create_with__(context, unregister_hook))
     }
@@ -161,10 +147,7 @@ impl Storage {
     where
         T: config::Template,
     {
-        let paths = path
-            .into_iter()
-            .map(|x| x.to_compact_string())
-            .collect::<Vec<_>>();
+        let paths = path.into_iter().map(|x| x.to_compact_string()).collect::<Vec<_>>();
 
         let path_hash = PathHash::new(paths.iter().map(|x| x.as_str()));
         match self.group_find::<T>(path_hash).await {
@@ -180,8 +163,7 @@ impl Storage {
         &self,
         path: impl IntoIterator<Item = &'a (impl AsRef<str> + ?Sized + 'a)>,
     ) -> Result<config::Group<T>, GroupFindError> {
-        self.group_find::<T>(PathHash::new(path.into_iter().map(|x| x.as_ref())))
-            .await
+        self.group_find::<T>(PathHash::new(path.into_iter().map(|x| x.as_ref()))).await
     }
 
     ///
@@ -205,20 +187,14 @@ impl Storage {
         let mut table: Vec<_> = T::prop_desc_table__().values().collect();
         table.sort_by(|a, b| a.index.cmp(&b.index));
 
-        let entity_hook = Arc::new(EntityHookImpl {
-            register_id,
-            tx: self.tx.clone(),
-        });
+        let entity_hook = Arc::new(EntityHookImpl { register_id, tx: self.tx.clone() });
 
         let sources: Vec<_> = table
             .into_iter()
             .map(|prop| entity::EntityData::new(prop.meta.clone(), entity_hook.clone()))
             .collect();
 
-        let unregister_anchor = Arc::new(GroupUnregisterHook {
-            register_id,
-            tx: self.tx.clone(),
-        });
+        let unregister_anchor = Arc::new(GroupUnregisterHook { register_id, tx: self.tx.clone() });
 
         // Create core config set context with reflected target metadata set
         let (broad_tx, broad_rx) = async_broadcast::broadcast::<()>(1);
@@ -269,12 +245,8 @@ impl Storage {
     where
         T: config::Template,
     {
-        self.group_create::<T>(
-            path.into_iter()
-                .map(|x| x.to_compact_string())
-                .collect::<Vec<_>>(),
-        )
-        .await
+        self.group_create::<T>(path.into_iter().map(|x| x.to_compact_string()).collect::<Vec<_>>())
+            .await
     }
 
     ///
@@ -289,10 +261,7 @@ impl Storage {
     pub async fn export(&self, option: ExportOptions) -> Result<archive::Archive, core::Error> {
         let (tx, rx) = oneshot::channel();
         self.tx
-            .send_async(ControlDirective::Export {
-                destination: tx,
-                option,
-            })
+            .send_async(ControlDirective::Export { destination: tx, option })
             .await
             .map_err(|_| core::Error::ExpiredStorage)?;
 
@@ -336,10 +305,7 @@ impl Storage {
         option: ImportOptions,
     ) -> Result<(), core::Error> {
         self.tx
-            .send_async(ControlDirective::Import {
-                body: archive,
-                option,
-            })
+            .send_async(ControlDirective::Import { body: archive, option })
             .await
             .map_err(|_| core::Error::ExpiredStorage)
     }
@@ -350,13 +316,7 @@ impl Storage {
     pub async fn fence(&self) {
         async {
             let (tx, rx) = oneshot::channel();
-            self.tx
-                .send_async(ControlDirective::Fence(tx))
-                .await
-                .map(|_| rx)
-                .ok()?
-                .await
-                .ok()
+            self.tx.send_async(ControlDirective::Fence(tx)).await.map(|_| rx).ok()?.await.ok()
         }
         .await;
     }
@@ -403,9 +363,7 @@ impl Drop for GroupUnregisterHook {
     fn drop(&mut self) {
         // Just ignore result. If channel was closed before the set is unregistered,
         //  it's ok to ignore this operation silently.
-        let _ = self
-            .tx
-            .try_send(ControlDirective::GroupDisposal(self.register_id));
+        let _ = self.tx.try_send(ControlDirective::GroupDisposal(self.register_id));
     }
 }
 
@@ -476,9 +434,7 @@ mod detail {
 
     impl StorageDriveContext {
         pub fn new() -> Self {
-            Self {
-                ..Default::default()
-            }
+            Self { ..Default::default() }
         }
 
         pub async fn handle_once(&mut self, msg: ControlDirective) {
@@ -514,9 +470,8 @@ mod detail {
                     };
 
                     // Apply initial update from loaded value.
-                    if let Some(node) = self
-                        .archive
-                        .find_path(msg.context.path.iter().map(|x| x.as_str()))
+                    if let Some(node) =
+                        self.archive.find_path(msg.context.path.iter().map(|x| x.as_str()))
                     {
                         // Apply node values to newly generated context.
                         Self::load_node_(&*rg.context, node, &mut self.monitors);
@@ -532,11 +487,7 @@ mod detail {
                     );
                 }
 
-                TryFindGroup {
-                    path_hash,
-                    type_id,
-                    reply,
-                } => {
+                TryFindGroup { path_hash, type_id, reply } => {
                     let Some(group_id) = self.path_hashes.get(&path_hash) else {
                         let _ = reply.send(Err(core::GroupFindError::PathNotFound));
                         return
@@ -579,11 +530,7 @@ mod detail {
                     assert!(self.path_hashes.remove(&rg.path_hash).is_some());
                 }
 
-                EntityValueUpdate {
-                    group_id,
-                    item_id,
-                    silent_mode,
-                } => {
+                EntityValueUpdate { group_id, item_id, silent_mode } => {
                     let Some(group) = self.all_groups.get(&group_id) else { return };
 
                     // - Notify monitors value change
@@ -596,10 +543,7 @@ mod detail {
                     );
 
                     if !silent_mode {
-                        group
-                            .context
-                            .source_update_fence
-                            .fetch_add(1, Ordering::Release);
+                        group.context.source_update_fence.fetch_add(1, Ordering::Release);
 
                         let _ = group.evt_on_update.try_broadcast(());
                     }
@@ -613,17 +557,10 @@ mod detail {
                         return;
                     }
 
-                    let args: Vec<_> = self
-                        .all_groups
-                        .iter()
-                        .map(|e| (*e.0, e.1.context.clone()))
-                        .collect();
+                    let args: Vec<_> =
+                        self.all_groups.iter().map(|e| (*e.0, e.1.context.clone())).collect();
 
-                    if tx
-                        .send_async(ReplicationEvent::InitialGroups(args))
-                        .await
-                        .is_err()
-                    {
+                    if tx.send_async(ReplicationEvent::InitialGroups(args)).await.is_err() {
                         log::warn!("Initial replication data transfer failed.");
                         return;
                     }
@@ -667,10 +604,7 @@ mod detail {
                     }
                 }
 
-                Export {
-                    destination,
-                    option,
-                } => {
+                Export { destination, option } => {
                     let mut archive = Archive::default();
                     for (_, node) in &self.all_groups {
                         Self::dump_node_(&node.context, &mut archive);
@@ -721,10 +655,7 @@ mod detail {
                             "If sources are not sorted by item id, it's logic error!"
                         );
 
-                        group
-                            .context
-                            .source_update_fence
-                            .fetch_add(1, Ordering::AcqRel);
+                        group.context.source_update_fence.fetch_add(1, Ordering::AcqRel);
 
                         let _ = group.evt_on_update.try_broadcast(());
                     }
@@ -766,9 +697,7 @@ mod detail {
                 .map(|e| (e, e.get_meta()))
                 .filter(|(_, m)| !m.props.disable_import)
                 .filter_map(|(e, m)| {
-                    node.values
-                        .get(m.name)
-                        .map(|o| (e, o.clone().into_deserializer()))
+                    node.values.get(m.name).map(|o| (e, o.clone().into_deserializer()))
                 })
             {
                 match elem.update_value_from(de) {

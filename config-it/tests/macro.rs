@@ -81,11 +81,8 @@ fn fewew() {
 
     echo.stdin.unwrap().write_all(hello().as_bytes()).unwrap();
 
-    let stdout_fmt = Command::new("rustfmt")
-        .stdin(echo.stdout.unwrap())
-        .stdout(Stdio::piped())
-        .spawn()
-        .unwrap();
+    let stdout_fmt =
+        Command::new("rustfmt").stdin(echo.stdout.unwrap()).stdout(Stdio::piped()).spawn().unwrap();
 
     let content = stdout_fmt.wait_with_output().unwrap();
     println!("\n\n{}\n", std::str::from_utf8(&content.stdout).unwrap());
@@ -100,16 +97,10 @@ fn config_set_valid_operations() {
         std::env::set_var("MY_ARRAY_VAR", "14141");
         assert_eq!(std::env::var("MY_ARRAY_VAR").unwrap(), "14141");
 
-        let mut group = storage
-            .create::<MyStruct>(["hello", "world!"])
-            .await
-            .unwrap();
+        let mut group = storage.create::<MyStruct>(["hello", "world!"]).await.unwrap();
 
         assert!(
-            storage
-                .create::<MyStruct>(["hello", "world!"])
-                .await
-                .is_err(),
+            storage.create::<MyStruct>(["hello", "world!"]).await.is_err(),
             "Assert key duplication handled correctly"
         );
 
