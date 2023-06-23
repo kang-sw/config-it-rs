@@ -116,7 +116,9 @@ pub mod api {
         ) {
         }
 
-        pub async fn logout(State(this): AppStateExtract) {}
+        pub async fn logout(State(this): AppStateExtract) {
+            tracing::info!("call me!?");
+        }
         pub async fn extend(State(this): AppStateExtract) {}
     }
 

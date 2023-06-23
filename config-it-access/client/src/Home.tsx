@@ -1,12 +1,23 @@
 import React, { useEffect } from 'react';
 import { Store } from 'react-notifications-component';
+import { Button } from './Widgets';
 
 export function Dashboard() {
 	// TODO: System overview page
 	// - Management server status: CPU/memory/storage/network usage, etc ...
 	// - Number of online/total sessions
 	// - Number of online/total users
+
+	async function onClick() {
+		const res = await fetch('/api/sess/logout', { method: "POST" });
+		const text = await res.text();
+		console.log(text);
+	}
+
 	return <>
+		<div className="flex flex-col items-center justify-center h-screen">
+			<Button onClick={onClick} color="blue">Click-Me!</Button>
+		</div>
 	</>
 }
 
