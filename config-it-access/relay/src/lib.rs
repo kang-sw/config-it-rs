@@ -53,7 +53,7 @@ pub mod api {
         });
 
         Router::new()
-            .route("/api/login/:id", method::post(sess::login))
+            .route("/api/login", method::post(sess::login))
             .nest(
                 "/api/sess",
                 Router::new()
@@ -104,6 +104,7 @@ pub mod api {
         use axum::{
             extract::{Path, State},
             headers::{authorization, Authorization},
+            http::StatusCode,
             TypedHeader,
         };
         use axum_extra::extract::CookieJar;
@@ -112,8 +113,9 @@ pub mod api {
             State(this): AppStateExtract,
             TypedHeader(auth): TypedHeader<Authorization<authorization::Basic>>,
             jar: CookieJar,
-            Path(id): Path<String>,
-        ) {
+        ) -> StatusCode {
+            tracing::info!("call me!? with AUTH!? {auth:?}");
+            StatusCode::UNAUTHORIZED
         }
 
         pub async fn logout(State(this): AppStateExtract) {

@@ -1,6 +1,6 @@
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import { Store } from 'react-notifications-component';
-import { Button } from './Widgets';
+import { Button, Spinner } from './Widgets';
 
 export function Dashboard() {
 	// TODO: System overview page
@@ -16,7 +16,7 @@ export function Dashboard() {
 
 	return <>
 		<div className="flex flex-col items-center justify-center h-screen">
-			<Button onClick={onClick} color="blue">Click-Me!</Button>
+			<Button onClick={onClick} theme="info">Click-Me!</Button>
 		</div>
 	</>
 }
@@ -25,31 +25,38 @@ export function About() {
 	useEffect(() => {
 		Store.addNotification({
 			title: "Hello!",
-			message: "Welcome!",
-			type: "info",
+			message: <div>Click Me!</div>,
+			type: "success",
 			container: "bottom-right",
-			dismiss: { duration: 2000 }
+			dismiss: { duration: 1000 },
 		});
-
-		console.log("pewpew");
 	}, []);
 
 	return <>
-		<div className="flex flex-col items-center justify-center h-screen">
-			<h1 className="text-6xl font-bold"><PrettyConfigItAccessText /></h1>
-			<h2 className="text-2xl mt-1 font-bold">Configure Everything, Control Anywhere</h2>
+		<div className="flex flex-col items-center justify-center h-full bg-slate-800">
+			<h1 className="text-6xl font-bold text-white"><PrettyConfigItAccessText /></h1>
+			<h2 className="text-2xl mt-3 font-bold font-mono text-gray-400">configure everything, control anywhere</h2>
+
+			<div className='flex flex-row text-white'>
+				<Spinner style='ring' className='text-2xl text-green-400' />
+				<div className='self-center'> This is text</div>
+				<Spinner style='flower' className='text-2xl' />
+				<Spinner style='ping' className='self-center' />
+				<Spinner style='arrow' className='text-2xl' />
+
+			</div>
 		</div >
 	</>
 }
 
 export function PrettyConfigItAccessText() {
-	return <span>
-		config-it-
-		<span className='text-green-400 italic'>{'['}</span>
-		<span className='italic text-gray-300'>access</span>
-		<span className='text-green-400 italic'>{']'}</span>
-	</span>
-
+	const dash = <span className='text-gray-400'>-</span>
+	return <div className='flex'>
+		config{dash}it{dash}
+		<div className='text-green-400 transition-all hover:-translate-y-1/4'>
+			[access]
+		</div>
+	</div>
 }
 
 export function RepoIcon(props: { className?: string }) {
