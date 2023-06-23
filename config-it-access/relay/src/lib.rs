@@ -100,22 +100,39 @@ pub mod api {
     }
 
     pub mod sess {
+        use std::time::SystemTime;
+
         use super::AppStateExtract;
         use axum::{
             extract::{Path, State},
             headers::{authorization, Authorization},
             http::StatusCode,
-            TypedHeader,
+            response::IntoResponse,
+            Json, TypedHeader,
         };
         use axum_extra::extract::CookieJar;
+        use serde::Serialize;
 
         pub async fn login(
             State(this): AppStateExtract,
             TypedHeader(auth): TypedHeader<Authorization<authorization::Basic>>,
             jar: CookieJar,
-        ) -> StatusCode {
+        ) -> Result<impl IntoResponse, StatusCode> {
             tracing::info!("call me!? with AUTH!? {auth:?}");
-            StatusCode::UNAUTHORIZED
+
+            #[derive(Serialize)]
+            struct Reply<'a> {
+                expires_at_utc_ms: u64,
+                user_alias: &'a str,
+            }
+
+            let ts_now =
+                SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis();
+
+            Ok(Json(Reply {
+                expires_at_utc_ms: (ts_now + 2 * 60 * 60 * 1000) as _, // 2 hr per session
+                user_alias: "test",
+            }))
         }
 
         pub async fn logout(State(this): AppStateExtract) {

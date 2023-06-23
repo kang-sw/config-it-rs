@@ -3,9 +3,16 @@ import { PrettyConfigItAccessText } from "./Home";
 import { Button, Spinner } from "./Widgets";
 import { AuthContext, getSHA256Hash } from "./App";
 import { Store } from "react-notifications-component";
+import { Navigate } from "react-router-dom";
+
+export interface LoginSessInfo {
+  expires_at_utc_ms: bigint;
+  user_alias: string;
+  user_id: string;
+}
 
 export function LoginPage() {
-  const { setLogin } = useContext(AuthContext);
+  const { login, setLogin } = useContext(AuthContext);
   const [loggingIn, setLoggingIn] = React.useState(false);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -32,30 +39,48 @@ export function LoginPage() {
       },
     });
 
-    const fetchFuture = fetch("/api/login", {
-      method: "POST",
-      headers: {
-        Authorization: `Basic ${btoa(`${target.user_id.value}:${pwHash}`)}`,
-      },
-    });
+    try {
+      const fetchFuture = fetch("/api/login", {
+        method: "POST",
+        headers: {
+          Authorization: `Basic ${btoa(`${target.user_id.value}:${pwHash}`)}`,
+        },
+      });
 
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    const result = await fetchFuture;
+      await new Promise((resolve) => setTimeout(resolve, 500)); // least wait
+      const result = await fetchFuture;
 
-    if (result.status === 200) {
-    } else {
+      if (result.status === 200) {
+        // TODO: Set login -> as user alias and session remaining time ...
+
+        setLogin({
+          user_id: target.user_id.value,
+          ...(await result.json()),
+        });
+      } else {
+        Store.addNotification({
+          container: "bottom-center",
+          type: "danger",
+          title: "Login failed",
+          message: `Status: ${result.status} ${result.statusText}`,
+          dismiss: { duration: 3000 },
+        });
+      }
+    } catch (e) {
       Store.addNotification({
         container: "bottom-center",
         type: "danger",
-        title: "Login failed",
-        message: `Status: ${result.status}\n${await result.text()}`,
-        dismiss: { duration: 2000 },
+        title: "Login failed - Exception",
+        message: `${e}`,
+        dismiss: { duration: 3000 },
       });
-      setLoggingIn(false);
-      return;
+    } finally {
+      Store.removeNotification(noti);
     }
+  }
 
-    Store.removeNotification(noti);
+  if (login) {
+    return <Navigate to="/" />;
   }
 
   const inputClass =
