@@ -21,7 +21,7 @@ fn test_macro() {
           #[config_it()]
           pub my_var_emp : f32,
 
-          #[config_it(no_import)]
+          #[config_it(no_import, access(guest, user))]
           pub my_var_4 : f32,
 
           ///
@@ -34,7 +34,7 @@ fn test_macro() {
 
     let d = parse2::<syn::DeriveInput>(raw.parse().unwrap()).unwrap();
     for _attr in d.attrs.iter() {
-        //   println!("OutermostAttr: {:?}", attr.tokens)
+        println!("OutermostAttr: {:#?}", _attr.tokens)
     }
 
     // println!("{}", test_input(raw.parse().unwrap()).to_string());

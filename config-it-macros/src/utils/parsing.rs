@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+use std::iter::zip;
+
 use proc_macro2::{Span, TokenStream, TokenTree};
 use quote::ToTokens;
 
@@ -36,11 +38,11 @@ pub struct FieldDesc {
     pub one_of: Option<syn::MetaList>,
 
     pub env_var: Option<syn::Lit>,
+    pub access_level: Option<[AccessLevel; 2]>,
 
     pub flag_transient: bool,
     pub flag_disable_import: bool,
     pub flag_disable_export: bool,
-    pub flag_hidden: bool,
 }
 
 pub struct InvisibleFieldDesc {
@@ -48,6 +50,14 @@ pub struct InvisibleFieldDesc {
     pub src_type: syn::Type,
     pub default_expr: Option<syn::Lit>,
     pub default_tokens: Option<TokenStream>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum AccessLevel {
+    Guest,
+    User,
+    Admin,
+    Off,
 }
 
 ///
@@ -83,6 +93,7 @@ pub fn decompose_input(input: DeriveInput) -> Result<TypeDesc, (Span, String)> {
             visibility: field.vis,
             default_value: Default::default(),
             default_expr: Default::default(),
+            access_level: Default::default(),
             docstring: String::with_capacity(200),
             alias: Default::default(),
             min: Default::default(),
@@ -92,7 +103,6 @@ pub fn decompose_input(input: DeriveInput) -> Result<TypeDesc, (Span, String)> {
             flag_transient: Default::default(),
             flag_disable_import: Default::default(),
             flag_disable_export: Default::default(),
-            flag_hidden: Default::default(),
         };
 
         let mut has_any_valid_attr = false;
@@ -216,9 +226,10 @@ fn retrieve_namespace(attrs: Vec<Attribute>) -> Option<TokenTree> {
 fn decompose_attribute(desc: &mut FieldDesc, attr: syn::Attribute) -> Result<bool, (Span, String)> {
     // Simply ignores non-perfkit attribute
     if attr.path.is_ident("doc") {
-        if let Ok(NameValue(v)) = attr.parse_meta() {
-            desc.docstring += v.lit.to_token_stream().to_string().as_str();
-        }
+        let Ok(NameValue(v)) = attr.parse_meta() else { return Ok(false) };
+        let syn::Lit::Str(v) = &v.lit else { return Ok(false) };
+
+        desc.docstring += &v.value();
         return Ok(false);
     }
 
@@ -243,6 +254,51 @@ fn decompose_attribute(desc: &mut FieldDesc, attr: syn::Attribute) -> Result<boo
     for meta in meta_list.nested {
         match meta {
             Meta(List(v)) if v.path.is_ident("one_of") => desc.one_of = Some(v),
+            Meta(List(v)) if v.path.is_ident("access") => {
+                assert!(
+                    desc.access_level.is_none(),
+                    "'{}': cannot specify both 'hidden' and 'access'",
+                    desc.identifier.to_string()
+                );
+
+                let mut read = None;
+                let mut write = None;
+
+                for (dst, item) in zip([&mut read, &mut write], v.nested) {
+                    let Meta(Path(pat)) = &item else {
+                        panic!("'{}': invalid access attribute {}", desc.identifier.to_string(), item.to_token_stream().to_string());
+                    };
+
+                    if pat.is_ident("off") {
+                        *dst = Some(AccessLevel::Off);
+                    } else if pat.is_ident("admin") {
+                        *dst = Some(AccessLevel::Admin);
+                    } else if pat.is_ident("user") {
+                        *dst = Some(AccessLevel::User);
+                    } else if pat.is_ident("guest") {
+                        *dst = Some(AccessLevel::Guest);
+                    } else {
+                        panic!(
+                            "'{}': invalid access attribute '{}'",
+                            desc.identifier.to_string(),
+                            item.to_token_stream().to_string()
+                        );
+                    }
+                }
+
+                if write.is_none() {
+                    write = read;
+                }
+
+                if read.unwrap() > write.unwrap() {
+                    panic!(
+                        "'{}': read access level must be less than or equal to write access level",
+                        desc.identifier.to_string()
+                    );
+                }
+
+                desc.access_level = Some([read.expect("must set valid value"), write.unwrap()]);
+            }
 
             Meta(NameValue(MetaNameValue { path, lit, .. })) => {
                 let dst = if path.is_ident("min") {
@@ -266,14 +322,29 @@ fn decompose_attribute(desc: &mut FieldDesc, attr: syn::Attribute) -> Result<boo
 
             Meta(Path(v)) if v.is_ident("no_export") => desc.flag_disable_export = true,
             Meta(Path(v)) if v.is_ident("no_import") => desc.flag_disable_import = true,
-            Meta(Path(v)) if v.is_ident("hidden") => desc.flag_hidden = true,
+
+            Meta(Path(v)) if v.is_ident("hidden") => {
+                assert!(
+                    desc.access_level.is_none(),
+                    "'{}': cannot specify both 'hidden' and 'access'",
+                    desc.identifier.to_string()
+                );
+
+                desc.access_level = Some([AccessLevel::Off; 2]);
+            }
 
             Meta(Path(v)) if v.is_ident("transient") => {
                 desc.flag_disable_import = true;
                 desc.flag_disable_export = true
             }
 
-            _ => return Err((attr.span(), "Invalid attribute".to_string())),
+            _ => {
+                panic!(
+                    "invalid attribute for '{}' -> '{}'",
+                    desc.identifier.to_string(),
+                    meta.to_token_stream().to_string()
+                )
+            }
         }
     }
 

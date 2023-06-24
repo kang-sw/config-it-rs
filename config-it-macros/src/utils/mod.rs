@@ -64,7 +64,13 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
         let disable_import = x.flag_disable_import;
         let disable_export = x.flag_disable_export;
 
-        let hidden = x.flag_hidden;
+        let access = x.access_level.unwrap_or([AccessLevel::Guest; 2]);
+        let [access_r, access_w] = access.map(|x| match x {
+            AccessLevel::Off => quote!{#this_crate::AccessLevel::Off},
+            AccessLevel::Admin => quote!{#this_crate::AccessLevel::Admin},
+            AccessLevel::User => quote!{#this_crate::AccessLevel::User},
+            AccessLevel::Guest => quote!{#this_crate::AccessLevel::Guest},
+        });
 
         let func_min = x.min.map_or(quote!{}, |x| {
             quote! {
@@ -147,7 +153,8 @@ pub fn generate(mut ty: TypeDesc) -> Result<TokenStream, (Span, String)> {
                     varname,
                     disable_import: #disable_import,
                     disable_export: #disable_export,
-                    hidden: #hidden,
+                    read_access: #access_r,
+                    write_access: #access_w,
                     schema,
                 };
 

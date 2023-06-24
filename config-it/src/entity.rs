@@ -84,11 +84,23 @@ pub struct MetadataValInit<T> {
     pub fn_validate: fn(&Metadata, &mut dyn Any) -> Option<bool>,
 }
 
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AccessLevel {
+    Guest,
+    User,
+    Admin,
+    Off,
+}
+
 #[derive(Debug)]
 pub struct MetadataProps {
     pub disable_export: bool,
     pub disable_import: bool,
-    pub hidden: bool,
+
+    /// Read/Write access level for this variable.
+    pub read_access: AccessLevel,
+    pub write_access: AccessLevel,
 
     pub schema: Option<crate::Schema>,
 

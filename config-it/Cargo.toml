@@ -1,6 +1,6 @@
 [package]
 name = "config-it"
-version = "0.6.2"
+version = "0.7.0"
 edition = "2021"
 description = "Centralized dynamic configuration management"
 authors = ["kang-sw <ki6080@gmail.com>"]
@@ -12,7 +12,7 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-macros = { package = "config-it-macros", path = "../config-it-macros", version = "0.3.2" }
+macros = { package = "config-it-macros", path = "../config-it-macros", version = "0.4.0" }
 
 serde = { version = "1", features = ["derive"] }
 erased-serde = "0.3"

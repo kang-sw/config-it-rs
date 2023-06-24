@@ -27,7 +27,7 @@ fn test_use_case() {
         /// > alias name. In current implementation, `~` is
         /// > used to indicate group object in archive
         /// > representation during serialization.
-        #[config_it(alias = "alias")]
+        #[config(alias = "alias", access(user))]
         non_alias: f32,
 
         /// Only specified set of values are allowed for
