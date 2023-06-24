@@ -9,6 +9,15 @@ export interface LoginSessInfo {
   expires_at_utc_ms: bigint;
   user_alias: string;
   user_id: string;
+  session_id: string;
+}
+
+export function setupLoginRestoration() {
+  // TODO: Login state restoration process
+  // - Read from Cookie -> Session-Id
+  // - If Session-Id matches local-storage cached session-info, then restore login state
+  //   (as long as the session info is not expired ...)
+  // TODO: Setup browser hook to save login state to local-storage
 }
 
 export function LoginPage() {

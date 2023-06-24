@@ -312,6 +312,11 @@ fn decompose_attribute(desc: &mut FieldDesc, attr: syn::Attribute) -> Result<boo
                 } else if path.is_ident("env") {
                     &mut desc.env_var
                 } else if path.is_ident("alias") {
+                    let syn::Lit::Str(x) = &lit else {
+                        panic!("'{}' non-string alias!", desc.identifier.to_string());
+                    };
+
+                    assert!(!x.value().contains(&['^', '~']), "^ and ~ is special delimiter");
                     &mut desc.alias
                 } else {
                     return Err((attr.span(), "Unknonw attribute".to_string()));
