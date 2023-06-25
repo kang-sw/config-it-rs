@@ -17,7 +17,7 @@ use tracing_subscriber::EnvFilter;
 #[derive(clap::Parser)]
 struct Args {
     /// Defines current working directory. Default is current directory.
-    #[arg(short = 'W', long)]
+    #[arg(short = 'W', long, env = "CONFIG_IT_WORKING_DIR")]
     working_dir: Option<String>,
 
     /// Defines certificate path for HTTPS. If not specified, a temporary certificate will be

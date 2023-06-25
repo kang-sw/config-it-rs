@@ -1,12 +1,13 @@
-import React, { useContext } from "react";
+import React, { useContext, useReducer } from "react";
 import { PrettyConfigItAccessText } from "./Home";
-import { Button, Spinner } from "./Widgets";
-import { AuthContext, getSHA256Hash } from "./App";
+import { Button, NavLabel, SmallButton, Spinner } from "./Widgets";
+import { AuthContext, SessExpireContext, getSHA256Hash } from "./App";
 import { Store } from "react-notifications-component";
-import { Navigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
+import { useInterval } from "usehooks-ts";
+import dayjs from "dayjs";
 
 export interface LoginSessInfo {
-  expires_at_utc_ms: bigint;
   user_alias: string;
   user_id: string;
   session_id: string;
@@ -22,6 +23,7 @@ export function setupLoginRestoration() {
 
 export function LoginPage() {
   const { login, setLogin } = useContext(AuthContext);
+  const { setValue: setSessExpire } = useContext(SessExpireContext);
   const [loggingIn, setLoggingIn] = React.useState(false);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -56,15 +58,14 @@ export function LoginPage() {
         },
       });
 
-      await new Promise((resolve) => setTimeout(resolve, 500)); // least wait
       const result = await fetchFuture;
-
       if (result.status === 200) {
-        // TODO: Set login -> as user alias and session remaining time ...
+        const object = await result.json();
 
+        setSessExpire(object.expire_utc_ms);
         setLogin({
           user_id: target.user_id.value,
-          ...(await result.json()),
+          ...object,
         });
       } else {
         Store.addNotification({
@@ -149,6 +150,62 @@ export function LoginPage() {
           </div>
         </form>
       </div>
+    </>
+  );
+}
+
+export function NavLoginWidget() {
+  const { login, setLogin } = useContext(AuthContext);
+  const { value: expire, setValue: setExpire } = useContext(SessExpireContext);
+  const [_, refresh] = useReducer((x) => x + 1, 0);
+  const navigate = useNavigate();
+
+  useInterval(refresh, 1000);
+
+  let timeStr = "";
+  if (expire) {
+    timeStr = "Expires " + dayjs.unix(Number(expire) / 1000).fromNow();
+  }
+
+  async function extendSession() {}
+
+  function logout() {
+    setLogin(null);
+    navigate("/login");
+  }
+
+  return (
+    <>
+      {login ? (
+        <div className="flex flex-row">
+          <div className="text-sm self-center me-2">
+            Welcome, <b>{login.user_alias}</b>!
+          </div>
+
+          <SmallButton
+            theme="info"
+            className="text-xs px-2 me-2 hover:scale-110"
+            title="Click to extend login session"
+            onClick={extendSession}
+          >
+            {timeStr}
+            <i className="ri-hourglass-line ms-1" />
+          </SmallButton>
+
+          <SmallButton
+            theme="warning"
+            className="text-xs my-0 px-2 hover:scale-110 text-slate-800"
+            onClick={logout}
+          >
+            Logout
+            <i className="ri-logout-circle-line ms-1" />
+          </SmallButton>
+        </div>
+      ) : (
+        <Link to="/login">
+          <NavLabel match="/login">Login</NavLabel>
+        </Link>
+      )}
     </>
   );
 }

@@ -3,6 +3,7 @@ use std::sync::Arc;
 use compact_str::CompactString;
 use dashmap::DashMap;
 use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 pub(crate) type AMutex<T> = tokio::sync::Mutex<T>;
@@ -31,6 +32,10 @@ pub fn create_state() -> api::AppState {
 
     state
 }
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+struct AppConfig {}
 
 pub mod api {
     use axum::{
@@ -122,7 +127,7 @@ pub mod api {
 
             #[derive(Serialize)]
             struct Reply<'a> {
-                expires_at_utc_ms: u64,
+                expire_utc_ms: u64,
                 user_alias: &'a str,
             }
 
@@ -130,7 +135,7 @@ pub mod api {
                 SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis();
 
             Ok(Json(Reply {
-                expires_at_utc_ms: (ts_now + 2 * 60 * 60 * 1000) as _, // 2 hr per session
+                expire_utc_ms: (ts_now + 2 * 60 * 60 * 1000) as _, // 2 hr per session
                 user_alias: "test",
             }))
         }

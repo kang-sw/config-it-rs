@@ -1,4 +1,4 @@
-import React, { useContext, useState } from "react";
+import React from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { Link } from "react-router-dom";
 import { ReactNotifications } from "react-notifications-component";
@@ -6,7 +6,16 @@ import "react-notifications-component/dist/theme.css";
 import "remixicon/fonts/remixicon.css";
 import { About, Dashboard, PrettyConfigItAccessText, RepoIcon } from "./Home";
 import { NavLabel, SmallButton } from "./Widgets";
-import { LoginPage, LoginSessInfo } from "./LoginPage";
+import {
+  LoginPage,
+  LoginSessInfo,
+  NavLoginWidget,
+  setupLoginRestoration,
+} from "./LoginPage";
+
+import dayjs from "dayjs";
+import relativeTime from "dayjs/plugin/relativeTime";
+dayjs.extend(relativeTime);
 
 export const AuthContext = React.createContext({
   login: null as null | LoginSessInfo,
@@ -15,40 +24,56 @@ export const AuthContext = React.createContext({
   setIsMgmtVisible: {} as (x: boolean) => void,
 });
 
+export const SessExpireContext = React.createContext({
+  value: null as null | bigint,
+  setValue: {} as (x: null | bigint) => void,
+});
+
+// Calls initial login session restoration
+setupLoginRestoration();
+
 function App() {
   const [login, setLogin] = React.useState(null as null | LoginSessInfo);
+  const [sessExpire, setSessExpire] = React.useState(null as null | bigint);
   const [isMgmtVisible, setIsMgmtVisible] = React.useState(false);
 
   return (
     <Router>
       <div className="app-container flex flex-col h-screen">
         <ReactNotifications />
-        <AuthContext.Provider
-          value={{
-            login: login,
-            setLogin: setLogin,
-            isMgmtVisible,
-            setIsMgmtVisible,
-          }}
+        <SessExpireContext.Provider
+          value={{ value: sessExpire, setValue: setSessExpire }}
         >
-          <NavBar login={login} isMgmtVisible={isMgmtVisible} />
-
-          <div className="flex-grow overflow-y-auto">
-            <Routes>
-              {login && <Route path="/" element={<Dashboard />} />}
-              {!login && <Route path="/" element={<LoginPage />} />}
-              <Route path="/about" element={<About />} />
-              {login && <Route path="/sessions" element={<Sessions />} />}
-              {/* TODO: Individual session route () */}
-              {isMgmtVisible && (
-                <Route path="/management" element={<Management />} />
-              )}
-              {login && <Route path="/account" element={<Account />} />}
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="*" element={<>404 NOT FOUND</>} />
-            </Routes>
-          </div>
-        </AuthContext.Provider>
+          <AuthContext.Provider
+            value={{
+              login: login,
+              setLogin: setLogin,
+              isMgmtVisible,
+              setIsMgmtVisible,
+            }}
+          >
+            <NavBar login={login} isMgmtVisible={isMgmtVisible} />
+            <div className="flex-grow overflow-y-auto">
+              <Routes>
+                {
+                  <Route
+                    path="/"
+                    element={login ? <Dashboard /> : <LoginPage />}
+                  />
+                }
+                <Route path="/about" element={<About />} />
+                {login && <Route path="/sessions" element={<Sessions />} />}
+                {/* TODO: Individual session route () */}
+                {isMgmtVisible && (
+                  <Route path="/management" element={<Management />} />
+                )}
+                {login && <Route path="/account" element={<Account />} />}
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="*" element={<>404 NOT FOUND</>} />
+              </Routes>
+            </div>
+          </AuthContext.Provider>
+        </SessExpireContext.Provider>
       </div>
     </Router>
   );
@@ -59,7 +84,7 @@ function NavBar(prop: { login: null | LoginSessInfo; isMgmtVisible: boolean }) {
 
   return (
     <>
-      <nav className="flex p-4 bg-blue-500 text-white">
+      <nav className="flex p-2 px-3 items-center bg-blue-500 text-white">
         <Link
           to="/"
           className="scale-110 font-extrabold ml-4 mr-8 hover:scale-125 transition-transform"
@@ -85,13 +110,7 @@ function NavBar(prop: { login: null | LoginSessInfo; isMgmtVisible: boolean }) {
           <NavLabel match="/about">About</NavLabel>
         </Link>
         <div className="flex-auto" />
-        {login ? (
-          <SmallButton>logout</SmallButton>
-        ) : (
-          <Link to="/login">
-            <NavLabel match="/login">Login</NavLabel>
-          </Link>
-        )}
+        <NavLoginWidget />
         <RepoIcon className="ml-5 fill-white" />
       </nav>
     </>
