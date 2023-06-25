@@ -12,7 +12,7 @@ use axum_server::tls_rustls::RustlsConfig;
 use compact_str::ToCompactString;
 use tokio::select;
 use tracing::{debug, info};
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, EnvFilter};
 
 #[derive(clap::Parser)]
 struct Args {
@@ -37,6 +37,10 @@ struct Args {
     /// If set nonzero value, HTTP redirect will be enabled.
     #[arg(long, default_value = "10481", env = "CONFIG_IT_HTTP_PORT")]
     http_port: Option<NonZeroU16>,
+
+    /// Disable file logging
+    #[arg(long, env = "CONFIG_IT_NO_FILE_LOG")]
+    no_file_log: bool,
 }
 
 impl Args {
@@ -55,17 +59,31 @@ async fn main() {
         std::env::set_var("RUST_LOG", "info");
     }
 
-    tracing_subscriber::fmt()
-        .with_writer(io::stderr)
-        .with_line_number(true)
-        .with_env_filter(EnvFilter::from_default_env())
-        .init();
-
     let args = Args::get();
     if let Some(dir) = &args.working_dir {
         std::env::set_current_dir(dir).expect("this may not fail!");
-        debug!(new_working_dir = ?std::env::current_dir())
     }
+
+    let mut _file_logging_guard = None;
+    {
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(io::stderr)
+            .pretty()
+            .with_env_filter(EnvFilter::from_default_env())
+            .finish();
+
+        let fwrite_layer = (!args.no_file_log).then(|| {
+            use tracing_appender::*;
+            let (writer, guard) = non_blocking(rolling::daily("log", "relay.log"));
+            _file_logging_guard = Some(guard);
+            tracing_subscriber::fmt::layer().with_ansi(false).compact().with_writer(writer)
+        });
+
+        tracing::subscriber::set_global_default(subscriber.with(fwrite_layer))
+            .expect("failed to set global default subscriber");
+    };
+
+    debug!(working_dir = ?std::env::current_dir());
 
     // :: Setup HTTPS certification
     let config = {
@@ -76,7 +94,7 @@ async fn main() {
         let https_key_path = args.https_key_path.as_deref().unwrap_or(HTTPS_KEY_PATH_DEFAULT);
 
         match (Path::new(https_cert_path).exists(), Path::new(https_key_path).exists()) {
-            (true, true) => info!(using_key_cert = ?(https_cert_path, https_key_path)),
+            (true, true) => info!(using_key_cert = ?[https_cert_path, https_key_path]),
             (false, false) => {
                 std::fs::create_dir("self_signed").ok(); // just try to create ..
                 prepare_self_signed_certs(https_cert_path, https_key_path)

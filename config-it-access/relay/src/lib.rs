@@ -11,8 +11,8 @@ pub(crate) type AMutex<T> = tokio::sync::Mutex<T>;
 pub struct Context {
     // TODO: Online providers management
     db: Mutex<rusqlite::Connection>,
+
     sessions: DashMap<Uuid, Arc<SessionCache>>,
-    id_sess_table: DashMap<CompactString, Uuid>,
 }
 
 pub struct SessionCache {
@@ -24,11 +24,7 @@ pub struct SessionCache {
 
 pub fn create_state() -> api::AppState {
     let db = rusqlite::Connection::open("db.sqlite").expect("Failed to open database");
-    let state = Arc::new(Context {
-        db: Mutex::new(db),
-        sessions: DashMap::new(),
-        id_sess_table: DashMap::new(),
-    });
+    let state = Arc::new(Context { db: Mutex::new(db), sessions: DashMap::new() });
 
     state
 }
