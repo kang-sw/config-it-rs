@@ -5,6 +5,11 @@
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "skipLibCheck": true,
+    "paths": {
+      "@bindings/*": [
+        "../relay/bindings/*"
+      ]
+    },
 
     /* Bundler mode */
     "moduleResolution": "bundler",

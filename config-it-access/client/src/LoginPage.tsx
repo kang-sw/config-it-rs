@@ -6,6 +6,7 @@ import { Store } from "react-notifications-component";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useInterval } from "usehooks-ts";
 import dayjs from "dayjs";
+import { LoginReply } from "@bindings/LoginReply";
 
 export interface LoginSessInfo {
   user_alias: string;
@@ -60,12 +61,13 @@ export function LoginPage() {
 
       const result = await fetchFuture;
       if (result.status === 200) {
-        const object = await result.json();
+        const object = (await result.json()) as LoginReply;
 
         setSessExpire(object.expire_utc_ms);
         setLogin({
           user_id: target.user_id.value,
-          ...object,
+          user_alias: object.user_alias,
+          session_id: "", // TODO: Get session id from cookie
         });
       } else {
         Store.addNotification({
@@ -169,8 +171,9 @@ export function NavLoginWidget() {
 
   async function extendSession() {}
 
-  function logout() {
+  async function logout() {
     setLogin(null);
+    await fetch("/api/sess/logout", { method: "POST" });
     navigate("/login");
   }
 
@@ -179,7 +182,8 @@ export function NavLoginWidget() {
       {login ? (
         <div className="flex flex-row">
           <div className="text-sm self-center me-2">
-            Welcome, <b>{login.user_alias}</b>!
+            <span className="text-xs">Welcome</span>,{" "}
+            <b className="italic">{login.user_alias}</b>
           </div>
 
           <SmallButton

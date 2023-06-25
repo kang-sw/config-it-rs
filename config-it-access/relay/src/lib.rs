@@ -16,11 +16,45 @@ use uuid::Uuid;
 pub(crate) type AMutex<T> = tokio::sync::Mutex<T>;
 
 bitflags! {
+    /// TODO: Find way to programatically share this list with typescript ...
+    /// Otherwise, type all manually ?
     #[derive(Clone, Copy, Debug, Default)]
     #[repr(transparent)]
     pub struct Authority: u32 {
-        const PLAIN_USER = 0x_00_00_00_01;
+        /// Can access administrative actions
+        /// - Assign user 'administrative' roles / authorities
+        /// - Create 'Admin' access rules
+        const ADMIN = 0x01;
 
+        /// Can add/remove/update user.
+        const EDIT_USER_LIST = 0x02;
+
+        /// Can edit user authority, except for administrative roles ...
+        const ASSIGN_USER_AUTH = 0x04;
+
+        /// Can assign user to a role, for non-administrative ...
+        const ASSIGN_USER_ROLE = 0x08;
+
+        /// Can duplicate current user's role/authority
+        const DUPLICATE_SELF = 0x10;
+
+        /// Can set notification hooks
+        const SET_SITE_HOOK = 0x20;
+
+        /// Can access site's log
+        const ACCESS_SITE_LOG = 0x40;
+
+        /// Can access site's configuration history
+        const ACCESS_SITE_HISTORY = 0x80;
+
+        /// Can modify site's configuration
+        const MODIFY_SITE_CONFIG = 0x100;
+    }
+}
+
+impl Authority {
+    pub fn administrative() -> Self {
+        Self::default()
     }
 }
 
@@ -81,6 +115,26 @@ pub async fn create_state(first_user: Option<(&str, &str)>) -> api::AppState {
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 struct AppConfig {}
+
+pub mod apitool {
+    use axum::http::StatusCode;
+    use tracing::debug;
+
+    pub trait ToStatusErr {
+        fn map_status<V, E>(self, code: StatusCode) -> Result<V, StatusCode>
+        where
+            Self: Into<Result<V, E>>,
+            E: std::fmt::Display,
+        {
+            self.into().map_err(|e| {
+                debug!(%e);
+                code
+            })
+        }
+    }
+
+    impl<V, E> ToStatusErr for Result<V, E> where E: std::fmt::Display {}
+}
 
 pub mod api {
     use axum::{
@@ -145,15 +199,21 @@ pub mod api {
                     .layer(gen_middleware_auth()),
             )
             .route("/api/prov-login", method::post(|| async {})) // TODO: Authenticate with pre-registered 'APIKEY'
-            .nest("/api/prov", Router::new())
+            .nest("/api/prov", Router::new()) // TODO: API for providers
     }
 
     async fn mdl_authorization<B>(jar: CookieJar, req: Request<B>, next: Next<B>) -> Response {
         next.run(req).await
     }
 
+    async fn token_authorization<B>(jar: CookieJar, req: Request<B>, next: Next<B>) -> Response {
+        next.run(req).await
+    }
+
     pub mod sess {
         use std::{net::SocketAddr, time::SystemTime};
+
+        use crate::{apitool::ToStatusErr, Authority};
 
         use super::AppStateExtract;
         use axum::{
@@ -164,8 +224,18 @@ pub mod api {
             Json, TypedHeader,
         };
         use axum_extra::extract::CookieJar;
+        use compact_str::CompactString;
         use serde::Serialize;
-        use tracing::info;
+        use sqlx::{query, query_as};
+        use tracing::{debug, info};
+
+        #[derive(Serialize, ts_rs::TS)]
+        #[ts(export)]
+        struct LoginReply {
+            expire_utc_ms: u64,
+            user_alias: String,
+            authority: u32,
+        }
 
         #[tracing::instrument(skip(this, auth, jar), fields(id = auth.username()))]
         pub async fn login(
@@ -174,21 +244,34 @@ pub mod api {
             TypedHeader(auth): TypedHeader<Authorization<authorization::Basic>>,
             jar: CookieJar,
         ) -> Result<impl IntoResponse, StatusCode> {
-            info!("logging in ...");
-            // let (id, pw) = auth.username();
+            debug!(%addr, id = auth.username(), "logging in ...");
+            dbg!(auth.password());
 
-            #[derive(Serialize)]
-            struct Reply<'a> {
-                expire_utc_ms: u64,
-                user_alias: &'a str,
-            }
+            let (alias, authority): (String, u32) = query_as(concat!(
+                "SELECT alias, authority FROM User",
+                " WHERE id = ? AND passwd = ?"
+            ))
+            .bind(auth.username())
+            .bind(auth.password())
+            .fetch_optional(&this.db_sys)
+            .await
+            .expect("invalid query")
+            .ok_or(StatusCode::UNAUTHORIZED)?;
+
+            // TODO: Create new UUID and session instance.
+            // TODO: Add to session <-> id mapping
+            let authority = Authority::from_bits(authority).unwrap();
+            info!(id = auth.username(), alias, ?authority, "login successful");
 
             let ts_now =
                 SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis();
 
-            Ok(Json(Reply {
-                expire_utc_ms: (ts_now + 2 * 60 * 60 * 1000) as _, // 2 hr per session
-                user_alias: "test",
+            // TODO: Parameterize expire time
+            // TODO: Return session-id as cookie
+            Ok(Json(LoginReply {
+                expire_utc_ms: (ts_now + 30 * 60 * 1000) as _, // 2 hr per session
+                user_alias: alias,
+                authority: authority.bits(),
             }))
         }
 

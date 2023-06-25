@@ -5,7 +5,7 @@ import { ReactNotifications } from "react-notifications-component";
 import "react-notifications-component/dist/theme.css";
 import "remixicon/fonts/remixicon.css";
 import { About, Dashboard, PrettyConfigItAccessText, RepoIcon } from "./Home";
-import { NavLabel, SmallButton } from "./Widgets";
+import { NavLabel } from "./Widgets";
 import {
   LoginPage,
   LoginSessInfo,
@@ -37,6 +37,15 @@ function App() {
   const [sessExpire, setSessExpire] = React.useState(null as null | bigint);
   const [isMgmtVisible, setIsMgmtVisible] = React.useState(false);
 
+  function setLoginState(newLogin: null | LoginSessInfo) {
+    setLogin((prev) => {
+      if (prev !== null && newLogin === null) {
+        // TODO: Push logout notification
+      }
+      return newLogin;
+    });
+  }
+
   return (
     <Router>
       <div className="app-container flex flex-col h-screen">
@@ -47,7 +56,7 @@ function App() {
           <AuthContext.Provider
             value={{
               login: login,
-              setLogin: setLogin,
+              setLogin: setLoginState,
               isMgmtVisible,
               setIsMgmtVisible,
             }}
@@ -62,7 +71,7 @@ function App() {
                   />
                 }
                 <Route path="/about" element={<About />} />
-                {login && <Route path="/sessions" element={<Sessions />} />}
+                {login && <Route path="/sites" element={<Sites />} />}
                 {/* TODO: Individual session route () */}
                 {isMgmtVisible && (
                   <Route path="/management" element={<Management />} />
@@ -92,8 +101,8 @@ function NavBar(prop: { login: null | LoginSessInfo; isMgmtVisible: boolean }) {
           <PrettyConfigItAccessText />
         </Link>
         {login && (
-          <Link to="/sessions" className="mr-4">
-            <NavLabel match="/sessions">Sessions</NavLabel>
+          <Link to="/sites" className="mr-4">
+            <NavLabel match="/sites">Sites</NavLabel>
           </Link>
         )}
         {isMgmtVisible && (
@@ -119,7 +128,7 @@ function NavBar(prop: { login: null | LoginSessInfo; isMgmtVisible: boolean }) {
 
 export default App;
 
-function Sessions() {
+function Sites() {
   // TODO:
 
   return <div>Sessions Page Content</div>;

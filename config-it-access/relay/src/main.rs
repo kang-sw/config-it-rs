@@ -88,7 +88,11 @@ async fn main() {
             use tracing_appender::*;
             let (writer, guard) = non_blocking(rolling::daily("log", "relay.log"));
             _file_logging_guard = Some(guard);
-            tracing_subscriber::fmt::layer().with_ansi(false).compact().with_writer(writer)
+            tracing_subscriber::fmt::layer()
+                .with_ansi(false)
+                .compact()
+                .with_line_number(true)
+                .with_writer(writer)
         });
 
         tracing::subscriber::set_global_default(subscriber.with(fwrite_layer))
