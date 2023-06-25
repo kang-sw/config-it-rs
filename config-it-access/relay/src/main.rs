@@ -6,7 +6,7 @@ use axum::{
     http::{StatusCode, Uri},
     response::Redirect,
     routing::{self},
-    BoxError,
+    BoxError, ServiceExt,
 };
 use axum_server::tls_rustls::RustlsConfig;
 use compact_str::ToCompactString;
@@ -41,6 +41,18 @@ struct Args {
     /// Disable file logging
     #[arg(long, env = "CONFIG_IT_NO_FILE_LOG")]
     no_file_log: bool,
+
+    /// Disable first user creation on the very first run
+    #[arg(long, env = "CONFIG_IT_NO_FIRST_USER")]
+    no_first_user: bool,
+
+    /// First user id
+    #[arg(long, env = "CONFIG_IT_FIRST_USER_ID", default_value = "guest")]
+    first_user_id: String,
+
+    /// First user password
+    #[arg(long, env = "CONFIG_IT_FIRST_USER_PASSWORD", default_value = "guest")]
+    first_user_password: String,
 }
 
 impl Args {
@@ -140,7 +152,13 @@ async fn main() {
         }
     };
 
-    let state = config_it_access_relay_server::create_state();
+    let first_user = if args.no_first_user {
+        None
+    } else {
+        Some((args.first_user_id.as_ref(), args.first_user_password.as_ref()))
+    };
+
+    let state = config_it_access_relay_server::create_state(first_user).await;
     let app = config_it_access_relay_server::api::configure_api(state.clone())
         .route("/", routing::get(api::index))
         .route("/index.html", routing::get(api::index))
@@ -148,8 +166,10 @@ async fn main() {
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], args.https_port));
-    let mut task_serve_https =
-        tokio::spawn(axum_server::bind_rustls(addr, config).serve(app.into_make_service()));
+    let mut task_serve_https = tokio::spawn(
+        axum_server::bind_rustls(addr, config)
+            .serve(app.into_make_service_with_connect_info::<SocketAddr>()),
+    );
 
     // :: Run the server, until a signal is received.
     info!("Server started. Ctrl-C to finish.");

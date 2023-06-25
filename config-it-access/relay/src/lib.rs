@@ -1,18 +1,35 @@
 use std::sync::Arc;
 
+use bitflags::bitflags;
 use compact_str::CompactString;
 use dashmap::DashMap;
-use parking_lot::Mutex;
+use indexmap::IndexSet;
 use serde::{Deserialize, Serialize};
+use sqlx::{
+    query,
+    sqlite::{self},
+    Executor, Row,
+};
+use tracing::{debug, info};
 use uuid::Uuid;
 
 pub(crate) type AMutex<T> = tokio::sync::Mutex<T>;
 
+bitflags! {
+    #[derive(Clone, Copy, Debug, Default)]
+    #[repr(transparent)]
+    pub struct Authority: u32 {
+        const PLAIN_USER = 0x_00_00_00_01;
+
+    }
+}
+
 pub struct Context {
     // TODO: Online providers management
-    db: Mutex<rusqlite::Connection>,
+    db_sys: sqlx::SqlitePool,
 
-    sessions: DashMap<Uuid, Arc<SessionCache>>,
+    sessions: DashMap<Uuid, SessionCache>,
+    id_sess_map: DashMap<String, IndexSet<Uuid>>,
 }
 
 pub struct SessionCache {
@@ -22,11 +39,43 @@ pub struct SessionCache {
     user_id: CompactString,
 }
 
-pub fn create_state() -> api::AppState {
-    let db = rusqlite::Connection::open("db.sqlite").expect("Failed to open database");
-    let state = Arc::new(Context { db: Mutex::new(db), sessions: DashMap::new() });
+pub async fn create_state(first_user: Option<(&str, &str)>) -> api::AppState {
+    // prepare directory to store site-specific files
+    std::fs::create_dir("sites").ok();
 
-    state
+    let db_sys = sqlite::SqlitePool::connect_with(
+        sqlite::SqliteConnectOptions::new().filename("db-sys.sqlite").create_if_missing(true),
+    )
+    .await
+    .unwrap();
+
+    db_sys.execute(include_str!("./ddl/Sys.ddl")).await.unwrap();
+    let qry = "SELECT COUNT(*) FROM User";
+    let n_user = query(qry).fetch_one(&db_sys).await.unwrap().get::<i64, _>(0);
+
+    debug!(num_user = n_user);
+
+    if let Some((id, pw)) = first_user.filter(|_| n_user == 0) {
+        info!(
+            id,
+            password = (0..pw.len()).map(|_| '*').collect::<String>(),
+            "No user found, creating first user..."
+        );
+
+        let pw = sha256::digest(pw);
+        db_sys
+            .execute(
+                query("INSERT INTO User(id, passwd, alias, authority) VALUES(?, ?, ?, ?)")
+                    .bind(id)
+                    .bind(pw)
+                    .bind("Administrator")
+                    .bind(Authority::all().bits()),
+            )
+            .await
+            .expect("First user creation failed");
+    }
+
+    Arc::new(Context { db_sys, id_sess_map: Default::default(), sessions: Default::default() })
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -41,6 +90,7 @@ pub mod api {
         response::Response,
         Router,
     };
+    use axum_extra::extract::CookieJar;
     use capture_it::capture;
     use std::sync::Arc;
 
@@ -94,18 +144,20 @@ pub mod api {
                     .route("/log/:name", method::get(site::fetch_old_log))
                     .layer(gen_middleware_auth()),
             )
+            .route("/api/prov-login", method::post(|| async {})) // TODO: Authenticate with pre-registered 'APIKEY'
+            .nest("/api/prov", Router::new())
     }
 
-    async fn mdl_authorization<B>(req: Request<B>, next: Next<B>) -> Response {
+    async fn mdl_authorization<B>(jar: CookieJar, req: Request<B>, next: Next<B>) -> Response {
         next.run(req).await
     }
 
     pub mod sess {
-        use std::time::SystemTime;
+        use std::{net::SocketAddr, time::SystemTime};
 
         use super::AppStateExtract;
         use axum::{
-            extract::{Path, State},
+            extract::{ConnectInfo, Path, State},
             headers::{authorization, Authorization},
             http::StatusCode,
             response::IntoResponse,
@@ -113,13 +165,17 @@ pub mod api {
         };
         use axum_extra::extract::CookieJar;
         use serde::Serialize;
+        use tracing::info;
 
+        #[tracing::instrument(skip(this, auth, jar), fields(id = auth.username()))]
         pub async fn login(
+            ConnectInfo(addr): ConnectInfo<SocketAddr>,
             State(this): AppStateExtract,
             TypedHeader(auth): TypedHeader<Authorization<authorization::Basic>>,
             jar: CookieJar,
         ) -> Result<impl IntoResponse, StatusCode> {
-            tracing::info!("call me!? with AUTH!? {auth:?}");
+            info!("logging in ...");
+            // let (id, pw) = auth.username();
 
             #[derive(Serialize)]
             struct Reply<'a> {
