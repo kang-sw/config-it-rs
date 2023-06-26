@@ -1,5 +1,6 @@
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
+use anyhow::Context as _Context;
 use bitflags::bitflags;
 use compact_str::CompactString;
 use dashmap::DashMap;
@@ -10,7 +11,8 @@ use sqlx::{
     sqlite::{self},
     Executor, Row,
 };
-use tracing::{debug, info};
+use tokio::task;
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 pub(crate) type AMutex<T> = tokio::sync::Mutex<T>;
@@ -58,12 +60,14 @@ impl Authority {
     }
 }
 
-pub struct Context {
+pub struct AppContext {
+    conf: AppConfig,
+
     // TODO: Online providers management
     db_sys: sqlx::SqlitePool,
 
     sessions: DashMap<Uuid, SessionCache>,
-    id_sess_map: DashMap<String, IndexSet<Uuid>>,
+    index_id_to_session: DashMap<CompactString, IndexSet<Uuid>>,
 }
 
 pub struct SessionCache {
@@ -71,9 +75,42 @@ pub struct SessionCache {
     // TODO: List of currently 'Accessible' sites.
     /// User ID of this session
     user_id: CompactString,
+
+    /// Authority level
+    authority: Authority,
+
+    /// Alias
+    alias: CompactString,
+
+    /// A handle to expire this session.
+    h_expire_task: Option<task::JoinHandle<()>>,
+
+    /// Remote address of this session
+    remote: SocketAddr,
 }
 
 pub async fn create_state(first_user: Option<(&str, &str)>) -> api::AppState {
+    // Read configuration
+    let conf = async {
+        let file = tokio::fs::read("config.toml").await.context("config file not exist")?;
+        let file_str = std::str::from_utf8(&file).context("config file is not valid utf-8")?;
+        Ok::<_, anyhow::Error>(toml::from_str(file_str).context("failed to parse config file")?)
+    }
+    .await;
+
+    let conf = match conf {
+        Ok(x) => x,
+        Err(e) => {
+            warn!(%e, "reading config failed");
+            let conf = AppConfig::default();
+            let conf_str = toml::to_string_pretty(&conf).unwrap();
+            tokio::fs::write("config.toml", conf_str).await.unwrap();
+
+            info!("Default config file created, please edit it and restart the server.");
+            std::process::exit(1);
+        }
+    };
+
     // prepare directory to store site-specific files
     std::fs::create_dir("sites").ok();
 
@@ -87,7 +124,7 @@ pub async fn create_state(first_user: Option<(&str, &str)>) -> api::AppState {
     let qry = "SELECT COUNT(*) FROM User";
     let n_user = query(qry).fetch_one(&db_sys).await.unwrap().get::<i64, _>(0);
 
-    debug!(num_user = n_user);
+    debug!(num_registered_users = n_user);
 
     if let Some((id, pw)) = first_user.filter(|_| n_user == 0) {
         info!(
@@ -109,220 +146,26 @@ pub async fn create_state(first_user: Option<(&str, &str)>) -> api::AppState {
             .expect("First user creation failed");
     }
 
-    Arc::new(Context { db_sys, id_sess_map: Default::default(), sessions: Default::default() })
+    Arc::new(AppContext {
+        db_sys,
+        conf,
+        index_id_to_session: Default::default(),
+        sessions: Default::default(),
+    })
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
-struct AppConfig {}
-
-pub mod apitool {
-    use axum::http::StatusCode;
-    use tracing::debug;
-
-    pub trait ToStatusErr {
-        fn map_status<V, E>(self, code: StatusCode) -> Result<V, StatusCode>
-        where
-            Self: Into<Result<V, E>>,
-            E: std::fmt::Display,
-        {
-            self.into().map_err(|e| {
-                debug!(%e);
-                code
-            })
-        }
-    }
-
-    impl<V, E> ToStatusErr for Result<V, E> where E: std::fmt::Display {}
+struct AppConfig {
+    /// Session expiration time in seconds
+    session_time_seconds: usize,
 }
 
-pub mod api {
-    use axum::{
-        extract::State,
-        http::Request,
-        middleware::{self, Next},
-        response::Response,
-        Router,
-    };
-    use axum_extra::extract::CookieJar;
-    use capture_it::capture;
-    use std::sync::Arc;
-
-    pub type AppStateExtract = State<Arc<super::Context>>;
-    pub type AppState = Arc<super::Context>;
-
-    pub fn configure_api(state: AppState) -> Router<AppState> {
-        use axum::routing as method;
-        let gen_middleware_auth = capture!([state], move || {
-            middleware::from_fn_with_state(state.clone(), mdl_authorization)
-        });
-
-        Router::new()
-            .route("/api/login", method::post(sess::login))
-            .nest(
-                "/api/sess",
-                Router::new()
-                    .route("/logout", method::post(sess::logout))
-                    .route("/extend", method::post(sess::extend))
-                    .layer(gen_middleware_auth()),
-            )
-            .nest(
-                "/api/mgmt",
-                Router::new()
-                    .route("/rule", method::get(mgmt::rule_list))
-                    .route("/rule/:name", method::post(mgmt::rule_update))
-                    .route("/rule/:name", method::get(mgmt::rule_get))
-                    .route("/rule/:name", method::delete(mgmt::rule_delete))
-                    .route("/role", method::get(mgmt::role_list))
-                    .route("/role/:name", method::post(mgmt::role_update))
-                    .route("/role/:name", method::get(mgmt::role_get))
-                    .route("/role/:name", method::delete(mgmt::role_delete))
-                    .route("/user", method::get(mgmt::user_list))
-                    .route("/user/:name", method::post(mgmt::user_update))
-                    .route("/user/:name", method::get(mgmt::user_get))
-                    .route("/user/:name", method::delete(mgmt::user_delete))
-                    .route("/prov_key", method::get(mgmt::prov_key_list))
-                    .route("/prov_key/:name", method::post(mgmt::prov_key_add))
-                    .route("/prov_key/:name", method::get(mgmt::prov_key_get))
-                    .route("/prov_key/:name", method::delete(mgmt::prov_key_delete))
-                    .layer(gen_middleware_auth()),
-            )
-            .nest(
-                "/api/site",
-                Router::new()
-                    .route("/all", method::get(site::list))
-                    .route("/info/:name", method::get(site::get_desc))
-                    .route("/watch/:name", method::get(site::watch))
-                    .route("/commit/:name", method::post(site::post_commit))
-                    .route("/comment/:name", method::post(site::comment))
-                    .route("/log/:name", method::get(site::fetch_old_log))
-                    .layer(gen_middleware_auth()),
-            )
-            .route("/api/prov-login", method::post(|| async {})) // TODO: Authenticate with pre-registered 'APIKEY'
-            .nest("/api/prov", Router::new()) // TODO: API for providers
-    }
-
-    async fn mdl_authorization<B>(jar: CookieJar, req: Request<B>, next: Next<B>) -> Response {
-        next.run(req).await
-    }
-
-    async fn token_authorization<B>(jar: CookieJar, req: Request<B>, next: Next<B>) -> Response {
-        next.run(req).await
-    }
-
-    pub mod sess {
-        use std::{net::SocketAddr, time::SystemTime};
-
-        use crate::{apitool::ToStatusErr, Authority};
-
-        use super::AppStateExtract;
-        use axum::{
-            extract::{ConnectInfo, Path, State},
-            headers::{authorization, Authorization},
-            http::StatusCode,
-            response::IntoResponse,
-            Json, TypedHeader,
-        };
-        use axum_extra::extract::CookieJar;
-        use compact_str::CompactString;
-        use serde::Serialize;
-        use sqlx::{query, query_as};
-        use tracing::{debug, info};
-
-        #[derive(Serialize, ts_rs::TS)]
-        #[ts(export)]
-        struct LoginReply {
-            expire_utc_ms: u64,
-            user_alias: String,
-            authority: u32,
-        }
-
-        #[tracing::instrument(skip(this, auth, jar), fields(id = auth.username()))]
-        pub async fn login(
-            ConnectInfo(addr): ConnectInfo<SocketAddr>,
-            State(this): AppStateExtract,
-            TypedHeader(auth): TypedHeader<Authorization<authorization::Basic>>,
-            jar: CookieJar,
-        ) -> Result<impl IntoResponse, StatusCode> {
-            debug!(%addr, id = auth.username(), "logging in ...");
-            dbg!(auth.password());
-
-            let (alias, authority): (String, u32) = query_as(concat!(
-                "SELECT alias, authority FROM User",
-                " WHERE id = ? AND passwd = ?"
-            ))
-            .bind(auth.username())
-            .bind(auth.password())
-            .fetch_optional(&this.db_sys)
-            .await
-            .expect("invalid query")
-            .ok_or(StatusCode::UNAUTHORIZED)?;
-
-            // TODO: Create new UUID and session instance.
-            // TODO: Add to session <-> id mapping
-            let authority = Authority::from_bits(authority).unwrap();
-            info!(id = auth.username(), alias, ?authority, "login successful");
-
-            let ts_now =
-                SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis();
-
-            // TODO: Parameterize expire time
-            // TODO: Return session-id as cookie
-            Ok(Json(LoginReply {
-                expire_utc_ms: (ts_now + 30 * 60 * 1000) as _, // 2 hr per session
-                user_alias: alias,
-                authority: authority.bits(),
-            }))
-        }
-
-        pub async fn logout(State(this): AppStateExtract) {
-            tracing::info!("call me!?");
-        }
-        pub async fn extend(State(this): AppStateExtract) {}
-    }
-
-    pub mod mgmt {
-        use super::AppStateExtract;
-        use axum::extract::State;
-
-        pub async fn rule_list(State(this): AppStateExtract) {}
-        pub async fn rule_update(State(this): AppStateExtract) {}
-        pub async fn rule_get(State(this): AppStateExtract) {}
-        pub async fn rule_delete(State(this): AppStateExtract) {}
-
-        pub async fn role_list(State(this): AppStateExtract) {}
-        pub async fn role_update(State(this): AppStateExtract) {}
-        pub async fn role_get(State(this): AppStateExtract) {}
-        pub async fn role_delete(State(this): AppStateExtract) {}
-
-        pub async fn user_list(State(this): AppStateExtract) {}
-        pub async fn user_update(State(this): AppStateExtract) {}
-        pub async fn user_get(State(this): AppStateExtract) {}
-        pub async fn user_delete(State(this): AppStateExtract) {}
-
-        pub async fn prov_key_list(State(this): AppStateExtract) {}
-        pub async fn prov_key_add(State(this): AppStateExtract) {}
-        pub async fn prov_key_get(State(this): AppStateExtract) {}
-        pub async fn prov_key_delete(State(this): AppStateExtract) {}
-    }
-
-    pub mod site {
-        use super::AppStateExtract;
-        use axum::extract::State;
-
-        pub async fn list(State(this): AppStateExtract) {}
-        pub async fn get_desc(State(this): AppStateExtract) {}
-        pub async fn watch(State(this): AppStateExtract) {}
-        pub async fn post_commit(State(this): AppStateExtract) {}
-        pub async fn comment(State(this): AppStateExtract) {}
-        pub async fn fetch_old_log(State(this): AppStateExtract) {}
-    }
-
-    pub mod prov {
-        use super::AppStateExtract;
-        use axum::extract::State;
-
-        pub async fn register(State(this): AppStateExtract) {}
-        pub async fn publish(State(this): AppStateExtract) {}
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self { session_time_seconds: 3600 }
     }
 }
+
+pub mod api;
+pub mod apitool;

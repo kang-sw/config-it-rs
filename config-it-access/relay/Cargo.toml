@@ -9,6 +9,7 @@ name = "relay"
 path = "src/main.rs"
 
 [dependencies]
+anyhow = { version = "1.0.71", features = ["backtrace"] }
 axum = { version = "0.6.18", features = ["headers", "http2"] }
 axum-extra = { version = "0.7.4", features = ["cookie-signed"] }
 axum-server = { version = "0.5.1", features = ["tls-rustls"] }
@@ -25,9 +26,11 @@ lazy_static = "1.4.0"
 parking_lot = "0.12.1"
 serde = { version = "1.0.164", features = ["derive"] }
 serde_json = "1.0.99"
+serde_toml = "0.0.1"
 sha256 = "1.1.4"
 sqlx = { version = "0.6.3", features = ["sqlite", "runtime-tokio-rustls"] }
 tokio = { version = "1.28", features = ["full"] }
+toml = "0.7.5"
 tracing = "0.1.37"
 tracing-appender = { version = "0.2.2", features = ["parking_lot"] }
 tracing-log = "0.1.3"

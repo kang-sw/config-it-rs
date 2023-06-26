@@ -6,7 +6,7 @@ use axum::{
     http::{StatusCode, Uri},
     response::Redirect,
     routing::{self},
-    BoxError, ServiceExt,
+    BoxError,
 };
 use axum_server::tls_rustls::RustlsConfig;
 use compact_str::ToCompactString;

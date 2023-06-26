@@ -169,7 +169,30 @@ export function NavLoginWidget() {
     timeStr = "Expires " + dayjs.unix(Number(expire) / 1000).fromNow();
   }
 
-  async function extendSession() {}
+  async function extendSession() {
+    const retval = await fetch("/api/sess/extend", { method: "POST" });
+    if (retval.status === 200) {
+      const new_expire_due = (await retval.json()) as bigint;
+      setExpire(new_expire_due);
+
+      Store.addNotification({
+        container: "bottom-right",
+        title: "Session",
+        message: "Session extended",
+        type: "info",
+        dismiss: { duration: 1500 },
+      });
+    } else {
+      Store.addNotification({
+        container: "bottom-right",
+        title: "Session Error",
+        message: "Failed to extend session",
+        type: "danger",
+        dismiss: { duration: 3000 },
+      });
+      setLogin(null);
+    }
+  }
 
   async function logout() {
     setLogin(null);
