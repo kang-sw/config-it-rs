@@ -73,7 +73,7 @@ async fn authenticate_session<B>(
     next: Next<B>,
 ) -> Result<impl IntoResponse, StatusCode> {
     let uuid = jar.retrieve_uuid().ok_or(StatusCode::BAD_REQUEST)?;
-    if this.sessions.contains_key(&uuid) == false {
+    if this.user_sessions.contains_key(&uuid) == false {
         return Err(StatusCode::UNAUTHORIZED);
     }
 
@@ -87,19 +87,19 @@ async fn authenticate_provider<B>(req: Request<B>, next: Next<B>) -> Response {
 
 pub mod sess {
     use std::{
-        mem::take,
         net::SocketAddr,
+        ops::Not,
         sync::Arc,
         time::{Duration, SystemTime},
     };
 
     use crate::{
         apitool::{CookieRetrieveSessionId, ToStatusErr, COOKIE_SESSION_ID},
-        Authority, SessionCache,
+        ARwLock, Authority, SessionCache,
     };
 
     use super::AppStateExtract;
-    use anyhow::Context;
+    use anyhow::{anyhow, Context};
     use axum::{
         extract::{ConnectInfo, State},
         headers::{authorization, Authorization},
@@ -125,14 +125,14 @@ pub mod sess {
         authority: u32,
     }
 
-    #[tracing::instrument(skip(this, auth, jar), fields(id = auth.username()))]
+    #[tracing::instrument(skip(this, auth, jar), fields(id = auth.username(), %remote_addr))]
     pub async fn login(
         ConnectInfo(remote_addr): ConnectInfo<SocketAddr>,
         State(this): AppStateExtract,
         TypedHeader(auth): TypedHeader<Authorization<authorization::Basic>>,
         mut jar: CookieJar,
     ) -> Result<impl IntoResponse, StatusCode> {
-        debug!(%remote_addr, id = auth.username(), "logging in ...");
+        debug!("Logging in ...");
 
         let (alias, authority): (String, u32) =
             query_as(concat!("SELECT alias, authority FROM User", " WHERE id = ? AND passwd = ?"))
@@ -146,36 +146,76 @@ pub mod sess {
         let authority = Authority::from_bits(authority).unwrap();
         let new_session_uuid = {
             let uuid = Uuid::new_v4();
-            this.index_id_to_session
+            let mut new_obj_anchor = None;
+            let cache = this
+                .user_info_table
                 .entry(auth.username().into())
-                .and_modify(|set| {
-                    set.insert(uuid);
-                })
                 .or_insert_with(|| {
-                    indexset! { uuid }
-                });
+                    debug!("Creating new user info");
+
+                    let instance = Arc::new_cyclic(|weak_self| {
+                        ARwLock::new(crate::SharedUserInfoCache {
+                            weak_self: weak_self.clone(),
+                            id: auth.username().into(),
+                            authority,
+                            alias: alias.to_compact_string(),
+                            connections: indexset! {uuid},
+                            weak_app: Arc::downgrade(&this),
+                        })
+                    });
+
+                    let rval = Arc::downgrade(&instance);
+                    new_obj_anchor = Some(instance);
+                    rval
+                })
+                .upgrade()
+                .ok_or_else(|| {
+                    warn!("Edge case: entry removal occurred during lookup!");
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
+
+            if new_obj_anchor.is_none() {
+                debug!("Inserting user info to existing session ...");
+
+                let n = {
+                    let mut user = cache.write().await;
+                    user.connections.insert(uuid);
+                    user.connections.len()
+                };
+
+                debug!(num_connection = n, "User info inserted");
+            }
 
             let expiration = this
                 .clone()
-                .create_session_terminator(uuid, None)
+                .create_session_timeout_task(uuid, None)
                 .await
                 .expect("failing this is logic error!");
 
             let new_sess = SessionCache {
-                user_id: auth.username().into(),
                 h_expire_task: expiration.into(),
                 remote: remote_addr,
-                authority,
-                alias: alias.to_compact_string(),
+                user: cache.clone(),
             };
 
-            assert!(this.sessions.insert(uuid, new_sess).is_none(), "UUID duplication!");
+            assert!(this.user_sessions.insert(uuid, new_sess).is_none(), "UUID duplication!");
             uuid
         };
 
+        if let Some(uuid_prev) = jar.retrieve_uuid() {
+            debug!(%uuid_prev, "UUID found from cookie jar, removing ...");
+            this.expire_session(uuid_prev).ok();
+        }
+
         '_return_auth: {
             jar = jar.add(Cookie::new(COOKIE_SESSION_ID, new_session_uuid.to_string()));
-            info!(id = auth.username(), alias, ?authority, "login successful");
+            info!(
+                n_total_sess = this.user_sessions.len(),
+                id = auth.username(),
+                alias,
+                ?authority,
+                "login successful"
+            );
 
             Ok((
                 jar,
@@ -201,7 +241,7 @@ pub mod sess {
     ) -> Result<Json<u64>, StatusCode> {
         let uuid = jar.retrieve_uuid().ok_or(StatusCode::BAD_REQUEST)?;
         let task_previous = {
-            let mut arg = this.sessions.get_mut(&uuid).ok_or(StatusCode::NOT_FOUND)?;
+            let mut arg = this.user_sessions.get_mut(&uuid).ok_or(StatusCode::NOT_FOUND)?;
             arg.h_expire_task.take()
         };
 
@@ -214,13 +254,13 @@ pub mod sess {
         let naive_new_expiration = this.session_expire_utc();
         let new_task = this
             .clone()
-            .create_session_terminator(uuid, Some(task_previous))
+            .create_session_timeout_task(uuid, Some(task_previous))
             .await
             .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
         '_task_replacement: {
             // NOTE: Race condition occurs here ... has logged out during extension
-            let mut arg = this.sessions.get_mut(&uuid).ok_or(StatusCode::CONFLICT)?;
+            let mut arg = this.user_sessions.get_mut(&uuid).ok_or(StatusCode::CONFLICT)?;
             assert!(arg.h_expire_task.replace(new_task).is_none(), "logic error!");
         }
 
@@ -237,7 +277,7 @@ pub mod sess {
         ///
         /// This is pretty edge case, but it can happen when task is failed to abort. In other
         /// words, when the task successfully expired the session.
-        async fn create_session_terminator(
+        async fn create_session_timeout_task(
             self: Arc<Self>,
             session_id: Uuid,
             task: Option<task::JoinHandle<()>>,
@@ -260,20 +300,28 @@ pub mod sess {
             }))
         }
 
-        fn expire_session(self: Arc<Self>, session_id: Uuid) -> anyhow::Result<()> {
+        fn expire_session(&self, session_id: Uuid) -> anyhow::Result<()> {
             let (_, cache) =
-                self.sessions.remove(&session_id).context("session is already expired!")?;
+                self.user_sessions.remove(&session_id).context("session is already expired!")?;
 
             if let Some(task) = cache.h_expire_task {
                 task.abort();
             }
 
-            self.index_id_to_session.remove_if_mut(&cache.user_id, |_, v| {
-                v.remove(&session_id);
-                v.is_empty()
+            // NOTE: If `user_sessions` removal performed, following logic must be executed.
+
+            task::spawn(async move {
+                let mut user = cache.user.write().await;
+                assert!(user.connections.remove(&session_id), "logic error");
+
+                info!(
+                    %user.id,
+                    addr = %cache.remote,
+                    session_left_for_this_id = user.connections.len(),
+                    "session expired"
+                );
             });
 
-            info!(user = %cache.user_id, addr = %cache.remote, "session logged out");
             Ok(())
         }
     }

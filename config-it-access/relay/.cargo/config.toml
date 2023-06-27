@@ -1,4 +1,4 @@
 [env]
 RUST_LOG = "config_it_access_relay_server=debug,relay=debug,info"
 RUST_BACKTRACE = "1"
-CONFIG_IT_WORKING_DIR = "../target"
+CONFIG_IT_WORKING_DIR = "target"

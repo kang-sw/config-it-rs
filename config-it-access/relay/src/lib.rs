@@ -1,4 +1,7 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{
+    net::SocketAddr,
+    sync::{Arc, Weak},
+};
 
 use anyhow::Context as _Context;
 use bitflags::bitflags;
@@ -16,6 +19,7 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 pub(crate) type AMutex<T> = tokio::sync::Mutex<T>;
+pub(crate) type ARwLock<T> = tokio::sync::RwLock<T>;
 
 bitflags! {
     /// TODO: Find way to programatically share this list with typescript ...
@@ -66,15 +70,33 @@ pub struct AppContext {
     // TODO: Online providers management
     db_sys: sqlx::SqlitePool,
 
-    sessions: DashMap<Uuid, SessionCache>,
-    index_id_to_session: DashMap<CompactString, IndexSet<Uuid>>,
+    /// All logged in users
+    user_sessions: DashMap<Uuid, SessionCache>,
+
+    /// User instances
+    user_info_table: DashMap<CompactString, Weak<LockedUserInfo>>,
 }
 
-pub struct SessionCache {
+struct SessionCache {
     // TODO: 'Extender' channel to session expiration task
     // TODO: List of currently 'Accessible' sites.
+    /// User information.
+    user: Arc<LockedUserInfo>,
+
+    /// A handle to expire this session.
+    h_expire_task: Option<task::JoinHandle<()>>,
+
+    /// Remote address of this session
+    remote: SocketAddr,
+}
+
+/// Shared user informatino between logon sessions
+struct SharedUserInfoCache {
+    /// Weak instance to self
+    weak_self: Weak<ARwLock<Self>>,
+
     /// User ID of this session
-    user_id: CompactString,
+    id: CompactString,
 
     /// Authority level
     authority: Authority,
@@ -82,11 +104,22 @@ pub struct SessionCache {
     /// Alias
     alias: CompactString,
 
-    /// A handle to expire this session.
-    h_expire_task: Option<task::JoinHandle<()>>,
+    /// Live set of logon sessions
+    connections: IndexSet<Uuid>,
 
-    /// Remote address of this session
-    remote: SocketAddr,
+    /// Weak reference to app context. This is used on struct drop
+    weak_app: Weak<AppContext>,
+}
+
+/// User information, which is locked
+type LockedUserInfo = ARwLock<SharedUserInfoCache>;
+
+impl Drop for SharedUserInfoCache {
+    fn drop(&mut self) {
+        if let Some(app) = self.weak_app.upgrade() {
+            app.user_info_table.remove(&self.id);
+        }
+    }
 }
 
 pub async fn create_state(first_user: Option<(&str, &str)>) -> api::AppState {
@@ -149,8 +182,8 @@ pub async fn create_state(first_user: Option<(&str, &str)>) -> api::AppState {
     Arc::new(AppContext {
         db_sys,
         conf,
-        index_id_to_session: Default::default(),
-        sessions: Default::default(),
+        user_sessions: Default::default(),
+        user_info_table: Default::default(),
     })
 }
 
