@@ -199,7 +199,7 @@ struct AppConfig {
 
 impl Default for AppConfig {
     fn default() -> Self {
-        Self { session_time_seconds: 3600 }
+        Self { session_time_seconds: 2400 }
     }
 }
 

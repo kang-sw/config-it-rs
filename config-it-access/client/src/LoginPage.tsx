@@ -1,4 +1,4 @@
-import React, { useContext, useReducer } from "react";
+import React, { useContext, useEffect, useReducer } from "react";
 import { PrettyConfigItAccessText } from "./Home";
 import { Button, NavLabel, SmallButton, Spinner } from "./Widgets";
 import { AuthContext, SessExpireContext, getSHA256Hash } from "./App";
@@ -200,15 +200,32 @@ export async function tryRestoreLoginSession(
 export function NavLoginWidget() {
   const { login, setLogin } = useContext(AuthContext);
   const { value: expire, setValue: setExpire } = useContext(SessExpireContext);
-  const [_, refresh] = useReducer((x) => x + 1, 0);
+  const [refreshCount, refresh] = useReducer((x) => x + 1, 0);
   const navigate = useNavigate();
 
-  useInterval(refresh, 1000);
+  useInterval(refresh, 120_000);
 
   let timeStr = "";
   if (expire) {
-    timeStr = "Expires " + dayjs.unix(Number(expire) / 1000).fromNow();
+    timeStr = dayjs.unix(Number(expire) / 1000).fromNow(true);
   }
+
+  useEffect(() => {
+    const expireTime = dayjs.unix(Number(expire) / 1000);
+    const now = dayjs();
+    const remains = expireTime.diff(now, "second");
+
+    if (remains < 300) {
+      Store.addNotification({
+        container: "bottom-right",
+        title: "Session",
+        message: "Session extended automatically",
+        type: "info",
+        dismiss: { duration: 1500 },
+      });
+      extendSession();
+    }
+  }, [refreshCount]);
 
   async function extendSession() {
     const retval = await fetch("/api/sess/extend", { method: "POST" });
@@ -251,18 +268,17 @@ export function NavLoginWidget() {
           </div>
 
           <SmallButton
-            theme="info"
+            theme="success"
             className="text-xs px-2 me-2 hover:scale-110"
             title="Click to extend login session"
             onClick={extendSession}
           >
-            {timeStr}
-            <i className="ri-hourglass-line ms-1" />
+            <span className="ri-timer-line "></span> {timeStr}
           </SmallButton>
 
           <SmallButton
-            theme="warning"
-            className="text-xs my-0 px-2 hover:scale-110 text-slate-800"
+            theme="danger"
+            className="text-xs my-0 px-2 hover:scale-110 text-slate-900"
             onClick={logout}
           >
             Logout
