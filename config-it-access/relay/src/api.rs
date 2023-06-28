@@ -26,6 +26,7 @@ pub fn configure_api(state: AppState) -> Router<AppState> {
         .nest(
             "/api/sess",
             Router::new()
+                .route("/restore", method::post(sess::restore))
                 .route("/logout", method::post(sess::logout))
                 .route("/extend", method::post(sess::extend))
                 .layer(gen_middleware_auth()),
@@ -123,6 +124,7 @@ pub mod sess {
         expire_utc_ms: u64,
         user_alias: String,
         authority: u32,
+        user_id: String,
     }
 
     #[tracing::instrument(skip(this, auth, jar), fields(id = auth.username(), %remote_addr))]
@@ -134,33 +136,58 @@ pub mod sess {
     ) -> Result<impl IntoResponse, StatusCode> {
         debug!("Logging in ...");
 
-        let (alias, authority): (String, u32) =
-            query_as(concat!("SELECT alias, authority FROM User", " WHERE id = ? AND passwd = ?"))
-                .bind(auth.username())
-                .bind(auth.password())
-                .fetch_optional(&this.db_sys)
-                .await
-                .expect("invalid query")
-                .ok_or(StatusCode::UNAUTHORIZED)?;
+        let (uuid, shared, alias, authority) = if let Some(lock) =
+            this.user_info_table.get(auth.username()).and_then(|x| x.upgrade())
+        {
+            debug!("Cache hit, checking password ...");
 
-        let authority = Authority::from_bits(authority).unwrap();
-        let new_session_uuid = {
+            if lock.read().await.passwd != auth.password() {
+                debug!("Password mismatch. Rejecting.");
+                return Err(StatusCode::UNAUTHORIZED);
+            }
+
+            let new_uuid = Uuid::new_v4();
+            let mut cached = lock.write().await;
+            cached.connections.insert(new_uuid);
+
+            debug!(num_connection = cached.connections.len(), "User info inserted");
+            let (alias, authority) = (cached.alias.clone(), cached.authority);
+            drop(cached);
+
+            (new_uuid, lock, alias, authority)
+        } else {
+            debug!("Cache miss. Trying to login as new user ...");
+
+            let (alias, authority): (String, u32) = query_as(concat!(
+                "SELECT alias, authority FROM User",
+                " WHERE id = ? AND passwd = ?"
+            ))
+            .bind(auth.username())
+            .bind(auth.password())
+            .fetch_optional(&this.db_sys)
+            .await
+            .expect("invalid query")
+            .ok_or(StatusCode::UNAUTHORIZED)?;
+
+            let authority = Authority::from_bits(authority).unwrap();
             let uuid = Uuid::new_v4();
+
             let mut new_obj_anchor = None;
-            let cache = this
+            let user_lock = this
                 .user_info_table
                 .entry(auth.username().into())
                 .or_insert_with(|| {
                     debug!("Creating new user info");
 
                     let instance = Arc::new_cyclic(|weak_self| {
-                        ARwLock::new(crate::SharedUserInfoCache {
+                        ARwLock::new(crate::UserInfo {
                             weak_self: weak_self.clone(),
                             id: auth.username().into(),
                             authority,
                             alias: alias.to_compact_string(),
                             connections: indexset! {uuid},
                             weak_app: Arc::downgrade(&this),
+                            passwd: auth.password().into(),
                         })
                     });
 
@@ -177,30 +204,32 @@ pub mod sess {
             if new_obj_anchor.is_none() {
                 debug!("Inserting user info to existing session ...");
 
-                let n = {
-                    let mut user = cache.write().await;
-                    user.connections.insert(uuid);
-                    user.connections.len()
-                };
+                let mut user = user_lock.write().await;
+                user.connections.insert(uuid);
 
-                debug!(num_connection = n, "User info inserted");
+                debug!(num_connection = user.connections.len(), "User info inserted");
             }
 
-            let expiration = this
-                .clone()
-                .create_session_timeout_task(uuid, None)
-                .await
-                .expect("failing this is logic error!");
+            let cached = user_lock.read().await;
+            let (alias, authority) = (cached.alias.clone(), cached.authority);
+            drop(cached);
 
-            let new_sess = SessionCache {
-                h_expire_task: expiration.into(),
-                remote: remote_addr,
-                user: cache.clone(),
-            };
-
-            assert!(this.user_sessions.insert(uuid, new_sess).is_none(), "UUID duplication!");
-            uuid
+            (uuid, user_lock, alias, authority)
         };
+
+        let expiration = this
+            .clone()
+            .create_session_timeout_task(uuid, None)
+            .await
+            .expect("failing this is logic error!");
+
+        let new_sess = SessionCache {
+            h_expire_task: expiration.into(),
+            remote: remote_addr,
+            user: shared.clone(),
+        };
+
+        assert!(this.user_sessions.insert(uuid, new_sess).is_none(), "UUID duplication!");
 
         if let Some(uuid_prev) = jar.retrieve_uuid() {
             debug!(%uuid_prev, "UUID found from cookie jar, removing ...");
@@ -208,11 +237,11 @@ pub mod sess {
         }
 
         '_return_auth: {
-            jar = jar.add(Cookie::new(COOKIE_SESSION_ID, new_session_uuid.to_string()));
+            jar = jar.add(Cookie::new(COOKIE_SESSION_ID, uuid.to_string()));
             info!(
                 n_total_sess = this.user_sessions.len(),
                 id = auth.username(),
-                alias,
+                %alias,
                 ?authority,
                 "login successful"
             );
@@ -221,8 +250,9 @@ pub mod sess {
                 jar,
                 Json(LoginReply {
                     expire_utc_ms: this.session_expire_utc().as_millis() as _,
-                    user_alias: alias,
+                    user_alias: alias.to_string(),
                     authority: authority.bits(),
+                    user_id: auth.username().into(),
                 }),
             ))
         }
@@ -233,6 +263,13 @@ pub mod sess {
         this.expire_session(uuid).map_status(StatusCode::NOT_MODIFIED)?;
 
         Ok(())
+    }
+
+    pub async fn restore(
+        State(this): AppStateExtract,
+        jar: CookieJar,
+    ) -> Result<impl IntoResponse, StatusCode> {
+        Err::<(), _>(StatusCode::NOT_IMPLEMENTED)
     }
 
     pub async fn extend(

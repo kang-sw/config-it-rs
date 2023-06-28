@@ -91,12 +91,15 @@ struct SessionCache {
 }
 
 /// Shared user informatino between logon sessions
-struct SharedUserInfoCache {
+struct UserInfo {
     /// Weak instance to self
     weak_self: Weak<ARwLock<Self>>,
 
     /// User ID of this session
     id: CompactString,
+
+    /// Password hash
+    passwd: String,
 
     /// Authority level
     authority: Authority,
@@ -112,9 +115,9 @@ struct SharedUserInfoCache {
 }
 
 /// User information, which is locked
-type LockedUserInfo = ARwLock<SharedUserInfoCache>;
+type LockedUserInfo = ARwLock<UserInfo>;
 
-impl Drop for SharedUserInfoCache {
+impl Drop for UserInfo {
     fn drop(&mut self) {
         if let Some(app) = self.weak_app.upgrade() {
             app.user_info_table.remove(&self.id);
