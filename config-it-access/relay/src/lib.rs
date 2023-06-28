@@ -71,17 +71,17 @@ pub struct AppContext {
     db_sys: sqlx::SqlitePool,
 
     /// All logged in users
-    user_sessions: DashMap<Uuid, SessionCache>,
+    user_sessions: DashMap<Uuid, SessionContext>,
 
     /// User instances
-    user_info_table: DashMap<CompactString, Weak<LockedUserInfo>>,
+    user_info_table: DashMap<CompactString, Weak<UserContextLock>>,
 }
 
-struct SessionCache {
+struct SessionContext {
     // TODO: 'Extender' channel to session expiration task
     // TODO: List of currently 'Accessible' sites.
     /// User information.
-    user: Arc<LockedUserInfo>,
+    user: Arc<UserContextLock>,
 
     /// A handle to expire this session.
     h_expire_task: Option<task::JoinHandle<()>>,
@@ -91,7 +91,7 @@ struct SessionCache {
 }
 
 /// Shared user informatino between logon sessions
-struct UserInfo {
+struct UserContext {
     /// Weak instance to self
     weak_self: Weak<ARwLock<Self>>,
 
@@ -115,9 +115,9 @@ struct UserInfo {
 }
 
 /// User information, which is locked
-type LockedUserInfo = ARwLock<UserInfo>;
+type UserContextLock = ARwLock<UserContext>;
 
-impl Drop for UserInfo {
+impl Drop for UserContext {
     fn drop(&mut self) {
         if let Some(app) = self.weak_app.upgrade() {
             app.user_info_table.remove(&self.id);

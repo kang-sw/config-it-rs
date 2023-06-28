@@ -11,15 +11,7 @@ import { LoginReply } from "@bindings/LoginReply";
 export interface LoginSessInfo {
   user_alias: string;
   user_id: string;
-  session_id: string;
-}
-
-export function setupLoginRestoration() {
-  // TODO: Login state restoration process
-  // - Read from Cookie -> Session-Id
-  // - If Session-Id matches local-storage cached session-info, then restore login state
-  //   (as long as the session info is not expired ...)
-  // TODO: Setup browser hook to save login state to local-storage
+  authority: number;
 }
 
 export function LoginPage() {
@@ -56,6 +48,7 @@ export function LoginPage() {
         method: "POST",
         headers: {
           Authorization: `Basic ${btoa(`${target.user_id.value}:${pwHash}`)}`,
+          credentials: "include",
         },
       });
 
@@ -67,7 +60,7 @@ export function LoginPage() {
         setLogin({
           user_id: target.user_id.value,
           user_alias: object.user_alias,
-          session_id: "", // TODO: Get session id from cookie
+          authority: object.authority,
         });
       } else {
         Store.addNotification({
@@ -154,6 +147,54 @@ export function LoginPage() {
       </div>
     </>
   );
+}
+
+export async function tryRestoreLoginSession(
+  setLogin: (x: null | LoginSessInfo) => void,
+  setExpiration: (x: null | bigint) => void
+) {
+  let notiId = Store.addNotification({
+    container: "bottom-right",
+    dismiss: { duration: 1000000000 },
+    type: "info",
+    title: "Restoring Session",
+    message: "Please wait...",
+  });
+
+  try {
+    const restored = (await (
+      await fetch("/api/sess/restore", {
+        method: "POST",
+      })
+    ).json()) as LoginReply;
+
+    setLogin({
+      user_alias: restored.user_alias,
+      user_id: restored.user_id,
+      authority: restored.authority,
+    });
+    setExpiration(restored.expire_utc_ms);
+
+    Store.addNotification({
+      container: "bottom-right",
+      dismiss: { duration: 3000 },
+      type: "success",
+      title: "Previous session restored",
+    });
+  } catch (e: any) {
+    Store.addNotification({
+      container: "bottom-right",
+      dismiss: { duration: 1000 },
+      type: "warning",
+      title: "Failed to restore session",
+      message: e.toString(),
+    });
+
+    setLogin(null);
+    setExpiration(null);
+  } finally {
+    Store.removeNotification(notiId);
+  }
 }
 
 export function NavLoginWidget() {

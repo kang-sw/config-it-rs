@@ -1,7 +1,7 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { Link } from "react-router-dom";
-import { ReactNotifications } from "react-notifications-component";
+import { ReactNotifications, Store } from "react-notifications-component";
 import "react-notifications-component/dist/theme.css";
 import "remixicon/fonts/remixicon.css";
 import { About, Dashboard, PrettyConfigItAccessText, RepoIcon } from "./Home";
@@ -10,7 +10,7 @@ import {
   LoginPage,
   LoginSessInfo,
   NavLoginWidget,
-  setupLoginRestoration,
+  tryRestoreLoginSession,
 } from "./LoginPage";
 
 import dayjs from "dayjs";
@@ -29,21 +29,54 @@ export const SessExpireContext = React.createContext({
   setValue: {} as (x: null | bigint) => void,
 });
 
-// Calls initial login session restoration
-setupLoginRestoration();
+let sessionRestorationAttempted = false;
 
 function App() {
   const [login, setLogin] = React.useState(null as null | LoginSessInfo);
   const [sessExpire, setSessExpire] = React.useState(null as null | bigint);
   const [isMgmtVisible, setIsMgmtVisible] = React.useState(false);
 
+  useEffect(() => {
+    if (!sessionRestorationAttempted) {
+      tryRestoreLoginSession(setLogin, setSessExpire).finally(() => {
+        sessionRestorationAttempted = true;
+      });
+    }
+  }, []);
+
   function setLoginState(newLogin: null | LoginSessInfo) {
     setLogin((prev) => {
       if (prev !== null && newLogin === null) {
         // TODO: Push logout notification
+        Store.addNotification({
+          container: "bottom-center",
+          dismiss: { duration: 1500 },
+          type: "info",
+          title: "Logged out",
+        });
       }
       return newLogin;
     });
+  }
+
+  if (!sessionRestorationAttempted) {
+    return (
+      <>
+        <div className="flex flex-col h-screen">
+          <ReactNotifications />
+          <div className="flex-grow overflow-y-auto">
+            <div className="flex flex-col items-center justify-center h-full">
+              <div className="flex flex-col items-center justify-center text-8xl">
+                <PrettyConfigItAccessText />
+                <div className="text-4xl text-gray-300">
+                  Restoring previous session ..
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </>
+    );
   }
 
   return (

@@ -96,7 +96,7 @@ pub mod sess {
 
     use crate::{
         apitool::{CookieRetrieveSessionId, ToStatusErr, COOKIE_SESSION_ID},
-        ARwLock, Authority, SessionCache,
+        ARwLock, Authority, SessionContext,
     };
 
     use super::AppStateExtract;
@@ -180,7 +180,7 @@ pub mod sess {
                     debug!("Creating new user info");
 
                     let instance = Arc::new_cyclic(|weak_self| {
-                        ARwLock::new(crate::UserInfo {
+                        ARwLock::new(crate::UserContext {
                             weak_self: weak_self.clone(),
                             id: auth.username().into(),
                             authority,
@@ -221,9 +221,9 @@ pub mod sess {
             .clone()
             .create_session_timeout_task(uuid, None)
             .await
-            .expect("failing this is logic error!");
+            .expect("Failing this is logic error!");
 
-        let new_sess = SessionCache {
+        let new_sess = SessionContext {
             h_expire_task: expiration.into(),
             remote: remote_addr,
             user: shared.clone(),
@@ -268,8 +268,25 @@ pub mod sess {
     pub async fn restore(
         State(this): AppStateExtract,
         jar: CookieJar,
-    ) -> Result<impl IntoResponse, StatusCode> {
-        Err::<(), _>(StatusCode::NOT_IMPLEMENTED)
+    ) -> Result<impl IntoResponse, impl IntoResponse> {
+        if let Some(sess) = jar.retrieve_uuid().and_then(|uuid| this.user_sessions.get(&uuid)) {
+            let (user_id, alias, authority) = {
+                let info = sess.user.read().await;
+                (info.id.to_string(), info.alias.to_string(), info.authority)
+            };
+
+            info!(user_id, alias, ?authority, "User session restored.");
+
+            Ok(Json(LoginReply {
+                expire_utc_ms: this.session_expire_utc().as_millis() as _,
+                user_alias: alias,
+                authority: authority.bits(),
+                user_id,
+            }))
+        } else {
+            // Invalidate client cookie.
+            Err((jar.remove(Cookie::named(COOKIE_SESSION_ID)), StatusCode::UNAUTHORIZED))
+        }
     }
 
     pub async fn extend(
@@ -284,7 +301,7 @@ pub mod sess {
 
         // NOTE: This unwrap prevents spawning multiple expiration task spawning
         let Some(task_previous) = task_previous else {
-            warn!(%uuid, "it seems multiple concurrent extension is happening here ...");
+            warn!(%uuid, "It seems multiple concurrent extension is happening here ...");
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         };
 
@@ -298,7 +315,7 @@ pub mod sess {
         '_task_replacement: {
             // NOTE: Race condition occurs here ... has logged out during extension
             let mut arg = this.user_sessions.get_mut(&uuid).ok_or(StatusCode::CONFLICT)?;
-            assert!(arg.h_expire_task.replace(new_task).is_none(), "logic error!");
+            assert!(arg.h_expire_task.replace(new_task).is_none(), "Logic error!");
         }
 
         Ok(Json(naive_new_expiration.as_millis() as _))
@@ -324,7 +341,7 @@ pub mod sess {
 
                 let err = task.await.err()?;
                 if err.is_cancelled() == false {
-                    warn!(%err, "session expiration task panicked");
+                    warn!(%err, "Session expiration task panicked");
                     return None;
                 }
             }
@@ -332,7 +349,7 @@ pub mod sess {
             Some(task::spawn(async move {
                 tokio::time::sleep(Duration::from_secs(self.conf.session_time_seconds as _)).await;
                 if let Err(e) = self.expire_session(session_id) {
-                    warn!(%e, r#type = "timeout", "failed to expire session");
+                    warn!(%e, r#type = "timeout", "Failed to expire session");
                 }
             }))
         }
@@ -349,13 +366,13 @@ pub mod sess {
 
             task::spawn(async move {
                 let mut user = cache.user.write().await;
-                assert!(user.connections.remove(&session_id), "logic error");
+                assert!(user.connections.remove(&session_id), "Logic error");
 
                 info!(
                     %user.id,
                     addr = %cache.remote,
                     session_left_for_this_id = user.connections.len(),
-                    "session expired"
+                    "Session expired"
                 );
             });
 
