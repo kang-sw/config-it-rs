@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { Link } from "react-router-dom";
 import { ReactNotifications, Store } from "react-notifications-component";
@@ -29,17 +29,17 @@ export const SessExpireContext = React.createContext({
   setValue: {} as (x: null | bigint) => void,
 });
 
-let sessionRestorationAttempted = false;
-
 function App() {
   const [login, setLogin] = React.useState(null as null | LoginSessInfo);
   const [sessExpire, setSessExpire] = React.useState(null as null | bigint);
+  const [sessionRestorationAttempted, setSessionRestorationAttempted] =
+    useState(false);
   const [isMgmtVisible, setIsMgmtVisible] = React.useState(false);
 
   useEffect(() => {
     if (!sessionRestorationAttempted) {
       tryRestoreLoginSession(setLogin, setSessExpire).finally(() => {
-        sessionRestorationAttempted = true;
+        setSessionRestorationAttempted(true);
       });
     }
   }, []);
@@ -68,7 +68,7 @@ function App() {
             <div className="flex flex-col items-center justify-center h-full">
               <div className="flex flex-col items-center justify-center text-8xl">
                 <PrettyConfigItAccessText />
-                <div className="text-4xl text-gray-300">
+                <div className="text-4xl mt-6 text-gray-300">
                   Restoring previous session ..
                 </div>
               </div>
