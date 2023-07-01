@@ -297,7 +297,7 @@ export function NavLoginWidget() {
         </div>
       ) : (
         <Link to="/login">
-          <NavLabel match="/login">Login</NavLabel>
+          <NavLabel highlightMatch="/login">Login</NavLabel>
         </Link>
       )}
     </>

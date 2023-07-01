@@ -275,7 +275,7 @@ pub mod sess {
                 (info.id.to_string(), info.alias.to_string(), info.authority)
             };
 
-            info!(user_id, alias, ?authority, "User session restored.");
+            debug!(user_id, alias, ?authority, "User session restored.");
 
             Ok(Json(LoginReply {
                 expire_utc_ms: this.session_expire_utc().as_millis() as _,

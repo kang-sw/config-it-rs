@@ -1,6 +1,6 @@
 import React, { ButtonHTMLAttributes } from "react";
 import { Store, iNotification } from "react-notifications-component";
-import { useLocation } from "react-router-dom";
+import { Link, LinkProps, useLocation } from "react-router-dom";
 
 export function Button({
   children,
@@ -92,9 +92,12 @@ export function themeColors(theme: ThemeColor): string {
   return className;
 }
 
-export function NavLabel(props: { children?: React.ReactNode; match: string }) {
+export function NavLabel(props: {
+  children?: React.ReactNode;
+  highlightMatch: string;
+}) {
   const location = useLocation();
-  const isStartWith = location.pathname.startsWith(props.match);
+  const isStartWith = location.pathname.startsWith(props.highlightMatch);
   const className = "hover:scale-110 " + (isStartWith ? "font-bold" : "");
 
   return <div className={className}>{props.children}</div>;
@@ -140,5 +143,21 @@ export function Spinner(prop: {
     <div className="flex justify-center">
       <Inner />
     </div>
+  );
+}
+
+export function LinkLabelRelPath(prop: {
+  to: string;
+  highlight: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <>
+      <Link to={prop.to} relative="path">
+        <div className={"hover:italic " + (prop.highlight ? "font-bold" : "")}>
+          {prop.children}
+        </div>
+      </Link>
+    </>
   );
 }

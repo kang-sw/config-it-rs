@@ -99,21 +99,19 @@ function App() {
           >
             <NavBar login={login} />
             <div className="flex-grow overflow-y-auto">
-              <Routes>
-                {
-                  <Route
-                    path="/"
-                    element={login ? <Dashboard /> : <LoginPage />}
-                  />
-                }
-                <Route path="/about" element={<About />} />
-                {login && <Route path="/sites" element={<Sites />} />}
-                {/* TODO: Individual session route () */}
-                <Route path="/management/:page" element={<Management />} />
-                {login && <Route path="/account" element={<Account />} />}
-                <Route path="/login" element={<LoginPage />} />
-                <Route path="*" element={<>404 NOT FOUND</>} />
-              </Routes>
+              {login === null ? (
+                <LoginPage />
+              ) : (
+                <Routes>
+                  <Route path="/" element={<Dashboard />} />
+                  <Route path="/about" element={<About />} />
+                  <Route path="/sites" element={<Sites />} />
+                  {/* TODO: Individual session route () */}
+                  <Route path="/management/*" element={<Management />} />
+                  <Route path="/login" element={<LoginPage />} />
+                  <Route path="*" element={<>404 NOT FOUND</>} />
+                </Routes>
+              )}
             </div>
           </AuthContext.Provider>
         </SessExpireContext.Provider>
@@ -139,9 +137,11 @@ function NavBar(prop: { login: null | LoginSessInfo }) {
             <NavLabel highlightMatch="/sites">Sites</NavLabel>
           </Link>
         )}
-        <Link to="/management/users" className="mr-4">
-          <NavLabel highlightMatch="/management">Management</NavLabel>
-        </Link>
+        {login && (
+          <Link to="/management/account" className="mr-4">
+            <NavLabel highlightMatch="/management">Management</NavLabel>
+          </Link>
+        )}
         <Link to="/about" className="mr-4">
           <NavLabel highlightMatch="/about">About</NavLabel>
         </Link>
@@ -159,10 +159,6 @@ function Sites() {
   // TODO:
 
   return <div>Sessions Page Content</div>;
-}
-
-function Account() {
-  return <div>Account Page Content</div>;
 }
 
 export async function getSHA256Hash(
