@@ -169,7 +169,7 @@ pub mod sess {
             .expect("invalid query")
             .ok_or(StatusCode::UNAUTHORIZED)?;
 
-            let authority = Authority::from_bits(authority).unwrap();
+            let authority = Authority::from_bits_retain(authority);
             let uuid = Uuid::new_v4();
 
             let mut new_obj_anchor = None;

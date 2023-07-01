@@ -32,7 +32,8 @@ bitflags! {
         /// - Create 'Admin' access rules
         const ADMIN = 0x01;
 
-        /// Can add/remove/update user.
+        /// Can add/remove/update user. It may not be accessible to users that has higher
+        /// authority than itself.
         const EDIT_USER_LIST = 0x02;
 
         /// Can edit user authority, except for administrative roles ...
@@ -41,8 +42,7 @@ bitflags! {
         /// Can assign user to a role, for non-administrative ...
         const ASSIGN_USER_ROLE = 0x08;
 
-        /// Can duplicate current user's role/authority
-        const DUPLICATE_SELF = 0x10;
+        // const <reserved> = 0x10;
 
         /// Can set notification hooks
         const SET_SITE_HOOK = 0x20;
@@ -64,10 +64,10 @@ impl Authority {
     }
 }
 
+// TODO: Online providers management
 pub struct AppContext {
     conf: AppConfig,
 
-    // TODO: Online providers management
     db_sys: sqlx::SqlitePool,
 
     /// All logged in users
@@ -78,8 +78,6 @@ pub struct AppContext {
 }
 
 struct SessionContext {
-    // TODO: 'Extender' channel to session expiration task
-    // TODO: List of currently 'Accessible' sites.
     /// User information.
     user: Arc<UserContextLock>,
 
@@ -91,6 +89,7 @@ struct SessionContext {
 }
 
 /// Shared user informatino between logon sessions
+// TODO: List of currently 'Accessible' sites.
 struct UserContext {
     /// Weak instance to self
     weak_self: Weak<ARwLock<Self>>,
@@ -176,7 +175,7 @@ pub async fn create_state(first_user: Option<(&str, &str)>) -> api::AppState {
                     .bind(id)
                     .bind(pw)
                     .bind("Administrator")
-                    .bind(Authority::all().bits()),
+                    .bind(u32::MAX),
             )
             .await
             .expect("First user creation failed");

@@ -15,13 +15,12 @@ import {
 
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
+import { Management } from "./Management";
 dayjs.extend(relativeTime);
 
 export const AuthContext = React.createContext({
   login: null as null | LoginSessInfo,
   setLogin: {} as (x: null | LoginSessInfo) => void,
-  isMgmtVisible: false,
-  setIsMgmtVisible: {} as (x: boolean) => void,
 });
 
 export const SessExpireContext = React.createContext({
@@ -34,7 +33,6 @@ function App() {
   const [sessExpire, setSessExpire] = React.useState(null as null | bigint);
   const [sessionRestorationAttempted, setSessionRestorationAttempted] =
     useState(false);
-  const [isMgmtVisible, setIsMgmtVisible] = React.useState(false);
 
   useEffect(() => {
     if (!sessionRestorationAttempted) {
@@ -90,11 +88,9 @@ function App() {
             value={{
               login: login,
               setLogin: setLoginState,
-              isMgmtVisible,
-              setIsMgmtVisible,
             }}
           >
-            <NavBar login={login} isMgmtVisible={isMgmtVisible} />
+            <NavBar login={login} />
             <div className="flex-grow overflow-y-auto">
               <Routes>
                 {
@@ -106,9 +102,7 @@ function App() {
                 <Route path="/about" element={<About />} />
                 {login && <Route path="/sites" element={<Sites />} />}
                 {/* TODO: Individual session route () */}
-                {isMgmtVisible && (
-                  <Route path="/management" element={<Management />} />
-                )}
+                <Route path="/management" element={<Management />} />
                 {login && <Route path="/account" element={<Account />} />}
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="*" element={<>404 NOT FOUND</>} />
@@ -121,8 +115,8 @@ function App() {
   );
 }
 
-function NavBar(prop: { login: null | LoginSessInfo; isMgmtVisible: boolean }) {
-  const { login, isMgmtVisible } = prop;
+function NavBar(prop: { login: null | LoginSessInfo }) {
+  const { login } = prop;
 
   return (
     <>
@@ -138,16 +132,9 @@ function NavBar(prop: { login: null | LoginSessInfo; isMgmtVisible: boolean }) {
             <NavLabel match="/sites">Sites</NavLabel>
           </Link>
         )}
-        {isMgmtVisible && (
-          <Link to="/management" className="mr-4">
-            <NavLabel match="/management">Management</NavLabel>
-          </Link>
-        )}
-        {login && (
-          <Link to="/account" className="mr-4">
-            <NavLabel match="/account">Account</NavLabel>
-          </Link>
-        )}
+        <Link to="/management" className="mr-4">
+          <NavLabel match="/management">Management</NavLabel>
+        </Link>
         <Link to="/about" className="mr-4">
           <NavLabel match="/about">About</NavLabel>
         </Link>
@@ -165,10 +152,6 @@ function Sites() {
   // TODO:
 
   return <div>Sessions Page Content</div>;
-}
-
-function Management() {
-  return <div>Management Page Content</div>;
 }
 
 function Account() {

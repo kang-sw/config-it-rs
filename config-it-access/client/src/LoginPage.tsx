@@ -24,7 +24,6 @@ export function LoginPage() {
     e.preventDefault();
     const target = e.target as HTMLFormElement;
     const password = target.user_pw.value;
-    target.user_pw.value = null;
 
     const pwHash = await getSHA256Hash(password, true);
     const noti = Store.addNotification({
@@ -38,9 +37,6 @@ export function LoginPage() {
       ),
       message: "Click to cancel",
       dismiss: { duration: 30_000_000, click: true },
-      onRemoval: () => {
-        setLoggingIn(false);
-      },
     });
 
     try {
@@ -55,6 +51,7 @@ export function LoginPage() {
       const result = await fetchFuture;
       if (result.status === 200) {
         const object = (await result.json()) as LoginReply;
+        target.user_pw.value = null;
 
         setSessExpire(object.expire_utc_ms);
         setLogin({
@@ -80,6 +77,7 @@ export function LoginPage() {
         dismiss: { duration: 3000 },
       });
     } finally {
+      setLoggingIn(false);
       Store.removeNotification(noti);
     }
   }
@@ -215,7 +213,7 @@ export function NavLoginWidget() {
     const now = dayjs();
     const remains = expireTime.diff(now, "second");
 
-    if (remains < 300) {
+    if (0 < remains && remains < 300) {
       Store.addNotification({
         container: "bottom-right",
         title: "Session",
@@ -228,19 +226,30 @@ export function NavLoginWidget() {
   }, [refreshCount]);
 
   async function extendSession() {
-    const retval = await fetch("/api/sess/extend", { method: "POST" });
-    if (retval.status === 200) {
-      const new_expire_due = (await retval.json()) as bigint;
-      setExpire(new_expire_due);
+    try {
+      const retval = await fetch("/api/sess/extend", { method: "POST" });
+      if (retval.status === 200) {
+        const new_expire_due = (await retval.json()) as bigint;
+        setExpire(new_expire_due);
 
-      Store.addNotification({
-        container: "bottom-right",
-        title: "Session",
-        message: "Session extended",
-        type: "info",
-        dismiss: { duration: 1500 },
-      });
-    } else {
+        Store.addNotification({
+          container: "bottom-right",
+          title: "Session",
+          message: "Session extended",
+          type: "info",
+          dismiss: { duration: 1500 },
+        });
+      } else {
+        Store.addNotification({
+          container: "bottom-right",
+          title: "Session Error",
+          message: "Failed to extend session",
+          type: "danger",
+          dismiss: { duration: 3000 },
+        });
+        setLogin(null);
+      }
+    } catch (e) {
       Store.addNotification({
         container: "bottom-right",
         title: "Session Error",
@@ -249,6 +258,7 @@ export function NavLoginWidget() {
         dismiss: { duration: 3000 },
       });
       setLogin(null);
+      setExpire(null);
     }
   }
 
