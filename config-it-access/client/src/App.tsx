@@ -30,13 +30,15 @@ export const SessExpireContext = React.createContext({
 
 function App() {
   const [login, setLogin] = React.useState(null as null | LoginSessInfo);
-  const [sessExpire, setSessExpire] = React.useState(null as null | bigint);
+  const sessExpireRef = React.useRef(null as null | bigint);
   const [sessionRestorationAttempted, setSessionRestorationAttempted] =
     useState(false);
 
   useEffect(() => {
     if (!sessionRestorationAttempted) {
-      tryRestoreLoginSession(setLogin, setSessExpire).finally(() => {
+      tryRestoreLoginSession(setLogin, (val) => {
+        sessExpireRef.current = val;
+      }).finally(() => {
         setSessionRestorationAttempted(true);
       });
     }
@@ -82,7 +84,12 @@ function App() {
       <div className="app-container flex flex-col h-screen">
         <ReactNotifications />
         <SessExpireContext.Provider
-          value={{ value: sessExpire, setValue: setSessExpire }}
+          value={{
+            value: sessExpireRef.current,
+            setValue: (val) => {
+              sessExpireRef.current = val;
+            },
+          }}
         >
           <AuthContext.Provider
             value={{
@@ -102,7 +109,7 @@ function App() {
                 <Route path="/about" element={<About />} />
                 {login && <Route path="/sites" element={<Sites />} />}
                 {/* TODO: Individual session route () */}
-                <Route path="/management" element={<Management />} />
+                <Route path="/management/:page" element={<Management />} />
                 {login && <Route path="/account" element={<Account />} />}
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="*" element={<>404 NOT FOUND</>} />
@@ -129,14 +136,14 @@ function NavBar(prop: { login: null | LoginSessInfo }) {
         </Link>
         {login && (
           <Link to="/sites" className="mr-4">
-            <NavLabel match="/sites">Sites</NavLabel>
+            <NavLabel highlightMatch="/sites">Sites</NavLabel>
           </Link>
         )}
-        <Link to="/management" className="mr-4">
-          <NavLabel match="/management">Management</NavLabel>
+        <Link to="/management/users" className="mr-4">
+          <NavLabel highlightMatch="/management">Management</NavLabel>
         </Link>
         <Link to="/about" className="mr-4">
-          <NavLabel match="/about">About</NavLabel>
+          <NavLabel highlightMatch="/about">About</NavLabel>
         </Link>
         <div className="flex-auto" />
         <NavLoginWidget />
