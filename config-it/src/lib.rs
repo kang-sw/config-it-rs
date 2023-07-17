@@ -245,7 +245,7 @@ pub extern crate serde;
 ///
 /// In both cases, all supplied arguments will be evaluated.
 #[macro_export]
-macro_rules! consume_all_update{
+macro_rules! consume_update{
     ($group: expr, [$($elems:ident),*]) => {
         {
             let __group = ($group).__macro_as_mut();
@@ -253,7 +253,7 @@ macro_rules! consume_all_update{
         }
     };
 
-    ($group: expr, ($($elems:ident),*)) => {
+    ($group: expr, (($($elems:ident),*))) => {
         {
             #[derive(Debug, Clone, Copy)]
             struct Updates {
@@ -277,7 +277,7 @@ macro_rules! consume_all_update{
 
 /// Shorthand macro for marking multiple elements dirty.
 #[macro_export]
-macro_rules! mark_all_dirty{
+macro_rules! mark_dirty{
     ($group: expr, $($elems:ident),+) => {
         {
             let __group = ($group).__macro_as_mut();
@@ -288,7 +288,7 @@ macro_rules! mark_all_dirty{
 
 /// Shorthand macro for committing multiple elements.
 #[macro_export]
-macro_rules! commit_all_elem{
+macro_rules! commit_elem{
     ($group: expr, ($($elems:ident),+)) => {
         {
             let __group = ($group).__macro_as_mut();

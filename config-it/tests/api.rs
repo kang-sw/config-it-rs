@@ -1,4 +1,4 @@
-use config_it::{commit_all_elem, consume_all_update, mark_all_dirty};
+use config_it::{commit_elem, consume_update, mark_dirty};
 
 #[test]
 fn test_use_case() {
@@ -163,37 +163,41 @@ fn test_use_case() {
         assert!(false == group.consume_update(&group.string_field));
 
         {
-            mark_all_dirty!(group, c_string_type, one_of_field, env_var);
+            mark_dirty!(group, c_string_type, one_of_field, env_var);
             assert!(true == group.consume_update(&group.c_string_type));
             assert!(true == group.consume_update(&group.one_of_field));
             assert!(true == group.consume_update(&group.env_var));
 
-            mark_all_dirty!(group, c_string_type, one_of_field, env_var);
+            mark_dirty!(group, c_string_type, one_of_field, env_var);
             assert_eq!(
-                consume_all_update!(group, [c_string_type, one_of_field, env_var]),
+                consume_update!(group, [c_string_type, one_of_field, env_var]),
                 [true, true, true],
+            );
+            assert_eq!(
+                consume_update!(group, [c_string_type, one_of_field, env_var]),
+                [false, false, false],
             );
 
             assert!(false == group.consume_update(&group.c_string_type));
             assert!(false == group.consume_update(&group.one_of_field));
             assert!(false == group.consume_update(&group.env_var));
 
-            mark_all_dirty!(group, c_string_type, one_of_field, env_var);
-            assert!(consume_all_update!(group, c_string_type, one_of_field, env_var));
+            mark_dirty!(group, c_string_type, one_of_field, env_var);
+            assert!(consume_update!(group, c_string_type, one_of_field, env_var));
 
             assert!(false == group.consume_update(&group.c_string_type));
             assert!(false == group.consume_update(&group.one_of_field));
             assert!(false == group.consume_update(&group.env_var));
 
             let mut watchdog = group.watch_update();
-            commit_all_elem!(group, notify(c_string_type));
+            commit_elem!(group, notify(c_string_type));
             assert!(watchdog.recv().await.is_ok());
 
             assert!(group.update() == true);
             assert!(true == group.consume_update(&group.c_string_type));
 
-            mark_all_dirty!(group, c_string_type, one_of_field, env_var);
-            let up = consume_all_update!(group, (c_string_type, one_of_field, env_var));
+            mark_dirty!(group, c_string_type, one_of_field, env_var);
+            let up = consume_update!(group, ((c_string_type, one_of_field, env_var)));
             assert!(up.c_string_type && up.env_var && up.one_of_field);
         }
 
