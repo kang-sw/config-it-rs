@@ -221,7 +221,7 @@ impl<T: Template> Group<T> {
         }
     }
 
-    /// Commit changes on element to core context, thus it will be propagated to all other groups
+    /// Commit changes on element to core context, then it will be propagated to all other groups
     /// which shares same core context.
     pub fn commit_elem<U: Clone + EntityTrait + Send>(&self, e: &U, notify: bool) {
         // Create new value pointer from input argument.
@@ -325,6 +325,14 @@ fn _verify_send_impl() {
 
     fn _assert_send<T: Send + Sync>() {}
     _assert_send::<Group<Example>>();
+}
+
+impl<T> Group<T> {
+    #[doc(hidden)]
+    pub fn __macro_as_mut(&mut self) -> &mut Self {
+        //! Use coercion to get mutable reference to self regardless of its expression.
+        self
+    }
 }
 
 #[cfg(any())]

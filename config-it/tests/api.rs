@@ -1,3 +1,5 @@
+use config_it::{commit_all_elem, consume_all_update, mark_all_dirty};
+
 #[test]
 fn test_use_case() {
     /// This is a 'Template' struct, which is minimal unit of
@@ -159,6 +161,41 @@ fn test_use_case() {
         assert!(false == group.consume_update(&group.non_alias));
         assert!(false == group.consume_update(&group.one_of_field));
         assert!(false == group.consume_update(&group.string_field));
+
+        {
+            mark_all_dirty!(group, c_string_type, one_of_field, env_var);
+            assert!(true == group.consume_update(&group.c_string_type));
+            assert!(true == group.consume_update(&group.one_of_field));
+            assert!(true == group.consume_update(&group.env_var));
+
+            mark_all_dirty!(group, c_string_type, one_of_field, env_var);
+            assert_eq!(
+                consume_all_update!(group, [c_string_type, one_of_field, env_var]),
+                [true, true, true],
+            );
+
+            assert!(false == group.consume_update(&group.c_string_type));
+            assert!(false == group.consume_update(&group.one_of_field));
+            assert!(false == group.consume_update(&group.env_var));
+
+            mark_all_dirty!(group, c_string_type, one_of_field, env_var);
+            assert!(consume_all_update!(group, c_string_type, one_of_field, env_var));
+
+            assert!(false == group.consume_update(&group.c_string_type));
+            assert!(false == group.consume_update(&group.one_of_field));
+            assert!(false == group.consume_update(&group.env_var));
+
+            let mut watchdog = group.watch_update();
+            commit_all_elem!(group, notify(c_string_type));
+            assert!(watchdog.recv().await.is_ok());
+
+            assert!(group.update() == true);
+            assert!(true == group.consume_update(&group.c_string_type));
+
+            mark_all_dirty!(group, c_string_type, one_of_field, env_var);
+            let up = consume_all_update!(group, (c_string_type, one_of_field, env_var));
+            assert!(up.c_string_type && up.env_var && up.one_of_field);
+        }
 
         // Any field that wasn't marked as 'config_it' attribute will not be part of
         // config_it system.

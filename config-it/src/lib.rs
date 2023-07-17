@@ -233,3 +233,73 @@ pub use serde_json::Value as ArchiveValue;
 
 pub extern crate schemars;
 pub extern crate serde;
+
+/// Shorthand macro for consuming multiple updates.
+///
+/// With bracket syntax, this macro returns array of bool values, which indicates whether each
+/// elements has been updated. With simple variadic syntax, this macro returns boolean value which
+/// indicates whether any of given elements has been updated.
+///
+/// If elements are wrapped inside parenthesis, this macro returns temporary struct which has
+/// boolean fields names each elements.
+///
+/// In both cases, all supplied arguments will be evaluated.
+#[macro_export]
+macro_rules! consume_all_update{
+    ($group: expr, [$($elems:ident),*]) => {
+        {
+            let __group = ($group).__macro_as_mut();
+            [$(__group.consume_update(&__group.$elems)), *]
+        }
+    };
+
+    ($group: expr, ($($elems:ident),*)) => {
+        {
+            #[derive(Debug, Clone, Copy)]
+            struct Updates {
+                $($elems: bool),*
+            }
+
+            let __group = ($group).__macro_as_mut();
+            Updates {
+                $($elems: __group.consume_update(&__group.$elems)),*
+            }
+        }
+    };
+
+    ($group: expr, $($elems:ident),*) => {
+        {
+            let __group = ($group).__macro_as_mut();
+            $(__group.consume_update(&__group.$elems)) | *
+        }
+    };
+}
+
+/// Shorthand macro for marking multiple elements dirty.
+#[macro_export]
+macro_rules! mark_all_dirty{
+    ($group: expr, $($elems:ident),+) => {
+        {
+            let __group = ($group).__macro_as_mut();
+            $(__group.mark_dirty(&__group.$elems)); *
+        }
+    }
+}
+
+/// Shorthand macro for committing multiple elements.
+#[macro_export]
+macro_rules! commit_all_elem{
+    ($group: expr, ($($elems:ident),+)) => {
+        {
+            let __group = ($group).__macro_as_mut();
+            $(__group.commit_elem(&__group.$elems, false)); *
+        }
+    };
+
+    ($group: expr, notify($($elems:ident),+)) => {
+        {
+            let __group = ($group).__macro_as_mut();
+            $(__group.commit_elem(&__group.$elems, true)); *
+        }
+    };
+}
