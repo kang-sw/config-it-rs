@@ -1,9 +1,13 @@
-use std::{cell::Cell, collections::BTreeMap, mem::take};
+use std::{cell::Cell, mem::take};
 
 use compact_str::CompactString;
 use serde::{ser::SerializeMap, Deserialize, Serialize};
 
-type Map<T, V> = BTreeMap<T, V>;
+#[cfg(not(feature = "indexmap"))]
+type Map<T, V> = std::collections::BTreeMap<T, V>;
+
+#[cfg(feature = "indexmap")]
+type Map<T, V> = indexmap::IndexMap<T, V>;
 
 ///
 /// [`Archive`] is serialized a map of key-value pairs, where key is a string, and value is

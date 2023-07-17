@@ -364,6 +364,8 @@ fn test_use_case() {
         group.commit_elem(&group.int_field, false);
         let archive = storage.export(Default::default()).await.unwrap();
 
+        println!("pretty_json: {}", serde_yaml::to_string(&archive).unwrap());
+
         assert!(
             archive.find_path(path.iter().map(|x| *x)).unwrap().values["int_field"]
                 .as_i64()
