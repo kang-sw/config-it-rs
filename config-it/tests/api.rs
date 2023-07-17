@@ -190,6 +190,7 @@ fn test_use_case() {
             assert!(false == group.consume_update(&group.env_var));
 
             let mut watchdog = group.watch_update();
+            assert!(watchdog.try_recv().is_err());
             commit_elem!(group, notify(c_string_type));
             assert!(watchdog.recv().await.is_ok());
 
