@@ -187,9 +187,7 @@ impl<T: Template> Group<T> {
     /// This is only meaningful when followed by [`Group::update`] call.
     pub fn consume_update<U: 'static>(&mut self, e: *const U) -> bool {
         let Some(index) = self.get_index_by_ptr(e) else { return false };
-        let ref_dirty_flag = &mut self.local[index].dirty_flag;
-
-        replace(ref_dirty_flag, false)
+        replace(&mut self.local[index].dirty_flag, false)
     }
 
     /// Get index of element based on element address.
@@ -226,7 +224,6 @@ impl<T: Template> Group<T> {
     /// Commit changes on element to core context, thus it will be propagated to all other groups
     /// which shares same core context.
     pub fn commit_elem<U: Clone + EntityTrait + Send>(&self, e: &U, notify: bool) {
-        //!
         // Create new value pointer from input argument.
         let cloned_value = Arc::new(e.clone()) as Arc<dyn EntityTrait>;
 
@@ -269,13 +266,13 @@ impl<T: Template> Group<T> {
     }
 
     /// Mark given element dirty.
-    pub fn mark_dirty<U: 'static>(&mut self, elem: &U) {
+    pub fn mark_dirty<U: 'static>(&mut self, elem: *const U) {
         let index = self.get_index_by_ptr(elem).unwrap();
         self.local[index].dirty_flag = true;
     }
 
     /// Get generated metadata of given element
-    pub fn get_metadata<U: 'static>(&self, elem: &U) -> Arc<Metadata> {
+    pub fn get_metadata<U: 'static>(&self, elem: *const U) -> Arc<Metadata> {
         self.get_prop_by_ptr(elem).unwrap().meta.clone()
     }
 
