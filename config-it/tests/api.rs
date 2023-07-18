@@ -1,84 +1,85 @@
-use config_it::{commit_elem, consume_update, mark_dirty};
+use config_it::{commit_elem, consume_update, mark_dirty, Storage};
+use futures::executor::block_on;
+
+/// This is a 'Template' struct, which is minimal unit of
+/// instantiation. Put required properties to configure
+/// your program.
+///
+/// All 'Template' classes must be 'Clone'able, and
+/// 'Default'able.
+///
+/// (Trying to finding way to remove 'Default' constraint.
+///  However, 'Clone' will always be required.)
+#[derive(config_it::Template, Clone)]
+struct MyConfig {
+    /// If you expose any field as config property, the
+    /// field must be marked with `config_it` attribute.
+    #[config_it]
+    string_field: String,
+
+    /// You can also specify default value, or min/max
+    /// constraints for this field.
+    #[config_it(default = 3, min = 1, max = 5)]
+    int_field: i32,
+
+    /// This field will be aliased as 'alias'.
+    ///
+    /// > **Warning** Don't use `~(tilde)` characters in
+    /// > alias name. In current implementation, `~` is
+    /// > used to indicate group object in archive
+    /// > representation during serialization.
+    #[config(alias = "alias", access(user))]
+    non_alias: f32,
+
+    /// Only specified set of values are allowed for
+    /// this field, however, default field can be
+    /// excluded from this set.
+    #[config_it(default = "default", one_of("a", "b", "c"))]
+    one_of_field: String,
+
+    /// Any 'serde' compatible type can be used as config field.
+    #[config_it]
+    c_string_type: Box<std::ffi::CStr>,
+
+    /// This will find value from environment variable
+    /// `MY_ENV_VAR`. Currently, only values that can be
+    /// `TryParse`d from `str` are supported.
+    ///
+    /// Environment variables are imported when the
+    /// group is firstly instantiated.
+    /// i.e. call to `Storage::create_group`
+    #[config_it(env = "MY_ARRAY_VAR")]
+    env_var: i64,
+
+    /// Complicated default value are represented as expression.
+    #[config_it(default_expr = "[1,2,3,4,5].into()")]
+    array_init: Vec<i32>,
+
+    /// This field is not part of config_it system.
+    _not_part_of: (),
+
+    /// This field won't be imported or exported from
+    /// archiving operation
+    #[config_it(no_import, no_export)]
+    no_imp_exp: Vec<f64>,
+
+    /// `transient` flag is equivalent to `no_import` and
+    /// `no_export` flags.
+    #[config_it(transient)]
+    no_imp_exp_2: Vec<f64>,
+
+    /// Alternative attribute is allowed.
+    #[config]
+    another_attr: i32,
+
+    /// If any non-default-able but excluded field exists, you can provide
+    /// your own default value to make this template default-constructible.
+    #[nocfg = "std::num::NonZeroUsize::new(1).unwrap()"]
+    _nonzero_var: std::num::NonZeroUsize,
+}
 
 #[test]
 fn test_use_case() {
-    /// This is a 'Template' struct, which is minimal unit of
-    /// instantiation. Put required properties to configure
-    /// your program.
-    ///
-    /// All 'Template' classes must be 'Clone'able, and
-    /// 'Default'able.
-    ///
-    /// (Trying to finding way to remove 'Default' constraint.
-    ///  However, 'Clone' will always be required.)
-    #[derive(config_it::Template, Clone)]
-    struct MyConfig {
-        /// If you expose any field as config property, the
-        /// field must be marked with `config_it` attribute.
-        #[config_it]
-        string_field: String,
-
-        /// You can also specify default value, or min/max
-        /// constraints for this field.
-        #[config_it(default = 3, min = 1, max = 5)]
-        int_field: i32,
-
-        /// This field will be aliased as 'alias'.
-        ///
-        /// > **Warning** Don't use `~(tilde)` characters in
-        /// > alias name. In current implementation, `~` is
-        /// > used to indicate group object in archive
-        /// > representation during serialization.
-        #[config(alias = "alias", access(user))]
-        non_alias: f32,
-
-        /// Only specified set of values are allowed for
-        /// this field, however, default field can be
-        /// excluded from this set.
-        #[config_it(default = "default", one_of("a", "b", "c"))]
-        one_of_field: String,
-
-        /// Any 'serde' compatible type can be used as config field.
-        #[config_it]
-        c_string_type: Box<std::ffi::CStr>,
-
-        /// This will find value from environment variable
-        /// `MY_ENV_VAR`. Currently, only values that can be
-        /// `TryParse`d from `str` are supported.
-        ///
-        /// Environment variables are imported when the
-        /// group is firstly instantiated.
-        /// i.e. call to `Storage::create_group`
-        #[config_it(env = "MY_ARRAY_VAR")]
-        env_var: i64,
-
-        /// Complicated default value are represented as expression.
-        #[config_it(default_expr = "[1,2,3,4,5].into()")]
-        array_init: Vec<i32>,
-
-        /// This field is not part of config_it system.
-        _not_part_of: (),
-
-        /// This field won't be imported or exported from
-        /// archiving operation
-        #[config_it(no_import, no_export)]
-        no_imp_exp: Vec<f64>,
-
-        /// `transient` flag is equivalent to `no_import` and
-        /// `no_export` flags.
-        #[config_it(transient)]
-        no_imp_exp_2: Vec<f64>,
-
-        /// Alternative attribute is allowed.
-        #[config]
-        another_attr: i32,
-
-        /// If any non-default-able but excluded field exists, you can provide
-        /// your own default value to make this template default-constructible.
-        #[nocfg = "std::num::NonZeroUsize::new(1).unwrap()"]
-        _nonzero_var: std::num::NonZeroUsize,
-    }
-
     // USAGE ///////////////////////////////////////////////////////////////////////////////////////
 
     // 1. Storage
@@ -401,4 +402,39 @@ fn test_use_case() {
         // use it in production.
         let _ch = storage.monitor_open_replication_channel().await;
     });
+}
+
+#[test]
+fn test_multithread() {
+    const N_THREAD: usize = 256;
+
+    let (tx_ready, rx_ready) = std::sync::mpsc::channel();
+    let (tx_exit, rx_exit) = tokio::sync::watch::channel(false);
+    let mut handles = Vec::with_capacity(N_THREAD);
+
+    let (storage, driver_task) = config_it::create_storage();
+    std::thread::spawn(move || futures::executor::block_on(driver_task));
+
+    for _ in 0..N_THREAD {
+        let tx_noti = tx_ready.clone();
+        let mut rx_exit = rx_exit.clone();
+        let storage: Storage = storage.clone();
+        handles.push(std::thread::spawn(move || {
+            let path = ["path", "to", "my", "storage"];
+            let elem = block_on(storage.find_or_create::<MyConfig>(path));
+            let elem = elem.expect("must not fail under this condition!");
+
+            tx_noti.send(()).ok();
+            block_on(rx_exit.changed()).expect("may not fail");
+
+            assert!(*rx_exit.borrow_and_update());
+            drop(elem);
+        }))
+    }
+
+    for _ in 0..N_THREAD {
+        rx_ready.recv().ok();
+    }
+
+    tx_exit.send(true).ok();
 }

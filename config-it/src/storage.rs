@@ -71,26 +71,26 @@ impl Default for ExportOptions {
 ///
 pub fn create() -> (Storage, impl Future<Output = ()>) {
     let (tx, rx) = flume::unbounded();
-    let driver = {
-        async move {
-            debug!("Config storage worker launched");
-            let mut context = detail::StorageDriveContext::new();
-            loop {
-                match rx.recv_async().await {
-                    Ok(ControlDirective::Close) => {
-                        debug!("closing storage driver ...");
-                        break;
-                    }
+    let driver = async move {
+        debug!("Config storage worker launched");
+        let mut context = detail::StorageDriveContext::new();
+        loop {
+            match rx.recv_async().await {
+                Ok(ControlDirective::Close) => {
+                    debug!("closing storage driver ...");
+                    break;
+                }
 
-                    Ok(msg) => {
-                        context.handle_once(msg).await;
-                    }
+                Ok(msg) => {
+                    context.handle_once(msg).await;
+                }
 
-                    Err(e) => {
-                        let ptr = &rx as *const _;
-                        debug!("[{ptr:p}] ({e:?}) All sender channel has been closed. Closing storage ...");
-                        break;
-                    }
+                Err(e) => {
+                    let ptr = &rx as *const _;
+                    debug!(
+                        "[{ptr:p}] ({e:?}) All sender channel has been closed. Closing storage ..."
+                    );
+                    break;
                 }
             }
         }
@@ -147,14 +147,27 @@ impl Storage {
     where
         T: config::Template,
     {
-        let paths = path.into_iter().map(|x| x.to_compact_string()).collect::<Vec<_>>();
-
+        let mut paths = path.into_iter().map(|x| x.to_compact_string()).collect::<Vec<_>>();
         let path_hash = PathHash::new(paths.iter().map(|x| x.as_str()));
-        match self.group_find::<T>(path_hash).await {
-            Ok(group) => Ok(group),
-            Err(GroupFindError::PathNotFound) => Ok(self.group_create::<T>(paths).await?),
-            Err(GroupFindError::ExpiredStorage) => Err(ConfigError::ExpiredStorage),
-            Err(GroupFindError::MismatchedTypeID) => Err(ConfigError::MismatchedTypeID),
+
+        loop {
+            break match self.group_find::<T>(path_hash).await {
+                Ok(group) => Ok(group),
+                Err(GroupFindError::ExpiredStorage) => Err(ConfigError::ExpiredStorage),
+                Err(GroupFindError::MismatchedTypeID) => Err(ConfigError::MismatchedTypeID),
+                Err(GroupFindError::PathNotFound) => match self.group_create::<T>(paths).await {
+                    Err(ConfigError::GroupCreationFailed(path)) => {
+                        // If group creation fails due to name duplication, then naively rerun the
+                        // whole routine until it succeeds. In most cases, it'll succeed within one
+                        // retry.
+                        paths = Arc::try_unwrap(path).unwrap_or_else(|x| (*x).clone());
+                        continue;
+                    }
+
+                    Ok(x) => Ok(x),
+                    error => error,
+                },
+            };
         }
     }
 
