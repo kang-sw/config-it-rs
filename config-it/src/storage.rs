@@ -1,6 +1,7 @@
 use std::{
     any::{Any, TypeId},
-    future::Future,
+    hash::Hash,
+    mem::replace,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc, Weak,
@@ -10,16 +11,16 @@ use std::{
 use crate::{
     archive,
     config::{self, GroupContext},
-    core::{self, GroupFindError, GroupID, PathHash, ReplicationEvent},
+    core::{self, GroupFindError, GroupID, Monitor, PathHash},
     entity::{self, EntityEventHook},
+    noti,
 };
 use compact_str::{CompactString, ToCompactString};
-use log::debug;
 
 ///
 /// Storage manages multiple sets registered by preset key.
 ///
-#[derive(Clone)]
+#[derive(Default, Clone)]
 pub struct Storage(Arc<inner::Inner>);
 
 pub struct ImportOptions {
@@ -59,21 +60,18 @@ impl Default for ExportOptions {
 }
 
 impl Storage {
-    ///
-    /// Creates new empty storage
-    ///
-    pub fn new() -> Self {
-        todo!()
-    }
-
     /// Tries to find existing group from path name, and if it doesn't exist, tries to create new
-    pub fn find_or_create<T>(
+    pub fn find_or_create<'a, T>(
         &self,
-        path: impl IntoIterator<Item = impl ToCompactString>,
+        path: impl IntoIterator<Item = &'a (impl AsRef<str> + ?Sized + 'a)>,
     ) -> Result<config::Group<T>, core::Error>
     where
         T: config::Template,
     {
+        let keys_iter = path.into_iter().map(|x| x.as_ref().to_compact_string());
+        let keys: Vec<CompactString> = keys_iter.collect();
+        let path_hash = PathHash::new(keys.iter().map(|x| x.as_str()));
+
         todo!()
     }
 
@@ -82,33 +80,90 @@ impl Storage {
         &self,
         path: impl IntoIterator<Item = &'a (impl AsRef<str> + ?Sized + 'a)>,
     ) -> Result<config::Group<T>, GroupFindError> {
-        todo!()
+        let path_hash = PathHash::new(path.into_iter().map(|x| x.as_ref()));
+
+        if let Some(group) = self.0.find_group(&path_hash) {
+            if group.template_type_id != std::any::TypeId::of::<T>() {
+                Err(GroupFindError::MismatchedTypeID)
+            } else if let Some(anchor) = group.w_unregister_hook.upgrade() {
+                Ok(config::Group::create_with__(group, anchor))
+            } else {
+                // This is corner case where group was disposed during `find_group` is invoked.
+                Err(GroupFindError::PathNotFound)
+            }
+        } else {
+            Err(GroupFindError::PathNotFound)
+        }
     }
 
-    ///
-    /// Creates and register new config set.
-    ///
-    /// If path is duplicated for existing config set, the program will panic.
-    ///
-    #[doc(hidden)]
-    pub fn group_create<T: config::Template>(
+    pub fn create<'a, T>(
         &self,
-        path: Vec<CompactString>,
-    ) -> Result<config::Group<T>, core::Error> {
-        todo!()
-    }
-
-    pub fn create<T>(
-        &self,
-        path: impl IntoIterator<Item = impl ToCompactString>,
+        path: impl IntoIterator<Item = &'a (impl AsRef<str> + ?Sized + 'a)>,
     ) -> Result<config::Group<T>, core::Error>
     where
         T: config::Template,
     {
-        todo!()
+        let keys_iter = path.into_iter().map(|x| x.as_ref().to_compact_string());
+        let keys: Vec<CompactString> = keys_iter.collect();
+
+        self.create_impl(keys)
     }
 
-    ///
+    fn create_impl<T: config::Template>(
+        &self,
+        path: Vec<CompactString>,
+    ) -> Result<config::Group<T>, core::Error> {
+        assert!(path.is_empty());
+        assert!(path.iter().all(|x| !x.is_empty()));
+
+        let path: Arc<[CompactString]> = path.into();
+        let path_hash = PathHash::new(path.iter().map(|x| x.as_str()));
+
+        // Naively check if there's already existing group with same path.
+        if let Some(_) = self.0.find_group(&path_hash) {
+            return Err(core::Error::GroupPathDuplication);
+        }
+
+        // Collect metadata
+        let mut table: Vec<_> = T::prop_desc_table__().values().collect();
+        table.sort_by(|a, b| a.index.cmp(&b.index));
+
+        // This ID may not be used if group creation failed ... it's generally okay since we have
+        // 2^63 trials.
+        let register_id = GroupID::new_unique();
+        let entity_hook = Arc::new(EntityHookImpl { register_id, inner: Arc::downgrade(&self.0) });
+
+        let sources: Vec<_> = table
+            .into_iter()
+            .map(|prop| entity::EntityData::new(prop.meta.clone(), entity_hook.clone()))
+            .collect();
+
+        // Drops the group when the final group instance is dropped.
+        let unregister_anchor = Arc::new(GroupUnregisterHook {
+            register_id,
+            path_hash,
+            inner: Arc::downgrade(&self.0),
+        });
+
+        // Create core config set context with reflected target metadata set
+        let tx_noti = noti::Sender::new();
+        let context = Arc::new(GroupContext {
+            group_id: register_id,
+            template_type_id: TypeId::of::<T>(),
+            w_unregister_hook: Arc::downgrade(
+                &(unregister_anchor.clone() as Arc<dyn Any + Send + Sync>),
+            ),
+            sources: Arc::new(sources),
+            source_update_fence: AtomicUsize::new(1), // NOTE: This will trigger initial check_update() always.
+            update_receiver_channel: tx_noti.receiver(true),
+            path: path.clone(),
+        });
+
+        self.0
+            .register_group(path_hash, context, tx_noti)
+            .map(|context| config::Group::create_with__(context, unregister_anchor))
+    }
+
     /// Dump all  configs from storage.
     ///
     /// # Arguments
@@ -116,12 +171,10 @@ impl Storage {
     /// * `no_merge` - If true, only active archive contents will be collected.
     ///   Otherwise, result will contain merge result of previously loaded archive.
     /// * `no_update` - If true, existing archive won't
-    ///
     pub fn export(&self, option: ExportOptions) -> Result<archive::Archive, core::Error> {
         todo!()
     }
 
-    ///
     /// Deserializes data
     ///
     /// # Arguments
@@ -142,7 +195,7 @@ impl Storage {
     ///         "~path_component": {
     ///             "field_name": "value",
     ///             "other_field": {
-    ///                 "~this_is_not_treated_as_path"
+    ///                 "~this_is_not_treated_as_path": 123
     ///             }
     ///         },
     ///         "~another_path_component": {},
@@ -151,7 +204,6 @@ impl Storage {
     ///     "another_root_path": {}
     /// }
     /// ```
-    ///
     pub fn import(
         &self,
         archive: archive::Archive,
@@ -160,19 +212,19 @@ impl Storage {
         todo!()
     }
 
-    ///
-    /// Create replication channel
-    ///
-    pub async fn monitor_open_replication_channel(
-        &self,
-    ) -> Result<ReplicationChannel, crate::core::Error> {
-        todo!()
+    /// Replace existing monitor to given one.
+    pub fn reset_monitor(&self, handler: Arc<impl Monitor>) -> Arc<dyn Monitor> {
+        replace(&mut *self.0.monitor.write(), handler)
+    }
+
+    pub fn unset_monitor(&self) {
+        *self.0.monitor.write() = Arc::new(inner::EmptyMonitor);
     }
 
     ///
     /// Send monitor event to storage driver.
     ///
-    pub fn monitor_notify_edition(
+    pub fn notify_edit_events(
         &self,
         items: impl IntoIterator<Item = GroupID>,
     ) -> Result<(), core::Error> {
@@ -180,15 +232,9 @@ impl Storage {
     }
 }
 
-///
-/// A unbounded receiver channel which receives replication stream from storage.
-///
-/// By tracking this, one can synchronize its state with storage.
-///
-pub type ReplicationChannel = flume::Receiver<ReplicationEvent>;
-
 struct GroupUnregisterHook {
     register_id: GroupID,
+    path_hash: PathHash,
     inner: Weak<inner::Inner>,
 }
 
@@ -197,8 +243,7 @@ impl Drop for GroupUnregisterHook {
         // Just ignore result. If channel was closed before the set is unregistered,
         //  it's ok to ignore this operation silently.
         let Some(inner) = self.inner.upgrade() else { return };
-
-        // inner.unregister_group(self.register_id);
+        inner.unregister_group(self.register_id, self.path_hash);
     }
 }
 
@@ -213,52 +258,59 @@ impl EntityEventHook for EntityHookImpl {
         //  just be dropped.
         let Some(inner) = self.inner.upgrade() else { return };
 
-        // let group = inner.get_group(self.register_id).expect("logic error");
+        // TODO: let group = inner.get_group(self.register_id).expect("logic error");
+
         // group.on_value_update(data, silent);
     }
 }
 
 mod inner {
+    use dashmap::DashMap;
+    use parking_lot::{Mutex, RwLock};
     use serde::de::IntoDeserializer;
 
     use crate::{
-        archive::{self, Archive},
-        core::ReplicationEvent,
+        archive::{self},
         noti,
     };
 
     use super::*;
-    use std::collections::HashMap;
 
     ///
     /// Drives storage internal events.
     ///
     /// - Receives update request
     ///
-    #[derive(Default)]
     pub(super) struct Inner {
         /// List of all config sets registered in this storage.
         ///
         /// Uses group id as key.
-        all_groups: HashMap<GroupID, GroupRegistration>,
+        all_groups: DashMap<GroupID, GroupRegistration>,
 
         /// List of all registered monitors within this storage.
         ///
         /// On every monitor event, storage driver will iterate each session channels
         ///  and will try replication.
-        monitors: MonitorList,
+        pub monitor: RwLock<Arc<dyn Monitor>>,
 
         /// Registered path hashes. Used to quickly compare if there are any path name
         ///  duplication.
         ///
         /// Uses path hash as key, group id as value.
-        path_hashes: HashMap<PathHash, GroupID>,
+        path_hashes: DashMap<PathHash, GroupID>,
 
         /// Cached archive. May contain contents for currently non-exist groups.
-        archive: archive::Archive,
+        pub archive: RwLock<archive::Archive>,
     }
 
-    type MonitorList = Vec<flume::Sender<ReplicationEvent>>;
+    pub(super) struct EmptyMonitor;
+    impl Monitor for EmptyMonitor {}
+
+    impl Default for Inner {
+        fn default() -> Self {
+            Self::new(Arc::new(EmptyMonitor))
+        }
+    }
 
     struct GroupRegistration {
         /// Hash calculated from `context.path`.
@@ -268,241 +320,76 @@ mod inner {
     }
 
     impl Inner {
-        pub fn new() -> Self {
-            Self { ..Default::default() }
+        pub fn new(monitor: Arc<dyn Monitor>) -> Self {
+            Self {
+                all_groups: Default::default(),
+                monitor: RwLock::new(monitor),
+                path_hashes: Default::default(),
+                archive: Default::default(),
+            }
         }
 
-        // pub async fn handle_once(&mut self, msg: ControlDirective) {
-        //     use ControlDirective::*;
-
-        //     match msg {
-        //         FromMonitor(msg) => {
-        //             // handles monitor event in separate routine.
-        //             self.handle_monitor_event_(msg)
-        //         }
-
-        //         // Registers config set to `all_sets` table, and publish replication event
-        //         TryGroupRegister(msg) => {
-        //             // Check if same named group exists inside of this storage
-        //             let path_hash = PathHash::new(msg.context.path.iter().map(|x| x.as_str()));
-        //             let mut inserted = false;
-
-        //             self.path_hashes.entry(path_hash).or_insert_with(|| {
-        //                 inserted = true;
-        //                 msg.group_id
-        //             });
-
-        //             if inserted == false {
-        //                 let item = Err(core::Error::GroupCreationFailed(msg.context.path.clone()));
-        //                 let _ = msg.reply_success.send(item);
-        //                 return;
-        //             }
-
-        //             let rg = GroupRegistration {
-        //                 context: msg.context.clone(),
-        //                 path_hash,
-        //                 evt_on_update: msg.event_broadcast,
-        //             };
-
-        //             // Apply initial update from loaded value.
-        //             if let Some(node) =
-        //                 self.archive.find_path(msg.context.path.iter().map(|x| x.as_str()))
-        //             {
-        //                 // Apply node values to newly generated context.
-        //                 Self::load_node_(&*rg.context, node, &mut self.monitors);
-        //             }
-
-        //             let prev = self.all_groups.insert(msg.group_id, rg);
-        //             assert!(prev.is_none(), "Key never duplicates");
-        //             let _ = msg.reply_success.send(Ok(()));
-
-        //             Self::send_repl_event_(
-        //                 &mut self.monitors,
-        //                 ReplicationEvent::GroupAdded(msg.group_id, msg.context),
-        //             );
-        //         }
-
-        //         TryFindGroup { path_hash, type_id, reply } => {
-        //             let Some(group_id) = self.path_hashes.get(&path_hash) else {
-        //                 let _ = reply.send(Err(core::GroupFindError::PathNotFound));
-        //                 return;
-        //             };
-
-        //             let group = self.all_groups.get(&group_id).expect("logic error!");
-        //             if group.context.template_type_id != type_id {
-        //                 let _ = reply.send(Err(core::GroupFindError::MismatchedTypeID));
-        //                 return;
-        //             }
-
-        //             let Some(hook) = group.context.w_unregister_hook.upgrade() else {
-        //                 // this is pretty corner case ... the group was disposed before
-        //                 // `GroupDisposal` event being processed. This usually due to timing issue,
-        //                 // and technically the group is being unregistered, so we can just treat
-        //                 // this event as `PathNotFound` and let the caller retry registration.
-        //                 let _ = reply.send(Err(core::GroupFindError::PathNotFound));
-        //                 return;
-        //             };
-
-        //             let _ = reply.send(Ok(FoundGroupInfo {
-        //                 context: group.context.clone(),
-        //                 unregister_hook: hook,
-        //             }));
-        //         }
-
-        //         GroupDisposal(id) => {
-        //             // Before dispose, dump existing content to archive.
-        //             let Some(rg) = self.all_groups.remove(&id) else {
-        //                 // We can safely ignore not-found-group, as the logic has been changed to
-        //                 // create unregister hook first whether the group creation succeeds or not.
-        //                 return;
-        //             };
-
-        //             Self::dump_node_(&rg.context, &mut self.archive);
-
-        //             Self::send_repl_event_(&mut self.monitors, ReplicationEvent::GroupRemoved(id));
-
-        //             // Erase from registry
-        //             assert!(self.path_hashes.remove(&rg.path_hash).is_some());
-        //         }
-
-        //         EntityValueUpdate { group_id, item_id, silent_mode } => {
-        //             let Some(group) = self.all_groups.get(&group_id) else { return };
-
-        //             // - Notify monitors value change
-        //             // - If it's silent mode, do not step group update fence forward.
-        //             //   Thus, this update will not trigger all group's update.
-        //             //   Otherwise, step group update fence, and propagate group update event
-        //             Self::send_repl_event_(
-        //                 &mut self.monitors,
-        //                 ReplicationEvent::EntityValueUpdated { group_id, item_id },
-        //             );
-
-        //             if !silent_mode {
-        //                 group.context.source_update_fence.fetch_add(1, Ordering::Release);
-
-        //                 let _ = group.evt_on_update.try_broadcast(());
-        //             }
-        //         }
-
-        //         MonitorRegister { reply_to } => {
-        //             // Create new unbounded reflection channel, flush all current state into it.
-        //             let (tx, rx) = flume::unbounded();
-        //             if reply_to.send(rx).is_err() {
-        //                 log::warn!("MonitorRegister() canceled.");
-        //                 return;
-        //             }
-
-        //             let args: Vec<_> =
-        //                 self.all_groups.iter().map(|e| (*e.0, e.1.context.clone())).collect();
-
-        //             if tx.send_async(ReplicationEvent::InitialGroups(args)).await.is_err() {
-        //                 log::warn!("Initial replication data transfer failed.");
-        //                 return;
-        //             }
-
-        //             self.monitors.push(tx);
-        //         }
-
-        //         Import { body, option } => {
-        //             let mut _apply_archive = |archive: &Archive| {
-        //                 for (_id, group) in &self.all_groups {
-        //                     let path = &group.context.path;
-        //                     let path = path.iter().map(|x| x.as_str());
-        //                     let Some(node) = archive.find_path(path) else { continue };
-
-        //                     if Self::load_node_(&group.context, node, &mut self.monitors) {
-        //                         let _ = group.evt_on_update.try_broadcast(());
-        //                     }
-        //                 }
-        //             };
-
-        //             if option.apply_as_patch {
-        //                 let mut body = body;
-        //                 let patch = self.archive.create_patch(&mut body);
-
-        //                 _apply_archive(&patch);
-
-        //                 if option.merge_onto_cache {
-        //                     self.archive.merge_from(patch);
-        //                 } else {
-        //                     body.merge_from(patch);
-        //                     self.archive = body;
-        //                 }
-        //             } else {
-        //                 if option.merge_onto_cache {
-        //                     self.archive.merge_from(body);
-        //                 } else {
-        //                     self.archive = body;
-        //                 }
-
-        //                 _apply_archive(&self.archive);
-        //             }
-        //         }
-
-        //         Export { destination, option } => {
-        //             let mut archive = Archive::default();
-        //             for (_, node) in &self.all_groups {
-        //                 Self::dump_node_(&node.context, &mut archive);
-        //             }
-
-        //             let send_target = if !option.merge_onto_dumped {
-        //                 if option.replace_import_cache {
-        //                     self.archive = archive;
-        //                     self.archive.clone()
-        //                 } else {
-        //                     archive
-        //                 }
-        //             } else {
-        //                 if option.replace_import_cache {
-        //                     self.archive.merge_from(archive);
-        //                     self.archive.clone()
-        //                 } else {
-        //                     archive.merge(self.archive.clone())
-        //                 }
-        //             };
-
-        //             let _ = destination.send(send_target);
-        //         }
-
-        //         Fence(reply) => {
-        //             reply.send(()).ok();
-        //         }
-
-        //         Close => unreachable!(),
-        //     }
-        // }
-
-        // fn handle_monitor_event_(&mut self, msg: MonitorEvent) {
-        //     match msg {
-        //         MonitorEvent::GroupUpdateNotify { mut updates } => {
-        //             updates.sort();
-        //             updates.dedup();
-
-        //             for group_id in updates {
-        //                 let Some(group) = self.all_groups.get(&group_id) else {
-        //                     log::warn!("ValueUpdateNotify request failed for group [{group_id}]");
-        //                     continue;
-        //                 };
-
-        //                 let sources = &group.context.sources;
-        //                 debug_assert!(
-        //                     sources.windows(2).all(|w| w[0].get_id() < w[1].get_id()),
-        //                     "If sources are not sorted by item id, it's logic error!"
-        //                 );
-
-        //                 group.context.source_update_fence.fetch_add(1, Ordering::AcqRel);
-
-        //                 let _ = group.evt_on_update.try_broadcast(());
-        //             }
-        //         }
-        //     }
-        // }
-
-        fn send_repl_event_(noti: &mut MonitorList, msg: ReplicationEvent) {
-            noti.retain(|x| x.try_send(msg.clone()).is_ok());
+        pub fn find_group(&self, path_hash: &PathHash) -> Option<Arc<GroupContext>> {
+            self.path_hashes
+                .get(path_hash)
+                .and_then(|id| self.all_groups.get(&*id))
+                .map(|ctx| ctx.context.clone())
         }
 
-        fn dump_node_(ctx: &GroupContext, archive: &mut archive::Archive) {
+        pub fn register_group(
+            &self,
+            path_hash: PathHash,
+            context: Arc<GroupContext>,
+            evt_on_update: noti::Sender,
+        ) -> Result<Arc<GroupContext>, core::Error> {
+            // Path-hash to GroupID mappings can be collided if there's simultaneous access.
+            // Therefore treat group insertion as success only when path_hash was successfully
+            // registered to corresponding group ID.
+            let group_id = context.group_id;
+            let inserted = context.clone();
+
+            let rg = GroupRegistration { path_hash, context, evt_on_update };
+
+            if let Some(node) =
+                self.archive.read().find_path(rg.context.path.iter().map(|x| x.as_str()))
+            {
+                Self::load_node(&rg.context, node, None);
+            }
+
+            assert!(
+                self.all_groups.insert(group_id, rg).is_none(),
+                "Group ID never be duplicated." // as long as we didn't consume all 2^64 candidates ...
+            );
+
+            let path_hash = self.path_hashes.entry(path_hash).or_insert(group_id);
+            if path_hash.value() != &group_id {
+                // This is corner case where path hash was registered by other thread. In this case,
+                // we should remove group registration and return error.
+                self.all_groups.remove(&group_id);
+                return Err(core::Error::GroupPathDuplication);
+            }
+
+            self.monitor.read().group_added(&group_id, &inserted);
+            Ok(inserted)
+        }
+
+        pub fn unregister_group(&self, group_id: GroupID, path_hash: PathHash) {
+            self.path_hashes.remove_if(&path_hash, |_, v| v == &group_id);
+            if let Some((_, ctx)) = self.all_groups.remove(&group_id) {
+                // Treat this remove as valid only when the group has ever been validly created.
+                // `all_groups.remove` can return `None` if the group wasn't successfully registered
+                // during `register_group`. In this case, this function will be called on disposal
+                // of `GroupUnregisterHook` inside of the function `create_impl`.
+
+                // On valid removal, accumulate contents to cached archive.
+                Self::dump_node(&ctx.context, &mut *self.archive.write());
+
+                // Notify removal
+                self.monitor.read().group_removed(&group_id);
+            }
+        }
+
+        fn dump_node(ctx: &GroupContext, archive: &mut archive::Archive) {
             let paths = ctx.path.iter().map(|x| x.as_str());
             let node = archive.find_or_create_path_mut(paths);
 
@@ -523,7 +410,11 @@ mod inner {
             }
         }
 
-        fn load_node_(ctx: &GroupContext, node: &archive::Archive, noti: &mut MonitorList) -> bool {
+        fn load_node(
+            ctx: &GroupContext,
+            node: &archive::Archive,
+            monitor: Option<&dyn Monitor>,
+        ) -> bool {
             let mut has_update = false;
 
             for (elem, de) in ctx
@@ -539,13 +430,9 @@ mod inner {
                     Ok(_) => {
                         has_update = true;
 
-                        Self::send_repl_event_(
-                            noti,
-                            ReplicationEvent::EntityValueUpdated {
-                                group_id: ctx.group_id,
-                                item_id: elem.get_id(),
-                            },
-                        )
+                        if let Some(monitor) = monitor {
+                            monitor.entity_value_updated(&ctx.group_id, &elem.get_id());
+                        }
                     }
                     Err(e) => {
                         log::warn!("Element value update error during node loading: {e:?}")

@@ -32,7 +32,10 @@ id_type!(ItemID);
 impl PathHash {
     pub fn new<'a>(paths: impl IntoIterator<Item = &'a str>) -> Self {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        paths.into_iter().for_each(|x| hasher.write(x.as_bytes()));
+        paths.into_iter().for_each(|x| {
+            hasher.write(x.as_bytes());
+            hasher.write(b"\x03\x00"); // delim
+        });
         Self(hasher.finish())
     }
 }
@@ -56,11 +59,8 @@ impl ItemID {
 ///
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("Storage driver is disposed")]
-    ExpiredStorage,
-
-    #[error("Config name is duplicated {0:?}")]
-    GroupCreationFailed(Arc<Vec<CompactString>>),
+    #[error("Config name is duplicated")]
+    GroupPathDuplication,
 
     #[error("Path exist with different type")]
     MismatchedTypeID,
@@ -82,14 +82,17 @@ pub enum GroupFindError {
     ExpiredStorage,
 }
 
-///
-///
-/// Message type to notify backend
-///
-#[derive(Clone)]
-pub enum ReplicationEvent {
-    InitialGroups(Vec<(GroupID, Arc<GroupContext>)>),
-    GroupAdded(GroupID, Arc<GroupContext>),
-    GroupRemoved(GroupID),
-    EntityValueUpdated { group_id: GroupID, item_id: ItemID },
+pub trait Monitor: Send + Sync + 'static {
+    fn initial_groups(&self, iter: &mut dyn Iterator<Item = (&GroupID, &Arc<GroupContext>)>) {
+        let _ = iter;
+    }
+    fn group_added(&self, group_id: &GroupID, group: &Arc<GroupContext>) {
+        let _ = (group_id, group);
+    }
+    fn group_removed(&self, group_id: &GroupID) {
+        let _ = group_id;
+    }
+    fn entity_value_updated(&self, group_id: &GroupID, item_id: &ItemID) {
+        let _ = (group_id, item_id);
+    }
 }

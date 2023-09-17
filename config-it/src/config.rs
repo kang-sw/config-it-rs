@@ -53,7 +53,7 @@ pub struct GroupContext {
     pub(crate) source_update_fence: AtomicUsize,
 
     /// Path of instantiated config set.
-    pub path: Arc<Vec<CompactString>>,
+    pub path: Arc<[CompactString]>,
 
     /// Broadcast subscriber to receive updates from backend.
     pub(crate) update_receiver_channel: noti::Receiver,
@@ -270,7 +270,7 @@ impl<T: Template> Group<T> {
 
     /// Get instance path of `self`. This value is same as the list of tokens that you have
     /// provided to [`crate::Storage::create_group`] method.
-    pub fn get_path(&self) -> Arc<Vec<CompactString>> {
+    pub fn get_path(&self) -> Arc<[CompactString]> {
         self.core.path.clone()
     }
 }

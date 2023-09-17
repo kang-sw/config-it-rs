@@ -147,7 +147,6 @@ impl<'a> std::future::Future for Wait<'a> {
                     return Poll::Ready(None);
                 };
 
-                let Some(inner) = this.rx.1.upgrade() else { return Poll::Ready(None) };
                 let mut inner = inner.lock();
 
                 this.state = WaitState::Expired;
