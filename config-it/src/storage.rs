@@ -3,17 +3,14 @@ use std::{
     future::Future,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc,
+        Arc, Weak,
     },
 };
 
 use crate::{
     archive,
     config::{self, GroupContext},
-    core::{
-        self, ControlDirective, Error as ConfigError, GroupFindError, GroupID, MonitorEvent,
-        PathHash, ReplicationEvent,
-    },
+    core::{self, GroupFindError, GroupID, PathHash, ReplicationEvent},
     entity::{self, EntityEventHook},
 };
 use compact_str::{CompactString, ToCompactString};
@@ -23,12 +20,7 @@ use log::debug;
 /// Storage manages multiple sets registered by preset key.
 ///
 #[derive(Clone)]
-pub struct Storage {
-    /// Internally, any request/notify is transferred through this channel.
-    ///
-    /// Thus, any reply-required operation becomes async inherently.
-    pub(crate) tx: flume::Sender<ControlDirective>,
-}
+pub struct Storage(Arc<inner::Inner>);
 
 pub struct ImportOptions {
     /// If set this to true, the imported config will be merged onto existing cache. Usually turning
@@ -66,117 +58,31 @@ impl Default for ExportOptions {
     }
 }
 
-///
-/// Create config storage and its driver pair.
-///
-pub fn create() -> (Storage, impl Future<Output = ()>) {
-    let (tx, rx) = flume::unbounded();
-    let driver = async move {
-        debug!("Config storage worker launched");
-        let mut context = detail::StorageDriveContext::new();
-        loop {
-            match rx.recv_async().await {
-                Ok(ControlDirective::Close) => {
-                    debug!("closing storage driver ...");
-                    break;
-                }
-
-                Ok(msg) => {
-                    context.handle_once(msg).await;
-                }
-
-                Err(e) => {
-                    let ptr = &rx as *const _;
-                    debug!(
-                        "[{ptr:p}] ({e:?}) All sender channel has been closed. Closing storage ..."
-                    );
-                    break;
-                }
-            }
-        }
-    };
-
-    (Storage { tx }, driver)
-}
-
 impl Storage {
     ///
-    /// Creates new storage and its driver.
+    /// Creates new empty storage
     ///
-    /// The second tuple parameter is asynchronous loop which handles all storage events,
-    ///  which must be spawned or blocked by runtime to make storage work. All storage
-    ///
-    #[deprecated(note = "Use global function 'create' instead")]
-    pub fn new() -> (Self, impl Future<Output = ()>) {
-        create()
-    }
-
-    pub fn close(&self) -> Result<(), core::Error> {
-        self.tx.send(ControlDirective::Close).map_err(|_| core::Error::ExpiredStorage)
-    }
-
-    ///
-    /// First tries to find existing config set from path hash, and if it doesn't exist,
-    /// tries to create new group.
-    ///
-    #[doc(hidden)]
-    pub async fn group_find<T: config::Template>(
-        &self,
-        path_hash: PathHash,
-    ) -> Result<config::Group<T>, GroupFindError> {
-        let (tx, rx) = oneshot::channel();
-        let msg =
-            ControlDirective::TryFindGroup { path_hash, type_id: TypeId::of::<T>(), reply: tx };
-
-        fn err_expire<T>(_: T) -> GroupFindError {
-            GroupFindError::ExpiredStorage
-        }
-
-        self.tx.send_async(msg).await.map_err(err_expire)?;
-
-        let core::FoundGroupInfo { context, unregister_hook } = rx.await.map_err(err_expire)??;
-
-        Ok(<crate::Group<T>>::create_with__(context, unregister_hook))
+    pub fn new() -> Self {
+        todo!()
     }
 
     /// Tries to find existing group from path name, and if it doesn't exist, tries to create new
-    pub async fn find_or_create<T>(
+    pub fn find_or_create<T>(
         &self,
         path: impl IntoIterator<Item = impl ToCompactString>,
-    ) -> Result<config::Group<T>, ConfigError>
+    ) -> Result<config::Group<T>, core::Error>
     where
         T: config::Template,
     {
-        let mut paths = path.into_iter().map(|x| x.to_compact_string()).collect::<Vec<_>>();
-        let path_hash = PathHash::new(paths.iter().map(|x| x.as_str()));
-
-        loop {
-            break match self.group_find::<T>(path_hash).await {
-                Ok(group) => Ok(group),
-                Err(GroupFindError::ExpiredStorage) => Err(ConfigError::ExpiredStorage),
-                Err(GroupFindError::MismatchedTypeID) => Err(ConfigError::MismatchedTypeID),
-                Err(GroupFindError::PathNotFound) => match self.group_create::<T>(paths).await {
-                    Err(ConfigError::GroupCreationFailed(path)) => {
-                        // If group creation fails due to name duplication, then naively rerun the
-                        // whole routine until it succeeds. In most cases, it'll succeed within one
-                        // retry.
-                        paths = Arc::try_unwrap(path).unwrap_or_else(|x| (*x).clone());
-                        continue;
-                    }
-
-                    Ok(x) => Ok(x),
-                    error => error,
-                },
-            };
-        }
+        todo!()
     }
 
     /// A shortcut for find_group_ex
-    pub async fn find<'a, T: config::Template>(
+    pub fn find<'a, T: config::Template>(
         &self,
         path: impl IntoIterator<Item = &'a (impl AsRef<str> + ?Sized + 'a)>,
     ) -> Result<config::Group<T>, GroupFindError> {
-        self.group_find::<T>(PathHash::new(path.into_iter().map(|x| x.as_ref()))).await
+        todo!()
     }
 
     ///
@@ -185,81 +91,21 @@ impl Storage {
     /// If path is duplicated for existing config set, the program will panic.
     ///
     #[doc(hidden)]
-    pub async fn group_create<T: config::Template>(
+    pub fn group_create<T: config::Template>(
         &self,
         path: Vec<CompactString>,
-    ) -> Result<config::Group<T>, ConfigError> {
-        assert!(!path.is_empty(), "First argument must exist!");
-        assert!(path.iter().all(|x| !x.is_empty()), "Empty path argument is not allowed!");
-
-        // NOTE: this increments ID_GEN whether the creation succeeds or not
-        let register_id = GroupID::new_unique();
-        let path = Arc::new(path);
-
-        // Collect metadata
-        let mut table: Vec<_> = T::prop_desc_table__().values().collect();
-        table.sort_by(|a, b| a.index.cmp(&b.index));
-
-        let entity_hook = Arc::new(EntityHookImpl { register_id, tx: self.tx.clone() });
-
-        let sources: Vec<_> = table
-            .into_iter()
-            .map(|prop| entity::EntityData::new(prop.meta.clone(), entity_hook.clone()))
-            .collect();
-
-        let unregister_anchor = Arc::new(GroupUnregisterHook { register_id, tx: self.tx.clone() });
-
-        // Create core config set context with reflected target metadata set
-        let (broad_tx, broad_rx) = async_broadcast::broadcast::<()>(1);
-        let core = Arc::new(GroupContext {
-            group_id: register_id,
-            template_type_id: TypeId::of::<T>(),
-            w_unregister_hook: Arc::downgrade(
-                &(unregister_anchor.clone() as Arc<dyn Any + Send + Sync>),
-            ),
-            sources: Arc::new(sources),
-            source_update_fence: AtomicUsize::new(1), // NOTE: This will trigger initial check_update() always.
-            update_receiver_channel: broad_rx.deactivate(),
-            path: path.clone(),
-        });
-
-        let (tx, rx) = oneshot::channel();
-        match self
-            .tx
-            .send_async(ControlDirective::TryGroupRegister(
-                core::GroupRegisterParam {
-                    group_id: register_id,
-                    context: core.clone(),
-                    reply_success: tx,
-                    event_broadcast: broad_tx,
-                }
-                .into(),
-            ))
-            .await
-        {
-            Ok(_) => {}
-            Err(_) => return Err(ConfigError::ExpiredStorage),
-        };
-
-        match rx.await {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => return Err(e),
-            Err(_) => return Err(ConfigError::ExpiredStorage),
-        };
-
-        let group = crate::Group::<T>::create_with__(core, unregister_anchor);
-        Ok(group)
+    ) -> Result<config::Group<T>, core::Error> {
+        todo!()
     }
 
-    pub async fn create<T>(
+    pub fn create<T>(
         &self,
         path: impl IntoIterator<Item = impl ToCompactString>,
-    ) -> Result<config::Group<T>, ConfigError>
+    ) -> Result<config::Group<T>, core::Error>
     where
         T: config::Template,
     {
-        self.group_create::<T>(path.into_iter().map(|x| x.to_compact_string()).collect::<Vec<_>>())
-            .await
+        todo!()
     }
 
     ///
@@ -271,14 +117,8 @@ impl Storage {
     ///   Otherwise, result will contain merge result of previously loaded archive.
     /// * `no_update` - If true, existing archive won't
     ///
-    pub async fn export(&self, option: ExportOptions) -> Result<archive::Archive, core::Error> {
-        let (tx, rx) = oneshot::channel();
-        self.tx
-            .send_async(ControlDirective::Export { destination: tx, option })
-            .await
-            .map_err(|_| core::Error::ExpiredStorage)?;
-
-        rx.await.map_err(|_| core::Error::ExpiredStorage)
+    pub fn export(&self, option: ExportOptions) -> Result<archive::Archive, core::Error> {
+        todo!()
     }
 
     ///
@@ -312,26 +152,12 @@ impl Storage {
     /// }
     /// ```
     ///
-    pub async fn import(
+    pub fn import(
         &self,
         archive: archive::Archive,
         option: ImportOptions,
     ) -> Result<(), core::Error> {
-        self.tx
-            .send_async(ControlDirective::Import { body: archive, option })
-            .await
-            .map_err(|_| core::Error::ExpiredStorage)
-    }
-
-    ///
-    /// Wait synchronization after calling 'import'
-    ///
-    pub async fn fence(&self) {
-        async {
-            let (tx, rx) = oneshot::channel();
-            self.tx.send_async(ControlDirective::Fence(tx)).await.map(|_| rx).ok()?.await.ok()
-        }
-        .await;
+        todo!()
     }
 
     ///
@@ -340,23 +166,17 @@ impl Storage {
     pub async fn monitor_open_replication_channel(
         &self,
     ) -> Result<ReplicationChannel, crate::core::Error> {
-        let (tx, rx) = oneshot::channel();
-        self.tx
-            .send_async(ControlDirective::MonitorRegister { reply_to: tx })
-            .await
-            .map_err(|_| crate::core::Error::ExpiredStorage)?;
-
-        rx.await.map_err(|_| crate::core::Error::ExpiredStorage)
+        todo!()
     }
 
     ///
     /// Send monitor event to storage driver.
     ///
-    pub async fn monitor_send_event(&self, evt: MonitorEvent) -> Result<(), core::Error> {
-        self.tx
-            .send_async(ControlDirective::FromMonitor(evt))
-            .await
-            .map_err(|_| core::Error::ExpiredStorage)
+    pub fn monitor_notify_edition(
+        &self,
+        items: impl IntoIterator<Item = GroupID>,
+    ) -> Result<(), core::Error> {
+        todo!()
     }
 }
 
@@ -369,40 +189,42 @@ pub type ReplicationChannel = flume::Receiver<ReplicationEvent>;
 
 struct GroupUnregisterHook {
     register_id: GroupID,
-    tx: flume::Sender<ControlDirective>,
+    inner: Weak<inner::Inner>,
 }
 
 impl Drop for GroupUnregisterHook {
     fn drop(&mut self) {
         // Just ignore result. If channel was closed before the set is unregistered,
         //  it's ok to ignore this operation silently.
-        let _ = self.tx.try_send(ControlDirective::GroupDisposal(self.register_id));
+        let Some(inner) = self.inner.upgrade() else { return };
+
+        // inner.unregister_group(self.register_id);
     }
 }
 
 struct EntityHookImpl {
     register_id: GroupID,
-    tx: flume::Sender<ControlDirective>,
+    inner: Weak<inner::Inner>,
 }
 
 impl EntityEventHook for EntityHookImpl {
     fn on_value_changed(&self, data: &entity::EntityData, silent: bool) {
         // Update notification is transient, thus when storage driver is busy, it can
         //  just be dropped.
-        let _ = self.tx.try_send(ControlDirective::EntityValueUpdate {
-            group_id: self.register_id,
-            item_id: data.get_id(),
-            silent_mode: silent,
-        });
+        let Some(inner) = self.inner.upgrade() else { return };
+
+        // let group = inner.get_group(self.register_id).expect("logic error");
+        // group.on_value_update(data, silent);
     }
 }
 
-mod detail {
+mod inner {
     use serde::de::IntoDeserializer;
 
     use crate::{
         archive::{self, Archive},
-        core::{FoundGroupInfo, MonitorEvent, ReplicationEvent},
+        core::ReplicationEvent,
+        noti,
     };
 
     use super::*;
@@ -414,7 +236,7 @@ mod detail {
     /// - Receives update request
     ///
     #[derive(Default)]
-    pub(super) struct StorageDriveContext {
+    pub(super) struct Inner {
         /// List of all config sets registered in this storage.
         ///
         /// Uses group id as key.
@@ -442,239 +264,239 @@ mod detail {
         /// Hash calculated from `context.path`.
         path_hash: PathHash,
         context: Arc<GroupContext>,
-        evt_on_update: async_broadcast::Sender<()>,
+        evt_on_update: noti::Sender,
     }
 
-    impl StorageDriveContext {
+    impl Inner {
         pub fn new() -> Self {
             Self { ..Default::default() }
         }
 
-        pub async fn handle_once(&mut self, msg: ControlDirective) {
-            use ControlDirective::*;
+        // pub async fn handle_once(&mut self, msg: ControlDirective) {
+        //     use ControlDirective::*;
 
-            match msg {
-                FromMonitor(msg) => {
-                    // handles monitor event in separate routine.
-                    self.handle_monitor_event_(msg)
-                }
+        //     match msg {
+        //         FromMonitor(msg) => {
+        //             // handles monitor event in separate routine.
+        //             self.handle_monitor_event_(msg)
+        //         }
 
-                // Registers config set to `all_sets` table, and publish replication event
-                TryGroupRegister(msg) => {
-                    // Check if same named group exists inside of this storage
-                    let path_hash = PathHash::new(msg.context.path.iter().map(|x| x.as_str()));
-                    let mut inserted = false;
+        //         // Registers config set to `all_sets` table, and publish replication event
+        //         TryGroupRegister(msg) => {
+        //             // Check if same named group exists inside of this storage
+        //             let path_hash = PathHash::new(msg.context.path.iter().map(|x| x.as_str()));
+        //             let mut inserted = false;
 
-                    self.path_hashes.entry(path_hash).or_insert_with(|| {
-                        inserted = true;
-                        msg.group_id
-                    });
+        //             self.path_hashes.entry(path_hash).or_insert_with(|| {
+        //                 inserted = true;
+        //                 msg.group_id
+        //             });
 
-                    if inserted == false {
-                        let item = Err(ConfigError::GroupCreationFailed(msg.context.path.clone()));
-                        let _ = msg.reply_success.send(item);
-                        return;
-                    }
+        //             if inserted == false {
+        //                 let item = Err(core::Error::GroupCreationFailed(msg.context.path.clone()));
+        //                 let _ = msg.reply_success.send(item);
+        //                 return;
+        //             }
 
-                    let rg = GroupRegistration {
-                        context: msg.context.clone(),
-                        path_hash,
-                        evt_on_update: msg.event_broadcast,
-                    };
+        //             let rg = GroupRegistration {
+        //                 context: msg.context.clone(),
+        //                 path_hash,
+        //                 evt_on_update: msg.event_broadcast,
+        //             };
 
-                    // Apply initial update from loaded value.
-                    if let Some(node) =
-                        self.archive.find_path(msg.context.path.iter().map(|x| x.as_str()))
-                    {
-                        // Apply node values to newly generated context.
-                        Self::load_node_(&*rg.context, node, &mut self.monitors);
-                    }
+        //             // Apply initial update from loaded value.
+        //             if let Some(node) =
+        //                 self.archive.find_path(msg.context.path.iter().map(|x| x.as_str()))
+        //             {
+        //                 // Apply node values to newly generated context.
+        //                 Self::load_node_(&*rg.context, node, &mut self.monitors);
+        //             }
 
-                    let prev = self.all_groups.insert(msg.group_id, rg);
-                    assert!(prev.is_none(), "Key never duplicates");
-                    let _ = msg.reply_success.send(Ok(()));
+        //             let prev = self.all_groups.insert(msg.group_id, rg);
+        //             assert!(prev.is_none(), "Key never duplicates");
+        //             let _ = msg.reply_success.send(Ok(()));
 
-                    Self::send_repl_event_(
-                        &mut self.monitors,
-                        ReplicationEvent::GroupAdded(msg.group_id, msg.context),
-                    );
-                }
+        //             Self::send_repl_event_(
+        //                 &mut self.monitors,
+        //                 ReplicationEvent::GroupAdded(msg.group_id, msg.context),
+        //             );
+        //         }
 
-                TryFindGroup { path_hash, type_id, reply } => {
-                    let Some(group_id) = self.path_hashes.get(&path_hash) else {
-                        let _ = reply.send(Err(core::GroupFindError::PathNotFound));
-                        return
-                    };
+        //         TryFindGroup { path_hash, type_id, reply } => {
+        //             let Some(group_id) = self.path_hashes.get(&path_hash) else {
+        //                 let _ = reply.send(Err(core::GroupFindError::PathNotFound));
+        //                 return;
+        //             };
 
-                    let group = self.all_groups.get(&group_id).expect("logic error!");
-                    if group.context.template_type_id != type_id {
-                        let _ = reply.send(Err(core::GroupFindError::MismatchedTypeID));
-                        return;
-                    }
+        //             let group = self.all_groups.get(&group_id).expect("logic error!");
+        //             if group.context.template_type_id != type_id {
+        //                 let _ = reply.send(Err(core::GroupFindError::MismatchedTypeID));
+        //                 return;
+        //             }
 
-                    let Some(hook) = group.context.w_unregister_hook.upgrade() else {
-                        // this is pretty corner case ... the group was disposed before
-                        // `GroupDisposal` event being processed. This usually due to timing issue,
-                        // and technically the group is being unregistered, so we can just treat
-                        // this event as `PathNotFound` and let the caller retry registration.
-                        let _ = reply.send(Err(core::GroupFindError::PathNotFound));
-                        return
-                    };
+        //             let Some(hook) = group.context.w_unregister_hook.upgrade() else {
+        //                 // this is pretty corner case ... the group was disposed before
+        //                 // `GroupDisposal` event being processed. This usually due to timing issue,
+        //                 // and technically the group is being unregistered, so we can just treat
+        //                 // this event as `PathNotFound` and let the caller retry registration.
+        //                 let _ = reply.send(Err(core::GroupFindError::PathNotFound));
+        //                 return;
+        //             };
 
-                    let _ = reply.send(Ok(FoundGroupInfo {
-                        context: group.context.clone(),
-                        unregister_hook: hook,
-                    }));
-                }
+        //             let _ = reply.send(Ok(FoundGroupInfo {
+        //                 context: group.context.clone(),
+        //                 unregister_hook: hook,
+        //             }));
+        //         }
 
-                GroupDisposal(id) => {
-                    // Before dispose, dump existing content to archive.
-                    let Some(rg) = self.all_groups.remove(&id) else {
-                        // We can safely ignore not-found-group, as the logic has been changed to
-                        // create unregister hook first whether the group creation succeeds or not.
-                        return;
-                    };
+        //         GroupDisposal(id) => {
+        //             // Before dispose, dump existing content to archive.
+        //             let Some(rg) = self.all_groups.remove(&id) else {
+        //                 // We can safely ignore not-found-group, as the logic has been changed to
+        //                 // create unregister hook first whether the group creation succeeds or not.
+        //                 return;
+        //             };
 
-                    Self::dump_node_(&rg.context, &mut self.archive);
+        //             Self::dump_node_(&rg.context, &mut self.archive);
 
-                    Self::send_repl_event_(&mut self.monitors, ReplicationEvent::GroupRemoved(id));
+        //             Self::send_repl_event_(&mut self.monitors, ReplicationEvent::GroupRemoved(id));
 
-                    // Erase from registry
-                    assert!(self.path_hashes.remove(&rg.path_hash).is_some());
-                }
+        //             // Erase from registry
+        //             assert!(self.path_hashes.remove(&rg.path_hash).is_some());
+        //         }
 
-                EntityValueUpdate { group_id, item_id, silent_mode } => {
-                    let Some(group) = self.all_groups.get(&group_id) else { return };
+        //         EntityValueUpdate { group_id, item_id, silent_mode } => {
+        //             let Some(group) = self.all_groups.get(&group_id) else { return };
 
-                    // - Notify monitors value change
-                    // - If it's silent mode, do not step group update fence forward.
-                    //   Thus, this update will not trigger all group's update.
-                    //   Otherwise, step group update fence, and propagate group update event
-                    Self::send_repl_event_(
-                        &mut self.monitors,
-                        ReplicationEvent::EntityValueUpdated { group_id, item_id },
-                    );
+        //             // - Notify monitors value change
+        //             // - If it's silent mode, do not step group update fence forward.
+        //             //   Thus, this update will not trigger all group's update.
+        //             //   Otherwise, step group update fence, and propagate group update event
+        //             Self::send_repl_event_(
+        //                 &mut self.monitors,
+        //                 ReplicationEvent::EntityValueUpdated { group_id, item_id },
+        //             );
 
-                    if !silent_mode {
-                        group.context.source_update_fence.fetch_add(1, Ordering::Release);
+        //             if !silent_mode {
+        //                 group.context.source_update_fence.fetch_add(1, Ordering::Release);
 
-                        let _ = group.evt_on_update.try_broadcast(());
-                    }
-                }
+        //                 let _ = group.evt_on_update.try_broadcast(());
+        //             }
+        //         }
 
-                MonitorRegister { reply_to } => {
-                    // Create new unbounded reflection channel, flush all current state into it.
-                    let (tx, rx) = flume::unbounded();
-                    if reply_to.send(rx).is_err() {
-                        log::warn!("MonitorRegister() canceled.");
-                        return;
-                    }
+        //         MonitorRegister { reply_to } => {
+        //             // Create new unbounded reflection channel, flush all current state into it.
+        //             let (tx, rx) = flume::unbounded();
+        //             if reply_to.send(rx).is_err() {
+        //                 log::warn!("MonitorRegister() canceled.");
+        //                 return;
+        //             }
 
-                    let args: Vec<_> =
-                        self.all_groups.iter().map(|e| (*e.0, e.1.context.clone())).collect();
+        //             let args: Vec<_> =
+        //                 self.all_groups.iter().map(|e| (*e.0, e.1.context.clone())).collect();
 
-                    if tx.send_async(ReplicationEvent::InitialGroups(args)).await.is_err() {
-                        log::warn!("Initial replication data transfer failed.");
-                        return;
-                    }
+        //             if tx.send_async(ReplicationEvent::InitialGroups(args)).await.is_err() {
+        //                 log::warn!("Initial replication data transfer failed.");
+        //                 return;
+        //             }
 
-                    self.monitors.push(tx);
-                }
+        //             self.monitors.push(tx);
+        //         }
 
-                Import { body, option } => {
-                    let mut _apply_archive = |archive: &Archive| {
-                        for (_id, group) in &self.all_groups {
-                            let path = &group.context.path;
-                            let path = path.iter().map(|x| x.as_str());
-                            let Some(node) = archive.find_path(path) else { continue };
+        //         Import { body, option } => {
+        //             let mut _apply_archive = |archive: &Archive| {
+        //                 for (_id, group) in &self.all_groups {
+        //                     let path = &group.context.path;
+        //                     let path = path.iter().map(|x| x.as_str());
+        //                     let Some(node) = archive.find_path(path) else { continue };
 
-                            if Self::load_node_(&group.context, node, &mut self.monitors) {
-                                let _ = group.evt_on_update.try_broadcast(());
-                            }
-                        }
-                    };
+        //                     if Self::load_node_(&group.context, node, &mut self.monitors) {
+        //                         let _ = group.evt_on_update.try_broadcast(());
+        //                     }
+        //                 }
+        //             };
 
-                    if option.apply_as_patch {
-                        let mut body = body;
-                        let patch = self.archive.create_patch(&mut body);
+        //             if option.apply_as_patch {
+        //                 let mut body = body;
+        //                 let patch = self.archive.create_patch(&mut body);
 
-                        _apply_archive(&patch);
+        //                 _apply_archive(&patch);
 
-                        if option.merge_onto_cache {
-                            self.archive.merge_from(patch);
-                        } else {
-                            body.merge_from(patch);
-                            self.archive = body;
-                        }
-                    } else {
-                        if option.merge_onto_cache {
-                            self.archive.merge_from(body);
-                        } else {
-                            self.archive = body;
-                        }
+        //                 if option.merge_onto_cache {
+        //                     self.archive.merge_from(patch);
+        //                 } else {
+        //                     body.merge_from(patch);
+        //                     self.archive = body;
+        //                 }
+        //             } else {
+        //                 if option.merge_onto_cache {
+        //                     self.archive.merge_from(body);
+        //                 } else {
+        //                     self.archive = body;
+        //                 }
 
-                        _apply_archive(&self.archive);
-                    }
-                }
+        //                 _apply_archive(&self.archive);
+        //             }
+        //         }
 
-                Export { destination, option } => {
-                    let mut archive = Archive::default();
-                    for (_, node) in &self.all_groups {
-                        Self::dump_node_(&node.context, &mut archive);
-                    }
+        //         Export { destination, option } => {
+        //             let mut archive = Archive::default();
+        //             for (_, node) in &self.all_groups {
+        //                 Self::dump_node_(&node.context, &mut archive);
+        //             }
 
-                    let send_target = if !option.merge_onto_dumped {
-                        if option.replace_import_cache {
-                            self.archive = archive;
-                            self.archive.clone()
-                        } else {
-                            archive
-                        }
-                    } else {
-                        if option.replace_import_cache {
-                            self.archive.merge_from(archive);
-                            self.archive.clone()
-                        } else {
-                            archive.merge(self.archive.clone())
-                        }
-                    };
+        //             let send_target = if !option.merge_onto_dumped {
+        //                 if option.replace_import_cache {
+        //                     self.archive = archive;
+        //                     self.archive.clone()
+        //                 } else {
+        //                     archive
+        //                 }
+        //             } else {
+        //                 if option.replace_import_cache {
+        //                     self.archive.merge_from(archive);
+        //                     self.archive.clone()
+        //                 } else {
+        //                     archive.merge(self.archive.clone())
+        //                 }
+        //             };
 
-                    let _ = destination.send(send_target);
-                }
+        //             let _ = destination.send(send_target);
+        //         }
 
-                Fence(reply) => {
-                    reply.send(()).ok();
-                }
+        //         Fence(reply) => {
+        //             reply.send(()).ok();
+        //         }
 
-                Close => unreachable!(),
-            }
-        }
+        //         Close => unreachable!(),
+        //     }
+        // }
 
-        fn handle_monitor_event_(&mut self, msg: MonitorEvent) {
-            match msg {
-                MonitorEvent::GroupUpdateNotify { mut updates } => {
-                    updates.sort();
-                    updates.dedup();
+        // fn handle_monitor_event_(&mut self, msg: MonitorEvent) {
+        //     match msg {
+        //         MonitorEvent::GroupUpdateNotify { mut updates } => {
+        //             updates.sort();
+        //             updates.dedup();
 
-                    for group_id in updates {
-                        let Some(group) = self.all_groups.get(&group_id) else {
-                            log::warn!("ValueUpdateNotify request failed for group [{group_id}]");
-                            continue;
-                        };
+        //             for group_id in updates {
+        //                 let Some(group) = self.all_groups.get(&group_id) else {
+        //                     log::warn!("ValueUpdateNotify request failed for group [{group_id}]");
+        //                     continue;
+        //                 };
 
-                        let sources = &group.context.sources;
-                        debug_assert!(
-                            sources.windows(2).all(|w| w[0].get_id() < w[1].get_id()),
-                            "If sources are not sorted by item id, it's logic error!"
-                        );
+        //                 let sources = &group.context.sources;
+        //                 debug_assert!(
+        //                     sources.windows(2).all(|w| w[0].get_id() < w[1].get_id()),
+        //                     "If sources are not sorted by item id, it's logic error!"
+        //                 );
 
-                        group.context.source_update_fence.fetch_add(1, Ordering::AcqRel);
+        //                 group.context.source_update_fence.fetch_add(1, Ordering::AcqRel);
 
-                        let _ = group.evt_on_update.try_broadcast(());
-                    }
-                }
-            }
-        }
+        //                 let _ = group.evt_on_update.try_broadcast(());
+        //             }
+        //         }
+        //     }
+        // }
 
         fn send_repl_event_(noti: &mut MonitorList, msg: ReplicationEvent) {
             noti.retain(|x| x.try_send(msg.clone()).is_ok());

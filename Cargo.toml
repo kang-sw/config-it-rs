@@ -1,5 +1,5 @@
 [workspace]
 resolver = "2"
 
-members = ["config-it", "config-it-macros", "config-it-macros-impl"]
+members = ["config-it"]
 exclude = ["config-it-access"]

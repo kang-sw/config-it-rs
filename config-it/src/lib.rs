@@ -204,22 +204,23 @@
 pub mod archive;
 pub mod config;
 pub mod core;
-pub mod entity;
 pub mod storage;
+
+#[doc(hidden)]
+pub mod entity;
+pub mod noti;
 
 pub use compact_str::CompactString;
 
 pub use archive::Archive;
 pub use archive::CategoryRule as ArchiveCategoryRule;
-pub use async_broadcast::Receiver as BroadcastReceiver;
 pub use config::Group;
 pub use config::Template;
 pub use entity::AccessLevel;
+pub use noti::Receiver as BroadcastReceiver;
 pub use storage::ExportOptions;
 pub use storage::ImportOptions;
 pub use storage::Storage;
-
-pub use storage::create as create_storage;
 
 /// Required by `config_it::Template` macro.
 pub use lazy_static::lazy_static;

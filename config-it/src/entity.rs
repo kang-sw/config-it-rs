@@ -1,6 +1,7 @@
 use erased_serde::{Deserializer, Serialize, Serializer};
 use serde::de::DeserializeOwned;
 use std::any::{Any, TypeId};
+use std::borrow::Cow;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -55,33 +56,24 @@ pub struct Metadata {
     pub name: &'static str,
     pub type_id: TypeId,
 
-    pub v_default: Arc<dyn EntityTrait>,
-    pub v_min: Option<Box<dyn EntityTrait>>,
-    pub v_max: Option<Box<dyn EntityTrait>>,
-    pub v_one_of: Vec<Box<dyn EntityTrait>>,
-
     pub props: MetadataProps,
 
-    pub fn_default: Box<dyn Fn() -> Box<dyn EntityTrait> + Send + Sync>,
-    pub fn_copy_to: fn(&dyn Any, &mut dyn Any),
-    pub fn_serialize_to: fn(&dyn Any, &mut dyn Serializer) -> Result<(), erased_serde::Error>,
-    pub fn_deserialize_from:
+    pub(crate) fn_default: Box<dyn Fn() -> Arc<dyn EntityTrait> + Send + Sync>,
+    pub(crate) fn_clone_to: fn(&dyn Any, &mut dyn Any),
+    pub(crate) fn_serialize_to:
+        fn(&dyn Any, &mut dyn Serializer) -> Result<(), erased_serde::Error>,
+    pub(crate) fn_deserialize_from:
         fn(&mut dyn Any, &mut dyn Deserializer) -> Result<(), erased_serde::Error>,
 
     /// Returns None if validation failed. Some(false) when source value was corrected.
     ///  Some(true) when value was correct.
-    pub fn_validate: fn(&Metadata, &mut dyn Any) -> Option<bool>,
+    pub(crate) fn_validate:
+        Box<dyn Fn(&Metadata, &mut dyn Any) -> Option<bool> + Send + Sync + 'static>,
 }
 
 pub struct MetadataValInit<T> {
-    pub v_default: T,
-
-    pub v_min: Option<T>,
-    pub v_max: Option<T>,
-    pub v_one_of: Vec<T>,
-
-    // Should be generated through derive macro
-    pub fn_validate: fn(&Metadata, &mut dyn Any) -> Option<bool>,
+    pub default_fn: fn() -> T,
+    pub validate_fn: fn(&mut T) -> Option<bool>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,8 +97,8 @@ pub struct MetadataProps {
     pub schema: Option<crate::Schema>,
 
     /// Source variable name. Usually same as 'name' unless another name is specified for it.
-    pub varname: &'static str,
-    pub description: &'static str,
+    pub varname: Cow<'static, str>,
+    pub description: Cow<'static, str>,
 }
 
 pub mod lookups {
@@ -141,29 +133,18 @@ impl Metadata {
     where
         T: EntityTrait + Clone + serde::de::DeserializeOwned + serde::ser::Serialize,
     {
-        let retrive_opt_minmax = |val| {
-            if let Some(v) = val {
-                Some(Box::new(v) as Box<dyn EntityTrait>)
-            } else {
-                None
-            }
-        };
-
-        let v_min = retrive_opt_minmax(init.v_min);
-        let v_max = retrive_opt_minmax(init.v_max);
-        let v_one_of: Vec<_> =
-            init.v_one_of.iter().map(|v| Box::new(v.clone()) as Box<dyn EntityTrait>).collect();
+        let MetadataValInit { default_fn, validate_fn } = init;
 
         Self {
             name,
             type_id: TypeId::of::<T>(),
-            v_default: Arc::new(init.v_default.clone()),
-            v_min,
-            v_max,
-            v_one_of,
             props,
-            fn_default: Box::new(move || Box::new(init.v_default.clone())),
-            fn_copy_to: |from, to| {
+            fn_validate: Box::new(move |meta, value_any| {
+                let value: &mut T = value_any.downcast_mut().unwrap();
+                (init.validate_fn)(value)
+            }),
+            fn_default: Box::new(move || Arc::new((default_fn)())),
+            fn_clone_to: |from, to| {
                 let from: &T = from.downcast_ref().unwrap();
                 let to: &mut T = to.downcast_mut().unwrap();
 
@@ -181,49 +162,7 @@ impl Metadata {
 
                 Ok(())
             },
-            fn_validate: init.fn_validate,
         }
-    }
-}
-
-///
-/// Helper methods for proc macro generated code
-///
-pub mod gen_helper {
-    use std::any::Any;
-
-    use crate::entity::Metadata;
-
-    pub fn validate_min_max<T: 'static + Clone + Ord>(meta: &Metadata, val: &mut dyn Any) -> bool {
-        let to: &mut T = val.downcast_mut().unwrap();
-        let mut was_in_range = true;
-
-        if let Some(val) = &meta.v_min {
-            let from: &T = val.as_any().downcast_ref().unwrap();
-            if *to < *from {
-                was_in_range = false;
-                *to = from.clone();
-            }
-        }
-
-        if let Some(val) = &meta.v_max {
-            let from: &T = val.as_any().downcast_ref().unwrap();
-            if *from < *to {
-                was_in_range = false;
-                *to = from.clone();
-            }
-        }
-
-        was_in_range
-    }
-
-    pub fn verify_one_of<T: 'static + Eq>(meta: &Metadata, val: &dyn Any) -> bool {
-        if meta.v_one_of.is_empty() {
-            return true;
-        }
-
-        let to: &T = val.downcast_ref().unwrap();
-        meta.v_one_of.iter().map(|v| v.as_any().downcast_ref::<T>().unwrap()).any(|v| *v == *to)
     }
 }
 
@@ -255,8 +194,8 @@ impl EntityData {
     pub(crate) fn new(meta: Arc<Metadata>, hook: Arc<dyn EntityEventHook>) -> Self {
         Self {
             id: ItemID::new_unique(),
-            fence: AtomicUsize::new(0), // This forces initial
-            value: Mutex::new(meta.v_default.clone()),
+            fence: AtomicUsize::new(0),
+            value: Mutex::new((meta.fn_default)()),
             meta,
             hook,
         }
@@ -309,10 +248,11 @@ impl EntityData {
         let meta = &self.meta;
         let mut erased = <dyn erased_serde::Deserializer>::erase(de);
         let mut built = (meta.fn_default)();
+        let built_mut = Arc::get_mut(&mut built).unwrap();
 
-        match built.deserialize(&mut erased) {
+        match built_mut.deserialize(&mut erased) {
             Ok(_) => {
-                let clean = match (meta.fn_validate)(&*meta, built.as_any_mut()) {
+                let clean = match (meta.fn_validate)(&*meta, built_mut.as_any_mut()) {
                     Some(clean) => clean,
                     None => return Err(crate::core::Error::ValueValidationFailed),
                 };

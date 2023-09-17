@@ -1,14 +1,9 @@
-use std::{
-    any::{Any, TypeId},
-    hash::Hasher,
-    sync::Arc,
-};
+use std::{any::Any, hash::Hasher, sync::Arc};
 
 use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
-use smallvec::SmallVec;
 
-use crate::{archive, config::GroupContext, ExportOptions, ImportOptions};
+use crate::{config::GroupContext, noti};
 
 macro_rules! id_type {
     ($id:ident) => {
@@ -77,50 +72,6 @@ pub enum Error {
     ValueValidationFailed,
 }
 
-///
-///
-/// Message type to drive storage
-///
-pub(crate) enum ControlDirective {
-    FromMonitor(MonitorEvent),
-
-    TryGroupRegister(Box<GroupRegisterParam>),
-
-    TryFindGroup {
-        path_hash: PathHash,
-        type_id: TypeId,
-
-        reply: oneshot::Sender<Result<FoundGroupInfo, GroupFindError>>,
-    },
-
-    GroupDisposal(GroupID),
-
-    Fence(oneshot::Sender<()>),
-
-    EntityValueUpdate {
-        group_id: GroupID,
-        item_id: ItemID,
-        silent_mode: bool,
-    },
-
-    MonitorRegister {
-        reply_to: oneshot::Sender<flume::Receiver<ReplicationEvent>>,
-    },
-
-    Import {
-        body: archive::Archive,
-        option: ImportOptions,
-    },
-
-    Export {
-        /// If None is specified,
-        destination: oneshot::Sender<archive::Archive>,
-        option: ExportOptions,
-    },
-
-    Close,
-}
-
 #[derive(thiserror::Error, Debug)]
 pub enum GroupFindError {
     #[error("Given path was not found")]
@@ -129,26 +80,6 @@ pub enum GroupFindError {
     MismatchedTypeID,
     #[error("The original group was already disposed")]
     ExpiredStorage,
-}
-
-/// Contains all necessary information to construct a group
-pub(crate) struct FoundGroupInfo {
-    pub context: Arc<GroupContext>,
-
-    /// Locked before used, since if we deliver the weak pointer as-is, it might be expired
-    /// before the receiver uses it.
-    pub unregister_hook: Arc<dyn Any + Send + Sync>,
-}
-
-pub(crate) struct GroupRegisterParam {
-    pub group_id: GroupID,
-    pub context: Arc<GroupContext>,
-    pub event_broadcast: async_broadcast::Sender<()>,
-    pub reply_success: oneshot::Sender<Result<(), Error>>,
-}
-
-pub enum MonitorEvent {
-    GroupUpdateNotify { updates: SmallVec<[GroupID; 4]> },
 }
 
 ///

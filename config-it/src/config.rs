@@ -1,6 +1,6 @@
 use crate::core::GroupID;
 use crate::entity::{EntityData, EntityTrait, Metadata};
-use crate::BroadcastReceiver;
+use crate::noti;
 use compact_str::CompactString;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
@@ -31,7 +31,7 @@ pub trait Template: Clone + 'static {
     /// Convenient wrapper for element value update
     fn update_elem_at__(&mut self, index: usize, value: &dyn Any, meta: &Metadata) {
         let data = self.elem_at_mut__(index);
-        (meta.fn_copy_to)(value, data);
+        (meta.fn_clone_to)(value, data);
     }
 }
 
@@ -56,7 +56,7 @@ pub struct GroupContext {
     pub path: Arc<Vec<CompactString>>,
 
     /// Broadcast subscriber to receive updates from backend.
-    pub(crate) update_receiver_channel: async_broadcast::InactiveReceiver<()>,
+    pub(crate) update_receiver_channel: noti::Receiver,
 }
 
 ///
@@ -121,7 +121,7 @@ impl Default for PropLocalContext {
 }
 
 /// Type alias for broadcast receiver
-pub type WatchUpdate = BroadcastReceiver<()>;
+pub type WatchUpdate = noti::Receiver;
 
 impl<T: Template> Group<T> {
     #[doc(hidden)]
@@ -238,17 +238,9 @@ impl<T: Template> Group<T> {
     /// if there's no actual update, it's not recommended to make critical logics rely on
     /// this signal.
     pub fn watch_update(&self) -> WatchUpdate {
-        self.core.update_receiver_channel.clone().activate()
-    }
-
-    /// Spawns new broadcast receiver, and forcibly generates update event.
-    ///
-    /// This is useful when you want to make sure that first monitoring event is always triggered,
-    /// however, note that this method will incur all other watchdogs to be notified as well.
-    pub fn watch_update_with_event_broadcast(&self) -> WatchUpdate {
-        let rx = self.watch_update();
-        let _ = rx.new_sender().try_broadcast(());
-        rx
+        let mut x = self.core.update_receiver_channel.clone();
+        x.invalidate();
+        x
     }
 
     /// Mark all elements dirty. Next call to [`Group::update()`] may not return true if there
@@ -332,99 +324,5 @@ impl<T> Group<T> {
     pub fn __macro_as_mut(&mut self) -> &mut Self {
         //! Use coercion to get mutable reference to self regardless of its expression.
         self
-    }
-}
-
-#[cfg(any())]
-mod emulate_generation {
-    use futures::executor;
-    use lazy_static::lazy_static;
-    use std::thread;
-
-    use super::*;
-    use crate::*;
-
-    #[derive(Default, Clone)]
-    struct MyStruct {
-        my_int: i32,
-        my_string: String,
-    }
-
-    impl Template for MyStruct {
-        fn prop_desc_table__() -> &'static HashMap<usize, PropData> {
-            use entity::{MetadataProps, MetadataValInit};
-
-            lazy_static! {
-                static ref TABLE: Arc<HashMap<usize, PropData>> = {
-                    let mut s = HashMap::new();
-
-                    {
-                        type Type = i32;
-
-                        let offset = unsafe {
-                            let owner = 0 as *const MyStruct;
-                            &(*owner).my_int as *const _ as *const u8 as usize
-                        };
-                        let identifier = "#ident_as_string";
-                        let varname = "#varname_or_ident";
-                        let doc_string = "#doc_str";
-                        let index = 1;
-                        let default_value: Type = 13;
-
-                        let init = MetadataValInit::<Type> {
-                            fn_validate: |_, _| -> Option<bool> { Some(true) },
-                            v_default: default_value,
-                            v_one_of: Default::default(),
-                            v_max: Default::default(),
-                            v_min: Default::default(),
-                        };
-
-                        let props = MetadataProps {
-                            description: doc_string,
-                            varname,
-                            disable_import: false,
-                            disable_export: false,
-                            hidden: false,
-                        };
-
-                        let meta = Metadata::create_for_base_type(identifier, init, props);
-
-                        let prop_data =
-                            PropData { index, type_id: TypeId::of::<Type>(), meta: Arc::new(meta) };
-
-                        s.insert(offset, prop_data);
-                    }
-
-                    Arc::new(s)
-                };
-            }
-
-            &*TABLE
-        }
-
-        fn elem_at_mut__(&mut self, index: usize) -> &mut dyn Any {
-            match index {
-                0 => &mut self.my_int,
-                1 => &mut self.my_string,
-                _ => panic!(),
-            }
-        }
-
-        fn fill_default(&mut self) {}
-    }
-
-    #[test]
-    fn try_compile() {
-        println!("{}", std::env::var("MY_VAR").unwrap());
-        let (st, work) = Storage::new();
-        thread::spawn(move || futures::executor::block_on(work));
-
-        let mut group: Group<MyStruct> =
-            executor::block_on(st.create_group(["RootCategory".into()].to_vec())).unwrap();
-
-        assert!(group.update());
-        assert!(!group.update());
-        assert!(group.clear_flag(&group.my_string));
-        assert!(!group.clear_flag(&group.my_string));
     }
 }
