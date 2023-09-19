@@ -257,7 +257,9 @@ pub enum EntityValue {
 type ReinterpretInput<'a> = Result<&'a [usize], &'a mut [usize]>;
 type ReinterpretOutput<'a> = Result<&'a dyn EntityTrait, &'a mut dyn EntityTrait>;
 
+/// Pair of function pointer to retrieve entity trait from given pointer and actual payload.
 #[derive(Clone, Copy)]
+#[doc(hidden)]
 pub struct TrivialEntityValue(for<'a> unsafe fn(ReinterpretInput) -> ReinterpretOutput, [usize; 2]);
 
 impl EntityTrait for EntityValue {

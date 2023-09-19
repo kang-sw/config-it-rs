@@ -16,7 +16,3 @@ proc-macro2 = "1"
 quote = "1"
 syn = { version = "2" }
 proc-macro-crate = "1"
-
-[features]
-default = ["nocfg"]
-nocfg = []
