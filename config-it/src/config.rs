@@ -69,7 +69,7 @@ pub struct Group<T> {
     __body: T,
 
     /// Cached update fence
-    fence: usize,
+    version_cached: usize,
 
     /// Property-wise contexts
     local: Vec<PropLocalContext>,
@@ -88,7 +88,7 @@ impl<T: Clone> Clone for Group<T> {
     fn clone(&self) -> Self {
         Self {
             __body: self.__body.clone(),
-            fence: self.fence.clone(),
+            version_cached: self.version_cached.clone(),
             local: self.local.clone(),
             core: self.core.clone(),
             _unregister_hook: self._unregister_hook.clone(),
@@ -98,7 +98,10 @@ impl<T: Clone> Clone for Group<T> {
 
 impl<T: std::fmt::Debug> std::fmt::Debug for Group<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Group").field("__body", &self.__body).field("fence", &self.fence).finish()
+        f.debug_struct("Group")
+            .field("__body", &self.__body)
+            .field("fence", &self.version_cached)
+            .finish()
     }
 }
 
@@ -132,7 +135,7 @@ impl<T: Template> Group<T> {
         let mut gen = Self {
             core,
             __body: T::default_config(),
-            fence: 0,
+            version_cached: 0,
             local: vec![PropLocalContext::default(); T::prop_desc_table__().len()].into(),
             _unregister_hook: unregister_anchor,
         };
@@ -147,12 +150,12 @@ impl<T: Template> Group<T> {
         let Self { local, .. } = self;
 
         // Forces initial update always return true.
-        let mut has_update = self.fence == 0;
+        let mut has_update = self.version_cached == 0;
 
         // Perform quick check: Does update fence value changed?
         match self.core.version.load(Ordering::Relaxed) {
-            v if v == self.fence => return false,
-            v => self.fence = v,
+            new_ver if new_ver == self.version_cached => return false,
+            new_ver => self.version_cached = new_ver,
         }
 
         debug_assert_eq!(
@@ -265,7 +268,7 @@ impl<T: Template> Group<T> {
     /// Mark this group dirty. Next call to `update()` method will return true, regardless of
     /// whether there's any actual update.
     pub fn mark_group_dirty(&mut self) {
-        self.fence = 0;
+        self.version_cached = 0;
     }
 
     /// Mark given element dirty.
