@@ -217,8 +217,6 @@ pub use archive::CategoryRule as ArchiveCategoryRule;
 pub use config::Group;
 pub use config::Template;
 pub use noti::Receiver as BroadcastReceiver;
-pub use storage::ExportOptions;
-pub use storage::ImportOptions;
 pub use storage::Storage;
 
 /// Required by `config_it::Template` macro.

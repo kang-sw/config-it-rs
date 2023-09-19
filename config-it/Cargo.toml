@@ -34,6 +34,7 @@ schemars = { version = "0.8.12", features = ["preserve_order"] }
 indexmap = { version = "2.0.0", features = ["serde"], optional = true }
 dashmap = "5.5.3"
 bitflags = { version = "2.4.0", features = ["serde"] }
+derive_setters = "0.1.6"
 
 [dev-dependencies]
 futures = "0.3"

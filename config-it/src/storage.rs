@@ -22,42 +22,6 @@ use compact_str::{CompactString, ToCompactString};
 #[derive(Default, Clone)]
 pub struct Storage(Arc<inner::Inner>);
 
-pub struct ImportOptions {
-    /// If set this to true, the imported config will be merged onto existing cache. Usually turning
-    /// this on is useful to prevent unsaved archive entity from being overwritten.
-    pub merge_onto_cache: bool,
-
-    /// If this option is enabled, imported setting will be converted into 'patch' before applied.
-    /// Otherwise, the imported setting will be applied directly, and will affect to all properties
-    /// that are included in the archive even if there is no actual change on archive content.
-    pub apply_as_patch: bool,
-}
-
-impl Default for ImportOptions {
-    fn default() -> Self {
-        Self { merge_onto_cache: true, apply_as_patch: true }
-    }
-}
-
-pub struct ExportOptions {
-    /// On export, storage collects only active instances of config groups. If this is set to true,
-    /// collected result will be merged onto existing dump cache, thus it will preserve
-    /// uninitialized config groups' archive data.
-    ///
-    /// Otherwise, only active config groups will be exported.
-    pub merge_onto_dumped: bool,
-
-    /// If this option is set true, storage will replace import cache with dumped export data.
-    /// This will affect the next config group creation.
-    pub replace_import_cache: bool,
-}
-
-impl Default for ExportOptions {
-    fn default() -> Self {
-        Self { merge_onto_dumped: true, replace_import_cache: true }
-    }
-}
-
 impl Storage {
     /// Tries to find existing group from path name, and if it doesn't exist, tries to create new
     pub fn find_or_create<'a, T>(
@@ -170,8 +134,8 @@ impl Storage {
     /// * `no_merge` - If true, only active archive contents will be collected.
     ///   Otherwise, result will contain merge result of previously loaded archive.
     /// * `no_update` - If true, existing archive won't
-    pub fn export(&self, option: ExportOptions) -> Result<archive::Archive, common::Error> {
-        todo!()
+    pub fn export(&self) -> inner::ExportTask {
+        inner::ExportTask::new(&*self.0)
     }
 
     /// Deserializes data
@@ -203,12 +167,8 @@ impl Storage {
     ///     "another_root_path": {}
     /// }
     /// ```
-    pub fn import(
-        &self,
-        archive: archive::Archive,
-        option: ImportOptions,
-    ) -> Result<(), common::Error> {
-        todo!()
+    pub fn import(&self, archive: archive::Archive) -> inner::ImportOnDrop {
+        inner::ImportOnDrop::new(&*self.0, archive)
     }
 
     /// Replace existing monitor to given one.
@@ -261,14 +221,17 @@ impl EntityEventHook for EntityHookImpl {
 }
 
 mod inner {
+    use std::mem::ManuallyDrop;
+
     use dashmap::DashMap;
+    use derive_setters::Setters;
     use parking_lot::RwLock;
     use serde::de::IntoDeserializer;
 
     use crate::{
         archive::{self},
         entity::MetaFlag,
-        noti,
+        noti, Archive,
     };
 
     use super::*;
@@ -350,7 +313,7 @@ mod inner {
             if let Some(node) =
                 self.archive.read().find_path(rg.context.path.iter().map(|x| x.as_str()))
             {
-                Self::load_node(&rg.context, node, None);
+                Self::load_node(&rg.context, node, &EmptyMonitor);
             }
 
             assert!(
@@ -422,11 +385,7 @@ mod inner {
             }
         }
 
-        fn load_node(
-            ctx: &GroupContext,
-            node: &archive::Archive,
-            monitor: Option<&dyn Monitor>,
-        ) -> bool {
+        fn load_node(ctx: &GroupContext, node: &archive::Archive, monitor: &dyn Monitor) -> bool {
             let mut has_update = false;
 
             for (elem, de) in ctx
@@ -441,10 +400,7 @@ mod inner {
                 match elem.update_value_from(de) {
                     Ok(_) => {
                         has_update = true;
-
-                        if let Some(monitor) = monitor {
-                            monitor.entity_value_updated(&ctx.group_id, &elem.get_id());
-                        }
+                        monitor.entity_value_updated(&ctx.group_id, &elem.get_id());
                     }
                     Err(e) => {
                         log::warn!("Element value update error during node loading: {e:?}")
@@ -459,6 +415,108 @@ mod inner {
             }
 
             has_update
+        }
+    }
+
+    /* ------------------------------------ Import Operation ------------------------------------ */
+    #[derive(Setters)]
+    #[setters(borrow_self)]
+    pub struct ImportOnDrop<'a> {
+        #[setters(skip)]
+        inner: &'a Inner,
+
+        #[setters(skip)]
+        archive: ManuallyDrop<Archive>,
+
+        /// If set this to true, the imported config will be merged onto existing cache. Usually turning
+        /// this on is useful to prevent unsaved archive entity from being overwritten.
+        merge_onto_cache: bool,
+
+        /// If this option is enabled, imported setting will be converted into 'patch' before applied.
+        /// Otherwise, the imported setting will be applied directly, and will affect to all properties
+        /// that are included in the archive even if there is no actual change on archive content.
+        apply_as_patch: bool,
+    }
+
+    impl<'a> ImportOnDrop<'a> {
+        pub(super) fn new(inner: &'a Inner, archive: Archive) -> Self {
+            Self {
+                inner,
+                archive: ManuallyDrop::new(archive),
+                merge_onto_cache: true,
+                apply_as_patch: true,
+            }
+        }
+    }
+
+    impl<'a> Drop for ImportOnDrop<'a> {
+        fn drop(&mut self) {
+            // SAFETY: Typical `ManuallyDrop` usage.
+            let mut imported = unsafe { ManuallyDrop::take(&mut self.archive) };
+            let this = self.inner;
+
+            let import_archive = |archive: &Archive| {
+                for elem in this.all_groups.iter() {
+                    let group = elem.value();
+                    let path = &group.context.path;
+                    let path = path.iter().map(|x| x.as_str());
+                    let Some(node) = archive.find_path(path) else { continue };
+
+                    if Inner::load_node(&group.context, node, &**this.monitor.read()) {
+                        let _ = group.evt_on_update.notify();
+                    }
+                }
+            };
+
+            let mut self_archive = this.archive.write();
+            if self.apply_as_patch {
+                let patch = self_archive.create_patch(&mut imported);
+                import_archive(&patch);
+
+                if self.merge_onto_cache {
+                    self_archive.merge_from(patch);
+                } else {
+                    imported.merge_from(patch);
+                    *self_archive = imported;
+                }
+            } else {
+                if self.merge_onto_cache {
+                    self_archive.merge_from(imported);
+                } else {
+                    *self_archive = imported;
+                }
+
+                import_archive(&*self_archive);
+            }
+        }
+    }
+
+    /* ------------------------------------ Export Operation ------------------------------------ */
+    #[derive(Setters)]
+    pub struct ExportTask<'a> {
+        #[setters(skip)]
+        inner: &'a Inner,
+
+        /// On export, storage collects only active instances of config groups. If this is set to true,
+        /// collected result will be merged onto existing dump cache, thus it will preserve
+        /// uninitialized config groups' archive data.
+        ///
+        /// Otherwise, only active config groups will be exported.
+        merge_onto_dumped: bool,
+
+        /// If this option is set true, storage will replace import cache with dumped export data.
+        /// This will affect the next config group creation.
+        replace_import_cache: bool,
+    }
+
+    impl<'a> ExportTask<'a> {
+        pub(super) fn new(inner: &'a Inner) -> Self {
+            Self { inner, merge_onto_dumped: true, replace_import_cache: true }
+        }
+
+        /// Performs export operation with given settings
+        pub fn perform(self) -> Archive {
+            todo!()
         }
     }
 }
