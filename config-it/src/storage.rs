@@ -182,7 +182,7 @@ impl Storage {
                 &(unregister_anchor.clone() as Arc<dyn Any + Send + Sync>),
             ),
             sources: Arc::new(sources),
-            source_update_fence: AtomicUsize::new(1), // NOTE: This will trigger initial check_update() always.
+            version: AtomicUsize::new(1), // NOTE: This will trigger initial check_update() always.
             update_receiver_channel: tx_noti.receiver(true),
             path: path.clone(),
         });
@@ -241,15 +241,16 @@ impl Storage {
         replace(&mut *self.0.monitor.write(), handler)
     }
 
+    /// Unset monitor instance.
     pub fn unset_monitor(&self) {
         *self.0.monitor.write() = Arc::new(inner::EmptyMonitor);
     }
 
-    ///
     /// Send monitor event to storage driver.
-    ///
-    pub fn notify_edit_events(&self, items: impl IntoIterator<Item = GroupID>) {
-        todo!()
+    pub fn notify_editions(&self, items: impl IntoIterator<Item = GroupID>) {
+        for group in items {
+            self.0.notify_edition(group);
+        }
     }
 }
 
@@ -353,6 +354,13 @@ mod inner {
             }
         }
 
+        pub fn notify_edition(&self, group_id: GroupID) {
+            if let Some(group) = self.all_groups.get(&group_id) {
+                group.context.version.fetch_add(1, Ordering::Relaxed);
+                let _ = group.evt_on_update.notify();
+            }
+        }
+
         pub fn find_group(&self, path_hash: &PathHash) -> Option<Arc<GroupContext>> {
             self.path_hashes
                 .get(path_hash)
@@ -424,7 +432,7 @@ mod inner {
 
             // This is trivially fallible operation.
             let Some(group) = self.all_groups.get(&group_id) else { return };
-            group.context.source_update_fence.fetch_add(1, Ordering::Relaxed);
+            group.context.version.fetch_add(1, Ordering::Relaxed);
             group.evt_on_update.notify();
         }
 
@@ -475,7 +483,7 @@ mod inner {
             if has_update {
                 // On successful load, set its fence value as 1, to make the first client
                 //  side's call to `update()` call would be triggered.
-                ctx.source_update_fence.fetch_add(1, Ordering::Release);
+                ctx.version.fetch_add(1, Ordering::Release);
             }
 
             has_update

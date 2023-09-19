@@ -50,7 +50,7 @@ pub struct GroupContext {
     pub sources: Arc<Vec<EntityData>>,
 
     pub(crate) w_unregister_hook: Weak<dyn Any + Send + Sync>,
-    pub(crate) source_update_fence: AtomicUsize,
+    pub(crate) version: AtomicUsize,
 
     /// Path of instantiated config set.
     pub path: Arc<[CompactString]>,
@@ -150,7 +150,7 @@ impl<T: Template> Group<T> {
         let mut has_update = self.fence == 0;
 
         // Perform quick check: Does update fence value changed?
-        match self.core.source_update_fence.load(Ordering::Relaxed) {
+        match self.core.version.load(Ordering::Relaxed) {
             v if v == self.fence => return false,
             v => self.fence = v,
         }
@@ -275,14 +275,14 @@ impl<T: Template> Group<T> {
     }
 
     /// Get generated metadata of given element
-    pub fn get_metadata<U: 'static>(&self, elem: *const U) -> Arc<Metadata> {
-        self.get_prop_by_ptr(elem).unwrap().meta.clone()
+    pub fn metadata<U: 'static>(&self, elem: *const U) -> &Arc<Metadata> {
+        &self.get_prop_by_ptr(elem).unwrap().meta
     }
 
     /// Get instance path of `self`. This value is same as the list of tokens that you have
     /// provided to [`crate::Storage::create_group`] method.
-    pub fn get_path(&self) -> Arc<[CompactString]> {
-        self.core.path.clone()
+    pub fn path(&self) -> &Arc<[CompactString]> {
+        &self.core.path
     }
 }
 
