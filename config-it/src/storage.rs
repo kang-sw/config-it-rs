@@ -273,8 +273,6 @@ mod inner {
     }
 
     struct GroupRegistration {
-        /// Hash calculated from `context.path`.
-        path_hash: PathHash,
         context: Arc<GroupContext>,
         evt_on_update: noti::Sender,
     }
@@ -308,7 +306,7 @@ mod inner {
             let group_id = context.group_id;
             let inserted = context.clone();
 
-            let rg = GroupRegistration { path_hash, context, evt_on_update };
+            let rg = GroupRegistration { context, evt_on_update };
 
             if let Some(node) =
                 self.archive.read().find_path(rg.context.path.iter().map(|x| x.as_str()))
@@ -516,7 +514,30 @@ mod inner {
 
         /// Performs export operation with given settings
         pub fn perform(self) -> Archive {
-            todo!()
+            let mut archive = Archive::default();
+            let this = self.inner;
+
+            for elem in this.all_groups.iter() {
+                let group = elem.value();
+                Inner::dump_node(&group.context, &mut archive);
+            }
+
+            let mut self_archive = this.archive.write();
+            if !self.merge_onto_dumped {
+                if self.replace_import_cache {
+                    *self_archive = archive;
+                    self_archive.clone()
+                } else {
+                    archive
+                }
+            } else {
+                if self.replace_import_cache {
+                    self_archive.merge_from(archive);
+                    self_archive.clone()
+                } else {
+                    archive.merge(self_archive.clone())
+                }
+            }
         }
     }
 }
