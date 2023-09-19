@@ -437,16 +437,15 @@ impl EntityData {
         let vt = &meta.vtable;
         let mut erased = <dyn erased_serde::Deserializer>::erase(de);
 
-        // XXX: Find way to reduce 'Arc' creation every time?
         match vt.deserialize(&mut erased) {
             Ok(mut built) => {
-                let clean = match vt.validate(built.as_any_mut()) {
+                let is_perfect = match vt.validate(built.as_any_mut()) {
                     Some(clean) => clean,
                     None => return Err(EntityUpdateError::ValueValidationFailed),
                 };
 
                 self.__apply_value(built);
-                Ok(clean)
+                Ok(is_perfect)
             }
             Err(e) => {
                 log::error!(
