@@ -1,8 +1,5 @@
-use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
-use std::{hash::Hasher, sync::Arc};
-
-use crate::config::GroupContext;
+use std::hash::Hasher;
 
 macro_rules! id_type {
     ($id:ident $($args:tt)*) => {

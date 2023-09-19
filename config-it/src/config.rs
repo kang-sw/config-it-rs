@@ -236,12 +236,9 @@ impl<T: Template> Group<T> {
         // Replace source argument with created ptr
         let elem = &(*self.core.sources)[self.get_index_by_ptr(e).unwrap()];
 
-        let new_value = if elem.get_meta().vtable.implements_copy() {
-            // SAFETY: `is_trivially_copiable` flag must be validated strictly by macro.
-            unsafe { EntityValue::from_trivial_unchecked(e.clone()) }
-        } else {
-            EntityValue::from_complex(e.clone())
-        };
+        // SAFETY: We know that `vtable.implements_copy()` is strictly managed.
+        let impl_copy = elem.get_meta().vtable.implements_copy();
+        let new_value = unsafe { EntityValue::from_value(e.clone(), impl_copy) };
 
         elem.__apply_value(new_value);
         elem.__notify_value_change(notify)

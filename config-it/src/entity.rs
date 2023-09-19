@@ -93,33 +93,43 @@ pub trait MetadataVTable: Send + Sync + 'static {
     fn validate(&self, value: &mut dyn Any) -> Option<bool>;
 }
 
-pub struct MetadataVTableImpl<T> {
-    _x: std::marker::PhantomData<T>,
+pub struct MetadataVTableImpl<T: 'static> {
     impl_copy: bool,
+    fn_default: Cow<'static, fn() -> T>,
+    fn_validate: Cow<'static, fn(&mut T) -> Option<bool>>,
 }
 
-impl<T: Send + Sync + 'static> MetadataVTable for MetadataVTableImpl<T> {
+impl<T: EntityTrait + Clone> MetadataVTable for MetadataVTableImpl<T> {
     fn implements_copy(&self) -> bool {
         self.impl_copy
     }
 
     fn create_default(&self) -> EntityValue {
-        todo!()
+        // SAFETY: We know that `vtable.implements_copy()` is strictly managed.
+        unsafe { EntityValue::from_value((self.fn_default)(), self.impl_copy) }
     }
 
     fn deserialize(
         &self,
         de: &mut dyn erased_serde::Deserializer,
     ) -> Result<EntityValue, erased_serde::Error> {
-        todo!()
+        let mut default = (self.fn_default)();
+        default.deserialize(de)?;
+
+        // SAFETY: We know that `vtable.implements_copy()` is strictly managed.
+        Ok(unsafe { EntityValue::from_value(default, self.impl_copy) })
     }
 
     fn clone_in_place(&self, src: &dyn Any, dst: &mut dyn Any) {
-        todo!()
+        let src = src.downcast_ref::<T>().unwrap();
+        let dst = dst.downcast_mut::<T>().unwrap();
+
+        dst.clone_from(src);
     }
 
     fn validate(&self, value: &mut dyn Any) -> Option<bool> {
-        todo!()
+        let value = value.downcast_mut::<T>().unwrap();
+        (self.fn_validate)(value)
     }
 }
 
@@ -233,7 +243,7 @@ impl Metadata {
     where
         T: EntityTrait + Clone + serde::de::DeserializeOwned + serde::ser::Serialize,
     {
-        Self { type_id: TypeId::of::<T>(), props, vtable: todo!() }
+        Self { type_id: TypeId::of::<T>(), props, vtable: Box::new(init) }
     }
 }
 
@@ -298,7 +308,7 @@ impl EntityValue {
     }
 
     pub fn from_trivial<T: Copy + EntityTrait>(value: T) -> Self {
-        // SAFETY: This is safe as long as `T` is trivially copyable. (`Copy` trait satisfies)
+        // SAFETY: This is safe as long as `T` is trivially copyable.
         unsafe { Self::from_trivial_unchecked(value) }
     }
 
@@ -324,6 +334,15 @@ impl EntityValue {
 
     pub fn from_complex<T: EntityTrait>(value: T) -> Self {
         Self::Complex(Arc::new(value))
+    }
+
+    pub(crate) unsafe fn from_value<T: EntityTrait>(value: T, implements_copy: bool) -> Self {
+        if implements_copy {
+            // SAFETY: `implements_copy` must be managed very carefully to make this safe.
+            unsafe { Self::from_trivial_unchecked(value) }
+        } else {
+            Self::from_complex(value)
+        }
     }
 }
 
