@@ -558,7 +558,7 @@ mod inner {
                     *self_archive = imported;
                 }
 
-                import_archive(&*self_archive);
+                import_archive(&self_archive);
             }
         }
     }
@@ -604,13 +604,11 @@ mod inner {
                 } else {
                     archive
                 }
+            } else if self.replace_import_cache {
+                self_archive.merge_from(archive);
+                self_archive.clone()
             } else {
-                if self.replace_import_cache {
-                    self_archive.merge_from(archive);
-                    self_archive.clone()
-                } else {
-                    archive.merge(self_archive.clone())
-                }
+                archive.merge(self_archive.clone())
             }
         }
     }

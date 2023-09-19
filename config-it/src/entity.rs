@@ -1,9 +1,10 @@
 use bitflags::bitflags;
+use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use std::any::{Any, TypeId};
 use std::borrow::Cow;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::common::ItemID;
 
@@ -243,13 +244,11 @@ pub enum EntityValue {
     Complex(Arc<dyn EntityTrait>),
 }
 
+type ReinterpretInput<'a> = Result<&'a [usize], &'a mut [usize]>;
+type ReinterpretOutput<'a> = Result<&'a dyn EntityTrait, &'a mut dyn EntityTrait>;
+
 #[derive(Clone, Copy)]
-pub struct TrivialEntityValue(
-    for<'a> unsafe fn(
-        Result<&'a [usize], &'a mut [usize]>,
-    ) -> Result<&'a dyn EntityTrait, &'a mut dyn EntityTrait>,
-    [usize; 2],
-);
+pub struct TrivialEntityValue(for<'a> unsafe fn(ReinterpretInput) -> ReinterpretOutput, [usize; 2]);
 
 impl EntityTrait for EntityValue {
     fn as_any(&self) -> &dyn Any {
@@ -300,30 +299,24 @@ impl EntityValue {
 
     pub fn from_trivial<T: Copy + EntityTrait>(value: T) -> Self {
         // SAFETY: This is safe as long as `T` is trivially copyable. (`Copy` trait satisfies)
-        unsafe { Self::from_trivial_force(value) }
+        unsafe { Self::from_trivial_unchecked(value) }
     }
 
-    pub unsafe fn from_trivial_force<T: EntityTrait>(value: T) -> Self {
+    pub unsafe fn from_trivial_unchecked<T: EntityTrait>(value: T) -> Self {
         if std::mem::size_of::<T>() <= std::mem::size_of::<usize>() * 2 {
             let mut buffer = [0usize; 2];
             unsafe {
-                std::ptr::copy_nonoverlapping(
-                    &value as *const _,
-                    buffer.as_mut_ptr() as _,
-                    std::mem::size_of::<T>(),
-                );
+                std::ptr::copy_nonoverlapping(&value, buffer.as_mut_ptr() as _, 1);
             }
 
-            unsafe fn retrieve<'a, T: EntityTrait>(
-                i: Result<&'a [usize], &'a mut [usize]>,
-            ) -> Result<&'a dyn EntityTrait, &'a mut dyn EntityTrait> {
+            unsafe fn retrieve_function<T: EntityTrait>(i: ReinterpretInput) -> ReinterpretOutput {
                 match i {
                     Ok(x) => Ok(&*(x.as_ptr() as *const T)),
                     Err(x) => Err(&mut *(x.as_mut_ptr() as *mut T)),
                 }
             }
 
-            Self::Trivial(TrivialEntityValue(retrieve::<T>, buffer))
+            Self::Trivial(TrivialEntityValue(retrieve_function::<T>, buffer))
         } else {
             Self::from_complex(value)
         }
@@ -394,7 +387,7 @@ impl EntityData {
     }
 
     pub fn get_value(&self) -> (&Arc<Metadata>, EntityValue) {
-        (&self.meta, self.value.lock().unwrap().clone())
+        (&self.meta, self.value.lock().clone())
     }
 
     /// If `silent` option is disabled, increase config set and source argument's fence
@@ -403,12 +396,8 @@ impl EntityData {
     pub fn __apply_value(&self, value: EntityValue) {
         debug_assert!(self.meta.type_id == value.as_any().type_id());
 
-        {
-            let mut lock = self.value.lock().unwrap();
-            *lock = value;
-
-            self.version.fetch_add(1, Ordering::Release);
-        }
+        *self.value.lock() = value;
+        self.version.fetch_add(1, Ordering::Release);
     }
 
     ///

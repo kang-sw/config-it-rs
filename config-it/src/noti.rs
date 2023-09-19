@@ -14,6 +14,12 @@ pub struct Sender(Arc<Mutex<Inner>>);
 #[derive(Debug, Clone)]
 pub struct Receiver(usize, Weak<Mutex<Inner>>);
 
+impl Default for Sender {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Sender {
     pub fn new() -> Self {
         Self(Arc::new(Mutex::new(Inner { fence: 1, waiters: Default::default() })))

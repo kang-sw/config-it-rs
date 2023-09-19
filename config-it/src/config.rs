@@ -238,7 +238,7 @@ impl<T: Template> Group<T> {
 
         let new_value = if elem.get_meta().vtable.implements_copy() {
             // SAFETY: `is_trivially_copiable` flag must be validated strictly by macro.
-            unsafe { EntityValue::from_trivial_force(e.clone()) }
+            unsafe { EntityValue::from_trivial_unchecked(e.clone()) }
         } else {
             EntityValue::from_complex(e.clone())
         };
