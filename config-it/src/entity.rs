@@ -71,7 +71,7 @@ pub trait MetadataVTable: Send + Sync + 'static {
     fn create_default(&self) -> Arc<dyn EntityTrait>;
 
     /// Create new deserialized entity instance from given deserializer
-    fn create_from(
+    fn deserialize(
         &self,
         de: &mut dyn erased_serde::Deserializer,
     ) -> Result<Arc<dyn EntityTrait>, erased_serde::Error>;
@@ -93,7 +93,7 @@ impl<T: Send + Sync + 'static> MetadataVTable for MetadataVTableImpl<T> {
         todo!()
     }
 
-    fn create_from(
+    fn deserialize(
         &self,
         de: &mut dyn erased_serde::Deserializer,
     ) -> Result<Arc<dyn EntityTrait>, erased_serde::Error> {
@@ -241,7 +241,7 @@ pub struct EntityData {
     id: ItemID,
 
     meta: Arc<Metadata>,
-    fence: AtomicUsize,
+    version: AtomicUsize,
     value: Mutex<Arc<dyn EntityTrait>>,
 
     hook: Arc<dyn EntityEventHook>,
@@ -260,7 +260,7 @@ impl EntityData {
     pub(crate) fn new(meta: Arc<Metadata>, hook: Arc<dyn EntityEventHook>) -> Self {
         Self {
             id: ItemID::new_unique(),
-            fence: AtomicUsize::new(0),
+            version: AtomicUsize::new(0),
             value: Mutex::new(meta.vtable.create_default()),
             meta,
             hook,
@@ -276,7 +276,7 @@ impl EntityData {
     }
 
     pub fn get_update_fence(&self) -> usize {
-        self.fence.load(Ordering::Relaxed)
+        self.version.load(Ordering::Relaxed)
     }
 
     pub fn get_value(&self) -> (&Arc<Metadata>, Arc<dyn EntityTrait>) {
@@ -293,7 +293,7 @@ impl EntityData {
             let mut lock = self.value.lock().unwrap();
             *lock = value;
 
-            self.fence.fetch_add(1, Ordering::Release);
+            self.version.fetch_add(1, Ordering::Release);
         }
     }
 
@@ -314,19 +314,17 @@ impl EntityData {
         let meta = &self.meta;
         let vt = &meta.vtable;
         let mut erased = <dyn erased_serde::Deserializer>::erase(de);
-        let mut built = vt.create_default();
-        let built_mut = Arc::get_mut(&mut built).unwrap();
 
-        match built_mut.deserialize(&mut erased) {
-            Ok(_) => {
+        // XXX: Find way to reduce 'Arc' creation every time?
+        match vt.deserialize(&mut erased) {
+            Ok(mut built) => {
+                let built_mut = Arc::get_mut(&mut built).unwrap();
                 let clean = match vt.validate(built_mut.as_any_mut()) {
                     Some(clean) => clean,
                     None => return Err(EntityUpdateError::ValueValidationFailed),
                 };
 
-                let built: Arc<dyn EntityTrait> = built.into();
                 self.__apply_value(built);
-
                 Ok(clean)
             }
             Err(e) => {
