@@ -9,8 +9,8 @@ use std::{
 
 use crate::{
     archive,
+    common::{self, GroupFindError, GroupID, Monitor, PathHash},
     config::{self, GroupContext},
-    core::{self, GroupFindError, GroupID, Monitor, PathHash},
     entity::{self, EntityEventHook},
     noti,
 };
@@ -63,7 +63,7 @@ impl Storage {
     pub fn find_or_create<'a, T>(
         &self,
         path: impl IntoIterator<Item = &'a (impl AsRef<str> + ?Sized + 'a)>,
-    ) -> Result<config::Group<T>, core::Error>
+    ) -> Result<config::Group<T>, common::Error>
     where
         T: config::Template,
     {
@@ -98,7 +98,7 @@ impl Storage {
     pub fn create<'a, T>(
         &self,
         path: impl IntoIterator<Item = &'a (impl AsRef<str> + ?Sized + 'a)>,
-    ) -> Result<config::Group<T>, core::Error>
+    ) -> Result<config::Group<T>, common::Error>
     where
         T: config::Template,
     {
@@ -111,7 +111,7 @@ impl Storage {
     fn create_impl<T: config::Template>(
         &self,
         path: Vec<CompactString>,
-    ) -> Result<config::Group<T>, core::Error> {
+    ) -> Result<config::Group<T>, common::Error> {
         assert!(path.is_empty());
         assert!(path.iter().all(|x| !x.is_empty()));
 
@@ -120,7 +120,7 @@ impl Storage {
 
         // Naively check if there's already existing group with same path.
         if let Some(_) = self.0.find_group(&path_hash) {
-            return Err(core::Error::GroupPathDuplication);
+            return Err(common::Error::GroupPathDuplication);
         }
 
         // Collect metadata
@@ -170,7 +170,7 @@ impl Storage {
     /// * `no_merge` - If true, only active archive contents will be collected.
     ///   Otherwise, result will contain merge result of previously loaded archive.
     /// * `no_update` - If true, existing archive won't
-    pub fn export(&self, option: ExportOptions) -> Result<archive::Archive, core::Error> {
+    pub fn export(&self, option: ExportOptions) -> Result<archive::Archive, common::Error> {
         todo!()
     }
 
@@ -207,7 +207,7 @@ impl Storage {
         &self,
         archive: archive::Archive,
         option: ImportOptions,
-    ) -> Result<(), core::Error> {
+    ) -> Result<(), common::Error> {
         todo!()
     }
 
@@ -226,7 +226,7 @@ impl Storage {
     pub fn notify_edit_events(
         &self,
         items: impl IntoIterator<Item = GroupID>,
-    ) -> Result<(), core::Error> {
+    ) -> Result<(), common::Error> {
         todo!()
     }
 }
@@ -267,6 +267,7 @@ mod inner {
 
     use crate::{
         archive::{self},
+        entity::MetaFlag,
         noti,
     };
 
@@ -337,7 +338,7 @@ mod inner {
             path_hash: PathHash,
             context: Arc<GroupContext>,
             evt_on_update: noti::Sender,
-        ) -> Result<Arc<GroupContext>, core::Error> {
+        ) -> Result<Arc<GroupContext>, common::Error> {
             // Path-hash to GroupID mappings can be collided if there's simultaneous access.
             // Therefore treat group insertion as success only when path_hash was successfully
             // registered to corresponding group ID.
@@ -362,7 +363,7 @@ mod inner {
                 // This is corner case where path hash was registered by other thread. In this case,
                 // we should remove group registration and return error.
                 self.all_groups.remove(&group_id);
-                return Err(core::Error::GroupPathDuplication);
+                return Err(common::Error::GroupPathDuplication);
             }
 
             self.monitor.read().group_added(&group_id, &inserted);
@@ -411,11 +412,10 @@ mod inner {
                 .sources
                 .iter()
                 .map(|e| e.get_value())
-                .filter(|(meta, _)| !meta.props.disable_export)
+                .filter(|(meta, _)| !meta.props.flags.contains(MetaFlag::NO_EXPORT))
             {
                 let dst = node.values.entry(meta.name.into()).or_default();
-                // match serde_json::to_value(val.as_serialize()) {
-                match val.to_json_value() {
+                match serde_json::to_value(val.as_serialize()) {
                     Ok(val) => *dst = val,
                     Err(e) => log::warn!("failed to dump {}: {}", meta.name, e),
                 }
@@ -433,7 +433,7 @@ mod inner {
                 .sources
                 .iter()
                 .map(|e| (e, e.get_meta()))
-                .filter(|(_, m)| !m.props.disable_import)
+                .filter(|(_, m)| !m.props.flags.contains(MetaFlag::NO_IMPORT))
                 .filter_map(|(e, m)| {
                     node.values.get(m.name).map(|o| (e, o.clone().into_deserializer()))
                 })

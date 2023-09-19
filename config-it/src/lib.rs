@@ -202,8 +202,8 @@
 //! ```
 //!
 pub mod archive;
+pub mod common;
 pub mod config;
-pub mod core;
 pub mod storage;
 
 #[doc(hidden)]
@@ -216,7 +216,6 @@ pub use archive::Archive;
 pub use archive::CategoryRule as ArchiveCategoryRule;
 pub use config::Group;
 pub use config::Template;
-pub use entity::AccessLevel;
 pub use noti::Receiver as BroadcastReceiver;
 pub use storage::ExportOptions;
 pub use storage::ImportOptions;

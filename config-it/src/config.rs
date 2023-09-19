@@ -1,4 +1,4 @@
-use crate::core::GroupID;
+use crate::common::GroupID;
 use crate::entity::{EntityData, EntityTrait, Metadata};
 use crate::noti;
 use compact_str::CompactString;
@@ -31,7 +31,7 @@ pub trait Template: Clone + 'static {
     /// Convenient wrapper for element value update
     fn update_elem_at__(&mut self, index: usize, value: &dyn Any, meta: &Metadata) {
         let data = self.elem_at_mut__(index);
-        (meta.fn_clone_to)(value, data);
+        meta.vtable.clone_in_place(value, data);
     }
 }
 
@@ -193,6 +193,12 @@ impl<T: Template> Group<T> {
     /// Get index of element based on element address.
     #[doc(hidden)]
     pub fn get_index_by_ptr<U: 'static>(&self, e: *const U) -> Option<usize> {
+        debug_assert!({
+            let e = e as usize;
+            let base = &self.__body as *const _ as usize;
+            e >= base && e < base + std::mem::size_of::<T>()
+        });
+
         if let Some(prop) = self.get_prop_by_ptr(e) {
             Some(prop.index)
         } else {
@@ -231,6 +237,11 @@ impl<T: Template> Group<T> {
         let elem = &(*self.core.sources)[self.get_index_by_ptr(e).unwrap()];
         elem.__apply_value(cloned_value);
         elem.__notify_value_change(notify)
+    }
+
+    pub fn touch_elem<U: 'static>(&self, e: *const U) {
+        let elem = &(*self.core.sources)[self.get_index_by_ptr(e).unwrap()];
+        elem.__notify_value_change(true)
     }
 
     /// Clones new update receiver channel. Given channel will be notified whenever call to

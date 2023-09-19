@@ -1,9 +1,7 @@
-use std::{any::Any, hash::Hasher, sync::Arc};
-
-use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
+use std::{hash::Hasher, sync::Arc};
 
-use crate::{config::GroupContext, noti};
+use crate::config::GroupContext;
 
 macro_rules! id_type {
     ($id:ident) => {

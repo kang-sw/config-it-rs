@@ -1,11 +1,11 @@
-use erased_serde::{Deserializer, Serialize, Serializer};
+use bitflags::bitflags;
 use serde::de::DeserializeOwned;
 use std::any::{Any, TypeId};
 use std::borrow::Cow;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::core::ItemID;
+use crate::common::ItemID;
 
 ///
 /// Config entity type must satisfy this constraint
@@ -13,7 +13,7 @@ use crate::core::ItemID;
 pub trait EntityTrait: Send + Sync + Any {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
-    fn to_json_value(&self) -> Result<serde_json::Value, serde_json::Error>;
+    fn as_serialize(&self) -> &dyn erased_serde::Serialize;
     fn deserialize(
         &mut self,
         de: &mut dyn erased_serde::Deserializer,
@@ -22,7 +22,7 @@ pub trait EntityTrait: Send + Sync + Any {
 
 impl<T> EntityTrait for T
 where
-    T: Send + Sync + Any + Serialize + DeserializeOwned,
+    T: Send + Sync + Any + serde::Serialize + DeserializeOwned,
 {
     fn as_any(&self) -> &dyn Any {
         self as &dyn Any
@@ -36,12 +36,12 @@ where
         &mut self,
         de: &mut dyn erased_serde::Deserializer,
     ) -> Result<(), erased_serde::Error> {
-        *self = T::deserialize(de)?;
+        T::deserialize_in_place(de, self)?;
         Ok(())
     }
 
-    fn to_json_value(&self) -> Result<serde_json::Value, serde_json::Error> {
-        serde_json::to_value(self as &dyn erased_serde::Serialize)
+    fn as_serialize(&self) -> &dyn erased_serde::Serialize {
+        self as &dyn erased_serde::Serialize
     }
 }
 
@@ -52,23 +52,36 @@ where
 ///
 ///
 pub struct Metadata {
-    /// Identifier for this config entity.
-    pub name: &'static str,
     pub type_id: TypeId,
 
     pub props: MetadataProps,
+    pub vtable: Box<dyn MetadataTrait>,
+}
 
-    pub(crate) fn_default: Box<dyn Fn() -> Arc<dyn EntityTrait> + Send + Sync>,
-    pub(crate) fn_clone_to: fn(&dyn Any, &mut dyn Any),
-    pub(crate) fn_serialize_to:
-        fn(&dyn Any, &mut dyn Serializer) -> Result<(), erased_serde::Error>,
-    pub(crate) fn_deserialize_from:
-        fn(&mut dyn Any, &mut dyn Deserializer) -> Result<(), erased_serde::Error>,
+impl std::ops::Deref for Metadata {
+    type Target = MetadataProps;
+
+    fn deref(&self) -> &Self::Target {
+        &self.props
+    }
+}
+
+pub trait MetadataTrait: Send + Sync + 'static {
+    /// Creates default value for this config entity.
+    fn create_default(&self) -> Arc<dyn EntityTrait>;
+
+    /// Create new deserialized entity instance from given deserializer
+    fn create_from(
+        &self,
+        de: &mut dyn erased_serde::Deserializer,
+    ) -> Result<Arc<dyn EntityTrait>, erased_serde::Error>;
+
+    /// Copy one value from another. Panics when called with unmatched type!
+    fn clone_in_place(&self, src: &dyn Any, dst: &mut dyn Any);
 
     /// Returns None if validation failed. Some(false) when source value was corrected.
     ///  Some(true) when value was correct.
-    pub(crate) fn_validate:
-        Box<dyn Fn(&Metadata, &mut dyn Any) -> Option<bool> + Send + Sync + 'static>,
+    fn validate(&self, value: &mut dyn Any) -> Option<bool>;
 }
 
 pub struct MetadataValInit<T> {
@@ -76,29 +89,86 @@ pub struct MetadataValInit<T> {
     pub validate_fn: fn(&mut T) -> Option<bool>,
 }
 
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, Copy, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum AccessLevel {
-    Guest,
-    User,
-    Admin,
-    Off,
+bitflags! {
+    #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Copy, PartialEq, Eq)]
+    pub struct MetaFlag: u32 {
+        /// Disable import from `import` operation
+        const NO_IMPORT = 1 << 0;
+
+        /// Disable export to `export` operation
+        const NO_EXPORT = 1 << 1;
+
+        /// Hint monitor that this variable should be hidden from user.
+        const HIDDEN = 1 << 2;
+
+        /// Hint monitor that this variable should only be read by admin.
+        const ADMIN_READ = 1 << 3;
+
+        /// Hint monitor that this variable should only be written by admin.
+        const ADMIN_WRITE = 1 << 4 | Self::ADMIN_READ.bits();
+
+        /// Hint monitor that this is admin-only variable.
+        const ADMIN = Self::ADMIN_READ.bits() | Self::ADMIN_WRITE.bits();
+
+        /// Hint monitor that this variable is transient, and should not be saved to storage.
+        const TRANSIENT = MetaFlag::NO_EXPORT.bits() | MetaFlag::NO_IMPORT.bits();
+    }
 }
 
-#[derive(Debug)]
+/// Hint for backend editor. This is not used by config-it itself.
+///
+/// This is used by remote monitor to determine how to edit this variable.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MetadataEditorHint {
+    /// For color in range [0.0, 1.0]
+    ///
+    /// - [number; 3] -> RGB
+    /// - [number; 4] -> RGBA
+    ColorRgba255,
+
+    /// For color in range [0, 255]
+    ///
+    /// - [number; 3] -> RGB
+    /// - [number; 4] -> RGBA
+    /// - string -> hex color
+    /// - integer -> 32 bit hex color `[r,g,b,a] = [0,8,16,24].map(|x| 0xff & (color >> x))`
+    ColorRgbaReal,
+
+    /// Any string type will be treated as multiline text.
+    MultilineText,
+
+    /// Any string type will be treated as code, with given language hint.
+    Code(Cow<'static, str>),
+}
+
+/// Shared generic properties of this metadata entity.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct MetadataProps {
-    pub disable_export: bool,
-    pub disable_import: bool,
+    /// Identifier for this config entity.
+    pub name: &'static str,
 
-    /// Read/Write access level for this variable.
-    pub read_access: AccessLevel,
-    pub write_access: AccessLevel,
+    /// Typename for this config entity.
+    pub type_name: Cow<'static, str>,
 
+    ///
+    pub flags: MetaFlag,
+
+    /// Hint for monitoring editor. This is not directly used by this crate, but exists for hinting
+    /// remote monitor how to edit this variable.
+    pub editor_hint: Option<MetadataEditorHint>,
+
+    /// Optional schema. Will be used by remote monitor to manage this variable.
     pub schema: Option<crate::Schema>,
 
     /// Source variable name. Usually same as 'name' unless another name is specified for it.
     pub varname: Cow<'static, str>,
+
+    ///
     pub description: Cow<'static, str>,
+
+    /// Environment variable name
+    pub env: Option<Cow<'static, str>>,
 }
 
 pub mod lookups {
@@ -125,44 +195,13 @@ pub mod lookups {
 }
 
 impl Metadata {
-    pub fn create_for_base_type<T>(
-        name: &'static str,
-        init: MetadataValInit<T>,
-        props: MetadataProps,
-    ) -> Self
+    pub fn create_for_base_type<T>(init: MetadataValInit<T>, props: MetadataProps) -> Self
     where
         T: EntityTrait + Clone + serde::de::DeserializeOwned + serde::ser::Serialize,
     {
         let MetadataValInit { default_fn, validate_fn } = init;
 
-        Self {
-            name,
-            type_id: TypeId::of::<T>(),
-            props,
-            fn_validate: Box::new(move |meta, value_any| {
-                let value: &mut T = value_any.downcast_mut().unwrap();
-                (init.validate_fn)(value)
-            }),
-            fn_default: Box::new(move || Arc::new((default_fn)())),
-            fn_clone_to: |from, to| {
-                let from: &T = from.downcast_ref().unwrap();
-                let to: &mut T = to.downcast_mut().unwrap();
-
-                *to = from.clone();
-            },
-            fn_serialize_to: |from, to| {
-                let from: &T = from.downcast_ref().unwrap();
-                from.erased_serialize(to)?;
-
-                Ok(())
-            },
-            fn_deserialize_from: |to, from| {
-                let to: &mut T = to.downcast_mut().unwrap();
-                *to = erased_serde::deserialize(from)?;
-
-                Ok(())
-            },
-        }
+        Self { type_id: TypeId::of::<T>(), props, vtable: todo!() }
     }
 }
 
@@ -195,7 +234,7 @@ impl EntityData {
         Self {
             id: ItemID::new_unique(),
             fence: AtomicUsize::new(0),
-            value: Mutex::new((meta.fn_default)()),
+            value: Mutex::new(meta.vtable.create_default()),
             meta,
             hook,
         }
@@ -241,20 +280,21 @@ impl EntityData {
     ///                 to satisfy validator constraint
     /// * `Err(_)` - Deserialization or validation has failed.
     ///
-    pub fn update_value_from<'a, T>(&self, de: T) -> Result<bool, crate::core::Error>
+    pub fn update_value_from<'a, T>(&self, de: T) -> Result<bool, crate::common::Error>
     where
         T: serde::Deserializer<'a>,
     {
         let meta = &self.meta;
+        let vt = &meta.vtable;
         let mut erased = <dyn erased_serde::Deserializer>::erase(de);
-        let mut built = (meta.fn_default)();
+        let mut built = vt.create_default();
         let built_mut = Arc::get_mut(&mut built).unwrap();
 
         match built_mut.deserialize(&mut erased) {
             Ok(_) => {
-                let clean = match (meta.fn_validate)(&*meta, built_mut.as_any_mut()) {
+                let clean = match vt.validate(built_mut.as_any_mut()) {
                     Some(clean) => clean,
-                    None => return Err(crate::core::Error::ValueValidationFailed),
+                    None => return Err(crate::common::Error::ValueValidationFailed),
                 };
 
                 let built: Arc<dyn EntityTrait> = built.into();
@@ -265,7 +305,7 @@ impl EntityData {
             Err(e) => {
                 log::error!(
                     "(Deserialization Failed) {}(var:{}) \n\nERROR: {e:#?}",
-                    meta.name,
+                    meta.props.name,
                     meta.props.varname,
                 );
                 Err(e.into())
