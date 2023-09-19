@@ -55,7 +55,7 @@ pub struct Metadata {
     pub type_id: TypeId,
 
     pub props: MetadataProps,
-    pub vtable: Box<dyn MetadataTrait>,
+    pub vtable: Box<dyn MetadataVTable>,
 }
 
 impl std::ops::Deref for Metadata {
@@ -66,7 +66,7 @@ impl std::ops::Deref for Metadata {
     }
 }
 
-pub trait MetadataTrait: Send + Sync + 'static {
+pub trait MetadataVTable: Send + Sync + 'static {
     /// Creates default value for this config entity.
     fn create_default(&self) -> Arc<dyn EntityTrait>;
 
@@ -84,9 +84,29 @@ pub trait MetadataTrait: Send + Sync + 'static {
     fn validate(&self, value: &mut dyn Any) -> Option<bool>;
 }
 
-pub struct MetadataValInit<T> {
-    pub default_fn: fn() -> T,
-    pub validate_fn: fn(&mut T) -> Option<bool>,
+pub struct MetadataVTableImpl<T> {
+    _x: std::marker::PhantomData<T>,
+}
+
+impl<T: Send + Sync + 'static> MetadataVTable for MetadataVTableImpl<T> {
+    fn create_default(&self) -> Arc<dyn EntityTrait> {
+        todo!()
+    }
+
+    fn create_from(
+        &self,
+        de: &mut dyn erased_serde::Deserializer,
+    ) -> Result<Arc<dyn EntityTrait>, erased_serde::Error> {
+        todo!()
+    }
+
+    fn clone_in_place(&self, src: &dyn Any, dst: &mut dyn Any) {
+        todo!()
+    }
+
+    fn validate(&self, value: &mut dyn Any) -> Option<bool> {
+        todo!()
+    }
 }
 
 bitflags! {
@@ -195,12 +215,10 @@ pub mod lookups {
 }
 
 impl Metadata {
-    pub fn create_for_base_type<T>(init: MetadataValInit<T>, props: MetadataProps) -> Self
+    pub fn create_for_base_type<T>(init: MetadataVTableImpl<T>, props: MetadataProps) -> Self
     where
         T: EntityTrait + Clone + serde::de::DeserializeOwned + serde::ser::Serialize,
     {
-        let MetadataValInit { default_fn, validate_fn } = init;
-
         Self { type_id: TypeId::of::<T>(), props, vtable: todo!() }
     }
 }
@@ -227,6 +245,15 @@ pub struct EntityData {
     value: Mutex<Arc<dyn EntityTrait>>,
 
     hook: Arc<dyn EntityEventHook>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum EntityUpdateError {
+    #[error("Validation failed")]
+    ValueValidationFailed,
+
+    #[error("Deserialization failed")]
+    DeserializeFailed(#[from] erased_serde::Error),
 }
 
 impl EntityData {
@@ -280,7 +307,7 @@ impl EntityData {
     ///                 to satisfy validator constraint
     /// * `Err(_)` - Deserialization or validation has failed.
     ///
-    pub fn update_value_from<'a, T>(&self, de: T) -> Result<bool, crate::common::Error>
+    pub fn update_value_from<'a, T>(&self, de: T) -> Result<bool, EntityUpdateError>
     where
         T: serde::Deserializer<'a>,
     {
@@ -294,7 +321,7 @@ impl EntityData {
             Ok(_) => {
                 let clean = match vt.validate(built_mut.as_any_mut()) {
                     Some(clean) => clean,
-                    None => return Err(crate::common::Error::ValueValidationFailed),
+                    None => return Err(EntityUpdateError::ValueValidationFailed),
                 };
 
                 let built: Arc<dyn EntityTrait> = built.into();

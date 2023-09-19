@@ -9,25 +9,72 @@ use std::{
 
 use crate::{
     archive,
-    common::{self, GroupFindError, GroupID, Monitor, PathHash},
+    common::{GroupID, ItemID, PathHash},
     config::{self, GroupContext},
     entity::{self, EntityEventHook},
     noti,
 };
 use compact_str::{CompactString, ToCompactString};
 
+/* ---------------------------------------------------------------------------------------------- */
+/*                                      STORAGE MONITOR TRAIT                                     */
+/* ---------------------------------------------------------------------------------------------- */
+
+pub trait Monitor: Send + Sync + 'static {
+    fn initial_groups(&self, iter: &mut dyn Iterator<Item = (&GroupID, &Arc<GroupContext>)>) {
+        let _ = iter;
+    }
+    fn group_added(&self, group_id: &GroupID, group: &Arc<GroupContext>) {
+        let _ = (group_id, group);
+    }
+    fn group_removed(&self, group_id: &GroupID) {
+        let _ = group_id;
+    }
+    fn entity_value_updated(&self, group_id: &GroupID, item_id: &ItemID) {
+        let _ = (group_id, item_id);
+    }
+}
+
+/* ---------------------------------------------------------------------------------------------- */
+/*                                           STORAGE API                                          */
+/* ---------------------------------------------------------------------------------------------- */
 ///
 /// Storage manages multiple sets registered by preset key.
 ///
 #[derive(Default, Clone)]
 pub struct Storage(Arc<inner::Inner>);
 
+#[derive(thiserror::Error, Debug)]
+pub enum GroupFindError {
+    #[error("Given path was not found")]
+    PathNotFound,
+    #[error("Type ID mismatch from original registration")]
+    MismatchedTypeID,
+    #[error("The original group was already disposed")]
+    ExpiredStorage,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GroupFindOrCreateError {
+    #[error("Type ID mismatch from original registration")]
+    MismatchedTypeID,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum GroupCreationError {
+    #[error("Path name duplicated, found early! Path was: {0:?}")]
+    PathCollisionEarly(Vec<CompactString>),
+
+    #[error("Path name duplication found during registeration. Path was: {0:?}")]
+    PathCollisionRace(Arc<[CompactString]>),
+}
+
 impl Storage {
     /// Tries to find existing group from path name, and if it doesn't exist, tries to create new
     pub fn find_or_create<'a, T>(
         &self,
         path: impl IntoIterator<Item = &'a (impl AsRef<str> + ?Sized + 'a)>,
-    ) -> Result<config::Group<T>, common::Error>
+    ) -> Result<config::Group<T>, GroupFindOrCreateError>
     where
         T: config::Template,
     {
@@ -35,7 +82,7 @@ impl Storage {
         let keys: Vec<CompactString> = keys_iter.collect();
         let path_hash = PathHash::new(keys.iter().map(|x| x.as_str()));
 
-        todo!()
+        loop {}
     }
 
     /// A shortcut for find_group_ex
@@ -62,7 +109,7 @@ impl Storage {
     pub fn create<'a, T>(
         &self,
         path: impl IntoIterator<Item = &'a (impl AsRef<str> + ?Sized + 'a)>,
-    ) -> Result<config::Group<T>, common::Error>
+    ) -> Result<config::Group<T>, GroupCreationError>
     where
         T: config::Template,
     {
@@ -75,19 +122,19 @@ impl Storage {
     fn create_impl<T: config::Template>(
         &self,
         path: Vec<CompactString>,
-    ) -> Result<config::Group<T>, common::Error> {
+    ) -> Result<config::Group<T>, GroupCreationError> {
         assert!(path.is_empty());
         assert!(path.iter().all(|x| !x.is_empty()));
 
-        let path: Arc<[CompactString]> = path.into();
         let path_hash = PathHash::new(path.iter().map(|x| x.as_str()));
 
         // Naively check if there's already existing group with same path.
         if let Some(_) = self.0.find_group(&path_hash) {
-            return Err(common::Error::GroupPathDuplication);
+            return Err(GroupCreationError::PathCollisionEarly(path));
         }
 
         // Collect metadata
+        let path: Arc<[CompactString]> = path.into();
         let mut table: Vec<_> = T::prop_desc_table__().values().collect();
         table.sort_by(|a, b| a.index.cmp(&b.index));
 
@@ -183,13 +230,14 @@ impl Storage {
     ///
     /// Send monitor event to storage driver.
     ///
-    pub fn notify_edit_events(
-        &self,
-        items: impl IntoIterator<Item = GroupID>,
-    ) -> Result<(), common::Error> {
+    pub fn notify_edit_events(&self, items: impl IntoIterator<Item = GroupID>) {
         todo!()
     }
 }
+
+/* ---------------------------------------------------------------------------------------------- */
+/*                                            INTERNALS                                           */
+/* ---------------------------------------------------------------------------------------------- */
 
 struct GroupUnregisterHook {
     register_id: GroupID,
@@ -299,7 +347,7 @@ mod inner {
             path_hash: PathHash,
             context: Arc<GroupContext>,
             evt_on_update: noti::Sender,
-        ) -> Result<Arc<GroupContext>, common::Error> {
+        ) -> Result<Arc<GroupContext>, GroupCreationError> {
             // Path-hash to GroupID mappings can be collided if there's simultaneous access.
             // Therefore treat group insertion as success only when path_hash was successfully
             // registered to corresponding group ID.
@@ -324,7 +372,7 @@ mod inner {
                 // This is corner case where path hash was registered by other thread. In this case,
                 // we should remove group registration and return error.
                 self.all_groups.remove(&group_id);
-                return Err(common::Error::GroupPathDuplication);
+                return Err(GroupCreationError::PathCollisionRace(inserted.path.clone()));
             }
 
             self.monitor.read().group_added(&group_id, &inserted);
