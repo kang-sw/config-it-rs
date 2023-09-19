@@ -10,7 +10,7 @@ use crate::common::ItemID;
 ///
 /// Config entity type must satisfy this constraint
 ///
-pub trait EntityTrait: Send + Sync + Any {
+pub trait EntityTrait: Send + Sync + Any + 'static {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
     fn as_serialize(&self) -> &dyn erased_serde::Serialize;
@@ -18,11 +18,12 @@ pub trait EntityTrait: Send + Sync + Any {
         &mut self,
         de: &mut dyn erased_serde::Deserializer,
     ) -> Result<(), erased_serde::Error>;
+    fn duplicated(&self) -> Arc<dyn EntityTrait>;
 }
 
 impl<T> EntityTrait for T
 where
-    T: Send + Sync + Any + serde::Serialize + DeserializeOwned,
+    T: Send + Sync + Any + serde::Serialize + DeserializeOwned + Clone + 'static,
 {
     fn as_any(&self) -> &dyn Any {
         self as &dyn Any
@@ -42,6 +43,10 @@ where
 
     fn as_serialize(&self) -> &dyn erased_serde::Serialize {
         self as &dyn erased_serde::Serialize
+    }
+
+    fn duplicated(&self) -> Arc<dyn EntityTrait> {
+        Arc::new(self.clone())
     }
 }
 
@@ -67,14 +72,17 @@ impl std::ops::Deref for Metadata {
 }
 
 pub trait MetadataVTable: Send + Sync + 'static {
+    /// Does implement `Copy`?
+    fn implements_copy(&self) -> bool;
+
     /// Creates default value for this config entity.
-    fn create_default(&self) -> Arc<dyn EntityTrait>;
+    fn create_default(&self) -> EntityValue;
 
     /// Create new deserialized entity instance from given deserializer
     fn deserialize(
         &self,
         de: &mut dyn erased_serde::Deserializer,
-    ) -> Result<Arc<dyn EntityTrait>, erased_serde::Error>;
+    ) -> Result<EntityValue, erased_serde::Error>;
 
     /// Copy one value from another. Panics when called with unmatched type!
     fn clone_in_place(&self, src: &dyn Any, dst: &mut dyn Any);
@@ -86,17 +94,22 @@ pub trait MetadataVTable: Send + Sync + 'static {
 
 pub struct MetadataVTableImpl<T> {
     _x: std::marker::PhantomData<T>,
+    impl_copy: bool,
 }
 
 impl<T: Send + Sync + 'static> MetadataVTable for MetadataVTableImpl<T> {
-    fn create_default(&self) -> Arc<dyn EntityTrait> {
+    fn implements_copy(&self) -> bool {
+        self.impl_copy
+    }
+
+    fn create_default(&self) -> EntityValue {
         todo!()
     }
 
     fn deserialize(
         &self,
         de: &mut dyn erased_serde::Deserializer,
-    ) -> Result<Arc<dyn EntityTrait>, erased_serde::Error> {
+    ) -> Result<EntityValue, erased_serde::Error> {
         todo!()
     }
 
@@ -223,7 +236,108 @@ impl Metadata {
     }
 }
 
-///
+/* ---------------------------------------- Entity Value ---------------------------------------- */
+#[derive(Clone)]
+pub enum EntityValue {
+    Trivial(TrivialEntityValue),
+    Complex(Arc<dyn EntityTrait>),
+}
+
+#[derive(Clone, Copy)]
+pub struct TrivialEntityValue(
+    for<'a> unsafe fn(
+        Result<&'a [usize], &'a mut [usize]>,
+    ) -> Result<&'a dyn EntityTrait, &'a mut dyn EntityTrait>,
+    [usize; 2],
+);
+
+impl EntityTrait for EntityValue {
+    fn as_any(&self) -> &dyn Any {
+        self.as_entity().as_any()
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self.as_entity_mut().as_any_mut()
+    }
+
+    fn as_serialize(&self) -> &dyn erased_serde::Serialize {
+        self.as_entity().as_serialize()
+    }
+
+    fn deserialize(
+        &mut self,
+        de: &mut dyn erased_serde::Deserializer,
+    ) -> Result<(), erased_serde::Error> {
+        self.as_entity_mut().deserialize(de)
+    }
+
+    fn duplicated(&self) -> Arc<dyn EntityTrait> {
+        self.as_entity().duplicated()
+    }
+}
+
+impl EntityValue {
+    pub fn as_entity(&self) -> &dyn EntityTrait {
+        match self {
+            EntityValue::Trivial(t) => unsafe { (t.0)(Ok(&t.1)).unwrap_unchecked() },
+            EntityValue::Complex(v) => v.as_ref(),
+        }
+    }
+
+    pub fn as_entity_mut(&mut self) -> &mut dyn EntityTrait {
+        match self {
+            EntityValue::Trivial(t) => unsafe { (t.0)(Err(&mut t.1)).unwrap_err_unchecked() },
+            EntityValue::Complex(v) => {
+                if Arc::strong_count(v) == 1 {
+                    Arc::get_mut(v).unwrap()
+                } else {
+                    *v = v.duplicated();
+                    Arc::get_mut(v).unwrap()
+                }
+            }
+        }
+    }
+
+    pub fn from_trivial<T: Copy + EntityTrait>(value: T) -> Self {
+        // SAFETY: This is safe as long as `T` is trivially copyable. (`Copy` trait satisfies)
+        unsafe { Self::from_trivial_force(value) }
+    }
+
+    pub unsafe fn from_trivial_force<T: EntityTrait>(value: T) -> Self {
+        if std::mem::size_of::<T>() <= std::mem::size_of::<usize>() * 2 {
+            let mut buffer = [0usize; 2];
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    &value as *const _,
+                    buffer.as_mut_ptr() as _,
+                    std::mem::size_of::<T>(),
+                );
+            }
+
+            unsafe fn retrieve<'a, T: EntityTrait>(
+                i: Result<&'a [usize], &'a mut [usize]>,
+            ) -> Result<&'a dyn EntityTrait, &'a mut dyn EntityTrait> {
+                match i {
+                    Ok(x) => Ok(&*(x.as_ptr() as *const T)),
+                    Err(x) => Err(&mut *(x.as_mut_ptr() as *mut T)),
+                }
+            }
+
+            Self::Trivial(TrivialEntityValue(retrieve::<T>, buffer))
+        } else {
+            Self::from_complex(value)
+        }
+    }
+
+    pub fn from_complex<T: EntityTrait>(value: T) -> Self {
+        Self::Complex(Arc::new(value))
+    }
+}
+
+/* ---------------------------------------------------------------------------------------------- */
+/*                                           ENTITY DATA                                          */
+/* ---------------------------------------------------------------------------------------------- */
+
 ///
 /// Events are two directional ...
 ///
@@ -242,7 +356,7 @@ pub struct EntityData {
 
     meta: Arc<Metadata>,
     version: AtomicUsize,
-    value: Mutex<Arc<dyn EntityTrait>>,
+    value: Mutex<EntityValue>,
 
     hook: Arc<dyn EntityEventHook>,
 }
@@ -279,14 +393,14 @@ impl EntityData {
         self.version.load(Ordering::Relaxed)
     }
 
-    pub fn get_value(&self) -> (&Arc<Metadata>, Arc<dyn EntityTrait>) {
+    pub fn get_value(&self) -> (&Arc<Metadata>, EntityValue) {
         (&self.meta, self.value.lock().unwrap().clone())
     }
 
     /// If `silent` option is disabled, increase config set and source argument's fence
     ///  by 1, to make self and other instances of config set which shares the same core
     ///  be aware of this change.
-    pub fn __apply_value(&self, value: Arc<dyn EntityTrait>) {
+    pub fn __apply_value(&self, value: EntityValue) {
         debug_assert!(self.meta.type_id == value.as_any().type_id());
 
         {
@@ -318,8 +432,7 @@ impl EntityData {
         // XXX: Find way to reduce 'Arc' creation every time?
         match vt.deserialize(&mut erased) {
             Ok(mut built) => {
-                let built_mut = Arc::get_mut(&mut built).unwrap();
-                let clean = match vt.validate(built_mut.as_any_mut()) {
+                let clean = match vt.validate(built.as_any_mut()) {
                     Some(clean) => clean,
                     None => return Err(EntityUpdateError::ValueValidationFailed),
                 };

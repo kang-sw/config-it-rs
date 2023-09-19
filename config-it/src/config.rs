@@ -1,5 +1,5 @@
 use crate::common::GroupID;
-use crate::entity::{EntityData, EntityTrait, Metadata};
+use crate::entity::{EntityData, EntityTrait, EntityValue, Metadata};
 use crate::noti;
 use compact_str::CompactString;
 use std::any::{Any, TypeId};
@@ -232,13 +232,18 @@ impl<T: Template> Group<T> {
 
     /// Commit changes on element to core context, then it will be propagated to all other groups
     /// which shares same core context.
-    pub fn commit_elem<U: Clone + EntityTrait + Send>(&self, e: &U, notify: bool) {
-        // Create new value pointer from input argument.
-        let cloned_value = Arc::new(e.clone()) as Arc<dyn EntityTrait>;
-
+    pub fn commit_elem<U: Clone + EntityTrait>(&self, e: &U, notify: bool) {
         // Replace source argument with created ptr
         let elem = &(*self.core.sources)[self.get_index_by_ptr(e).unwrap()];
-        elem.__apply_value(cloned_value);
+
+        let new_value = if elem.get_meta().vtable.implements_copy() {
+            // SAFETY: `is_trivially_copiable` flag must be validated strictly by macro.
+            unsafe { EntityValue::from_trivial_force(e.clone()) }
+        } else {
+            EntityValue::from_complex(e.clone())
+        };
+
+        elem.__apply_value(new_value);
         elem.__notify_value_change(notify)
     }
 

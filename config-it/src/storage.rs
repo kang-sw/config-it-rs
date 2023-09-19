@@ -297,7 +297,7 @@ mod inner {
 
     use crate::{
         archive::{self},
-        entity::MetaFlag,
+        entity::{EntityTrait, MetaFlag},
         noti, Archive,
     };
 
