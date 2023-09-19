@@ -28,5 +28,6 @@ impl config_it::Template for MyType {
 
 pub fn pewpew() {
     let st = config_it::Storage::default();
-    let mut g: config_it::Group<MyType> = st.create(["hello"]).unwrap();
+    let g: config_it::Group<MyType> = st.create(["hello"]).unwrap();
+    st.find::<MyType>(["hads", "hads"]).ok();
 }

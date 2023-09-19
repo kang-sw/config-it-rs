@@ -50,8 +50,6 @@ pub enum GroupFindError {
     PathNotFound,
     #[error("Type ID mismatch from original registration")]
     MismatchedTypeID,
-    #[error("The original group was already disposed")]
-    ExpiredStorage,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -64,7 +62,6 @@ pub enum GroupFindOrCreateError {
 pub enum GroupCreationError {
     #[error("Path name duplicated, found early! Path was: {0:?}")]
     PathCollisionEarly(Vec<CompactString>),
-
     #[error("Path name duplication found during registeration. Path was: {0:?}")]
     PathCollisionRace(Arc<[CompactString]>),
 }
@@ -79,18 +76,39 @@ impl Storage {
         T: config::Template,
     {
         let keys_iter = path.into_iter().map(|x| x.as_ref().to_compact_string());
-        let keys: Vec<CompactString> = keys_iter.collect();
+        let mut keys: Vec<CompactString> = keys_iter.collect();
         let path_hash = PathHash::new(keys.iter().map(|x| x.as_str()));
 
-        loop {}
+        use GroupCreationError as GCE;
+        use GroupFindError as GFE;
+        use GroupFindOrCreateError as GFOE;
+
+        loop {
+            match self.find(path_hash) {
+                Ok(found) => break Ok(found),
+                Err(GFE::MismatchedTypeID) => break Err(GFOE::MismatchedTypeID),
+                Err(GFE::PathNotFound) => {}
+            }
+
+            match self.create_impl::<T>(keys) {
+                Ok(created) => break Ok(created),
+
+                // Retry from finding group if path collision was found.
+                Err(GCE::PathCollisionEarly(x)) => keys = x,
+
+                // Retry .. although this involves expensive iterative allocation, this should be
+                // corner case where multiple thread tries to create same group at the same time.
+                Err(GCE::PathCollisionRace(x)) => keys = (&x[..]).into(),
+            }
+        }
     }
 
     /// A shortcut for find_group_ex
     pub fn find<'a, T: config::Template>(
         &self,
-        path: impl IntoIterator<Item = &'a (impl AsRef<str> + ?Sized + 'a)>,
+        path: impl Into<PathHash>,
     ) -> Result<config::Group<T>, GroupFindError> {
-        let path_hash = PathHash::new(path.into_iter().map(|x| x.as_ref()));
+        let path_hash = path.into();
 
         if let Some(group) = self.0.find_group(&path_hash) {
             if group.template_type_id != std::any::TypeId::of::<T>() {

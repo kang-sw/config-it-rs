@@ -5,7 +5,7 @@ use std::{hash::Hasher, sync::Arc};
 use crate::config::GroupContext;
 
 macro_rules! id_type {
-    ($id:ident) => {
+    ($id:ident $($args:tt)*) => {
         #[derive(
             Debug,
             Clone,
@@ -15,18 +15,19 @@ macro_rules! id_type {
             Eq,
             PartialOrd,
             Ord,
-            derive_more::From,
             derive_more::Display,
             Serialize,
-            Deserialize,
+            Deserialize
+            $($args)*
         )]
         pub struct $id(pub u64);
     };
 }
 
 id_type!(PathHash);
-id_type!(GroupID);
-id_type!(ItemID);
+
+id_type!(GroupID, derive_more::From);
+id_type!(ItemID, derive_more::From);
 
 impl PathHash {
     pub fn new<'a>(paths: impl IntoIterator<Item = &'a str>) -> Self {
@@ -36,6 +37,12 @@ impl PathHash {
             hasher.write(b"\x03\x00"); // delim
         });
         Self(hasher.finish())
+    }
+}
+
+impl<'a, T: IntoIterator<Item = &'a str>> From<T> for PathHash {
+    fn from(value: T) -> Self {
+        Self::new(value)
     }
 }
 
