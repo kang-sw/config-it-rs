@@ -1,6 +1,5 @@
 use std::{
     any::{Any, TypeId},
-    hash::Hash,
     mem::replace,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -257,16 +256,13 @@ impl EntityEventHook for EntityHookImpl {
         // Update notification is transient, thus when storage driver is busy, it can
         //  just be dropped.
         let Some(inner) = self.inner.upgrade() else { return };
-
-        // TODO: let group = inner.get_group(self.register_id).expect("logic error");
-
-        // group.on_value_update(data, silent);
+        inner.on_value_update(self.register_id, data, silent);
     }
 }
 
 mod inner {
     use dashmap::DashMap;
-    use parking_lot::{Mutex, RwLock};
+    use parking_lot::RwLock;
     use serde::de::IntoDeserializer;
 
     use crate::{
@@ -389,6 +385,21 @@ mod inner {
             }
         }
 
+        pub fn on_value_update(&self, group_id: GroupID, data: &entity::EntityData, silent: bool) {
+            // Monitor should always be notified on value update, regardless of silent flag
+            self.monitor.read().entity_value_updated(&group_id, &data.get_id());
+
+            // If silent flag is set, skip internal notify to other instances.
+            if silent {
+                return;
+            }
+
+            // This is trivially fallible operation.
+            let Some(group) = self.all_groups.get(&group_id) else { return };
+            group.context.source_update_fence.fetch_add(1, Ordering::Relaxed);
+            group.evt_on_update.notify();
+        }
+
         fn dump_node(ctx: &GroupContext, archive: &mut archive::Archive) {
             let paths = ctx.path.iter().map(|x| x.as_str());
             let node = archive.find_or_create_path_mut(paths);
@@ -403,6 +414,7 @@ mod inner {
                 .filter(|(meta, _)| !meta.props.disable_export)
             {
                 let dst = node.values.entry(meta.name.into()).or_default();
+                // match serde_json::to_value(val.as_serialize()) {
                 match val.to_json_value() {
                     Ok(val) => *dst = val,
                     Err(e) => log::warn!("failed to dump {}: {}", meta.name, e),
