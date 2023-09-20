@@ -68,13 +68,12 @@ pub fn derive_collect_fn(item: LangTokenStream) -> LangTokenStream {
         impl #this_crate::Template for #ident {
             fn props__() -> &'static [# this_crate::config::PropDesc] {
                 static PROPS: std::sync::OnceLock<[#this_crate::config::PropDesc; #n_props]> = std::sync::OnceLock::new();
-                PROPS.get_or_init(|| {
-                    [#(#fn_props)*]
-                })
+                PROPS.get_or_init(|| [#(#fn_props)*] )
             }
 
             fn prop_at_offset__(offset: usize) -> Option<&'static #this_crate::config::PropDesc> {
-                match offset { #(#fn_prop_at_offset)* _ => None::<usize> }.map(|x| &Self::props__()[x])
+                let index = match offset { #(#fn_prop_at_offset)* _ => None::<usize> };
+                index.map(|x| &Self::props__()[x])
             }
 
             fn template_name() -> (&'static str, &'static str) {
@@ -110,9 +109,8 @@ fn visit_fields(
     fn_elem_at_mut.reserve(n_field);
 
     let mut doc_string = Vec::new();
-    let mut property_index = 0;
 
-    for field in fields.into_iter() {
+    for (field_index, field) in fields.into_iter().enumerate() {
         let field_span = field.span();
         let field_ty = field.ty;
         let field_ident = field.ident.expect("This is struct with named fields");
