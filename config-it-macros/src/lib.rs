@@ -11,7 +11,8 @@
 //! - `default_expr = "<expr>"`: Set default value for the field.
 //! - `admin | admin_write | admin_read`: Prohibit access to the field for the user.
 //! - `min = <expr> | max = <expr> | one_of = [<expr>...]`: Sets constraint for the field
-//! - `env = "<literal>"`: Sets environment variable name for the field.
+//! - `env = "<literal>"`: Read default value from environment variable.
+//! - `env_once = "<literal>"`: Same as env, but caches value only once.
 //! - `transient | no_export | no_import`: Prohibit export/import of the field.
 //! - `editor = $this::MetadataEditorHint::<ident>`: Sets editor hint for the field.
 //! - `hide`: Hide field from the editor.
@@ -113,6 +114,7 @@ fn visit_fields(
 
     for field in fields.into_iter() {
         let field_span = field.span();
+        let field_ty = field.ty;
         let field_ident = field.ident.expect("This is struct with named fields");
 
         /* -------------------------------------------------------------------------------------- */
@@ -193,9 +195,9 @@ fn visit_fields(
         // TODO
 
         /* --------------------------------- Default Generation --------------------------------- */
-        fn_default_config.push(match prop.default {
+        let default_expr = match prop.default {
             Some(FieldPropertyDefault::Expr(expr)) => {
-                quote_spanned!(expr.span() => #field_ident: (#expr).to_owned(),)
+                quote_spanned!(expr.span() => (#expr).to_owned())
             }
 
             Some(FieldPropertyDefault::ExprStr(lit)) => {
@@ -205,13 +207,34 @@ fn visit_fields(
                     continue;
                 };
 
-                quote_spanned!(span => #field_ident: #expr,)
+                quote_spanned!(span => #expr)
             }
 
             None => {
-                quote_spanned!(field_span => #field_ident: Default::default(),)
+                quote_spanned!(field_span => Default::default())
             }
-        })
+        };
+
+        let default_expr = if let Some((once, env)) = prop.env {
+            let env_var = env.value();
+            if once {
+                quote_spanned!(env.span() => {
+                    #this_crate::lazy_static! {
+                        static ref ENV: Option<#field_ty> = std::env::var(#env_var).ok().and_then(|x| x.parse().ok());
+                    }
+
+                    ENV.clone().unwrap_or_else(|| #default_expr)
+                })
+            } else {
+                quote_spanned!(env.span() =>
+                    std::env::var(#env_var).ok().and_then(|x| x.parse().ok()).unwrap_or_else(|| #default_expr)
+                )
+            }
+        } else {
+            default_expr
+        };
+
+        fn_default_config.push(quote_spanned!(field_span => #field_ident: #default_expr,));
 
         /* ------------------------------ Index Access Genenration ------------------------------ */
         // TODO
@@ -272,8 +295,10 @@ fn from_meta_list(meta_list: syn::MetaList) -> Option<FieldProperty> {
                     };
 
                     r.one_of = Some(one_of);
+                } else if is_("env_once") {
+                    r.env = expr_take_lit_str(value).map(|x| (true, x));
                 } else if is_("env") {
-                    r.env = expr_take_lit_str(value);
+                    r.env = expr_take_lit_str(value).map(|x| (false, x));
                 } else if is_("editor") {
                     r.editor = Some(value);
                 }
@@ -314,7 +339,8 @@ struct FieldProperty {
     min: Option<syn::Expr>,
     max: Option<syn::Expr>,
     one_of: Option<syn::ExprArray>,
-    env: Option<syn::LitStr>,
+    /// (once, key)
+    env: Option<(bool, syn::LitStr)>,
     transient: bool,
     no_export: bool,
     no_import: bool,
