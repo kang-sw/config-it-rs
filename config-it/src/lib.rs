@@ -226,10 +226,14 @@ pub use memoffset::offset_of;
 pub use macros::Template;
 
 pub use config::WatchUpdate;
-pub use schemars::schema::RootSchema as Schema;
 pub use serde_json::Value as ArchiveValue;
 
+#[cfg(feature = "jsonschema")]
+pub use schemars::schema::RootSchema as Schema;
+
+#[cfg(feature = "jsonschema")]
 pub extern crate schemars;
+
 pub extern crate serde;
 
 /// Shorthand macro for consuming multiple updates.

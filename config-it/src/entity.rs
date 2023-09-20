@@ -203,6 +203,7 @@ pub struct MetadataProps {
     pub editor_hint: Option<MetadataEditorHint>,
 
     /// Optional schema. Will be used by remote monitor to manage this variable.
+    #[cfg(feature = "jsonschema")]
     pub schema: Option<crate::Schema>,
 
     /// Source variable name. Usually same as 'name' unless another name is specified for it.
@@ -215,6 +216,7 @@ pub struct MetadataProps {
     pub env: Option<Cow<'static, str>>,
 }
 
+#[cfg(feature = "jsonschema")]
 pub mod lookups {
     pub trait HasSchema {
         fn get_schema(&self) -> Option<crate::Schema>;

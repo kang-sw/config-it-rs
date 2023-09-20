@@ -14,8 +14,6 @@ license = "MIT"
 [dependencies]
 macros = { package = "config-it-macros", path = "../config-it-macros", version = "0.4.0" }
 
-schemars = { version = "0.8.12", features = ["preserve_order"] }
-
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 erased-serde = "0.3"
@@ -37,6 +35,11 @@ memoffset = "0.9.0"
 
 parking_lot = "0"
 
+[dependencies.schemars]
+version = "0.8.12"
+features = ["preserve_order"]
+optional = true
+
 [dev-dependencies]
 futures = "0.3"
 serde_yaml = "0"
@@ -44,5 +47,6 @@ indoc = "2"
 tokio = { version = "1", features = ["full"] }
 
 [features]
-default = ["indexmap"]
+default = ["indexmap", "jsonschema"]
 indexmap = ["dep:indexmap"]
+jsonschema = ["dep:schemars", "macros/jsonschema"]

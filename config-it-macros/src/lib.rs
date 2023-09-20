@@ -337,8 +337,7 @@ struct FieldProperty {
     min: Option<syn::Expr>,
     max: Option<syn::Expr>,
     one_of: Option<syn::ExprArray>,
-    /// (once, key)
-    env: Option<(bool, syn::LitStr)>,
+    env: Option<(bool, syn::LitStr)>, // (IsOnce, EnvKey)
     transient: bool,
     no_export: bool,
     no_import: bool,
