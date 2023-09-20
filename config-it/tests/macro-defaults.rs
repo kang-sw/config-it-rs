@@ -1,5 +1,9 @@
-#[derive(config_it::Template)]
+#[derive(config_it::Template, Clone)]
 struct Foo {
-    #[config(default = 14)]
+    /// This is to
+    /// Multi
+    ///
+    /// ANd
+    #[config(default = 14, desc = "This is a var")]
     var: u32,
 }

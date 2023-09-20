@@ -3,7 +3,6 @@ use crate::entity::{EntityData, EntityTrait, EntityValue, Metadata};
 use crate::noti;
 use compact_str::CompactString;
 use std::any::{Any, TypeId};
-use std::collections::HashMap;
 use std::iter::zip;
 use std::mem::replace;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -14,18 +13,23 @@ use std::sync::{Arc, Weak};
 ///
 pub trait Template: Clone + 'static {
     /// Returns table mapping to <offset_from_base:property_metadata>
-    fn prop_desc_table__() -> &'static HashMap<usize, PropDesc>;
+    #[doc(hidden)]
+    fn props__() -> &'static [PropDesc];
+
+    /// Gets property at memory offset
+    #[doc(hidden)]
+    fn prop_at_offset__(offset: usize) -> Option<&'static PropDesc>;
 
     /// Get path of this config template (module path, struct name)
     fn template_name() -> (&'static str, &'static str);
 
-    /// Create default object
+    /// Create default configuration object
     fn default_config() -> Self;
 
-    /// Returns element at index as Any
+    #[doc(hidden)]
     fn elem_at_mut__(&mut self, index: usize) -> &mut dyn Any;
 
-    /// Convenient wrapper for element value update
+    #[doc(hidden)]
     fn update_elem_at__(&mut self, index: usize, value: &dyn Any, meta: &Metadata) {
         let data = self.elem_at_mut__(index);
         meta.vtable.clone_in_place(value, data);
@@ -133,7 +137,7 @@ impl<T: Template> Group<T> {
             core,
             __body: T::default_config(),
             version_cached: 0,
-            local: vec![PropLocalContext::default(); T::prop_desc_table__().len()].into(),
+            local: vec![PropLocalContext::default(); T::props__().len()].into(),
             _unregister_hook: unregister_anchor,
         }
     }
@@ -213,7 +217,7 @@ impl<T: Template> Group<T> {
             v if v < 0 => None,
             v if v >= std::mem::size_of::<T>() as isize => None,
             v => {
-                if let Some(prop) = T::prop_desc_table__().get(&(v as usize)) {
+                if let Some(prop) = T::prop_at_offset__(v as usize) {
                     debug_assert_eq!(prop.type_id, TypeId::of::<U>());
                     debug_assert!(prop.index < self.local.len());
                     Some(prop)
@@ -304,7 +308,11 @@ fn _verify_send_impl() {
     #[derive(Clone, Default)]
     struct Example {}
     impl Template for Example {
-        fn prop_desc_table__() -> &'static HashMap<usize, PropDesc> {
+        fn prop_at_offset__(offset: usize) -> Option<&'static PropDesc> {
+            unimplemented!()
+        }
+
+        fn props__() -> &'static [PropDesc] {
             unimplemented!()
         }
 

@@ -1,11 +1,16 @@
+use config_it::config::PropDesc;
+
 #[derive(Clone)]
 struct MyType {
     _x: i32,
 }
 
 impl config_it::Template for MyType {
-    fn prop_desc_table__() -> &'static std::collections::HashMap<usize, config_it::config::PropDesc>
-    {
+    fn prop_at_offset__(offset: usize) -> Option<&'static PropDesc> {
+        todo!()
+    }
+
+    fn props__() -> &'static [PropDesc] {
         todo!()
     }
 

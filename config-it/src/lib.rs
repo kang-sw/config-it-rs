@@ -221,6 +221,7 @@ pub use storage::Storage;
 
 /// Required by `config_it::Template` macro.
 pub use lazy_static::lazy_static;
+pub use memoffset::offset_of;
 
 /// Primary macro for defining configuration group template.
 pub use macros::Template;

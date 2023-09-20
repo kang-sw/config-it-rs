@@ -153,15 +153,18 @@ impl Storage {
 
         // Collect metadata
         let path: Arc<[CompactString]> = path.into();
-        let mut table: Vec<_> = T::prop_desc_table__().values().collect();
-        table.sort_by(|a, b| a.index.cmp(&b.index));
 
         // This ID may not be used if group creation failed ... it's generally okay since we have
         // 2^63 trials.
         let register_id = GroupID::new_unique();
         let entity_hook = Arc::new(EntityHookImpl { register_id, inner: Arc::downgrade(&self.0) });
 
-        let sources: Vec<_> = table
+        debug_assert!(
+            T::props__().windows(2).all(|x| x[0].index + 1 == x[1].index),
+            "Something wrong with property generation"
+        );
+
+        let sources: Vec<_> = T::props__()
             .into_iter()
             .map(|prop| entity::EntityData::new(prop.meta.clone(), entity_hook.clone()))
             .collect();
