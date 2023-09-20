@@ -8,6 +8,11 @@ use std::sync::Arc;
 
 use crate::common::ItemID;
 
+/// Number of available words for trivial entity value.
+///
+/// Value `5` makes [`EntityData`] in 32-byte align (96 byte size).
+const TRIVIAL_ENTITY_NUM_WORDS: usize = 5;
+
 ///
 /// Config entity type must satisfy this constraint
 ///
@@ -262,7 +267,10 @@ type ReinterpretOutput<'a> = Result<&'a dyn EntityTrait, &'a mut dyn EntityTrait
 /// Pair of function pointer to retrieve entity trait from given pointer and actual payload.
 #[derive(Clone, Copy)]
 #[doc(hidden)]
-pub struct TrivialEntityValue(for<'a> unsafe fn(ReinterpretInput) -> ReinterpretOutput, [usize; 2]);
+pub struct TrivialEntityValue(
+    for<'a> unsafe fn(ReinterpretInput) -> ReinterpretOutput,
+    [usize; TRIVIAL_ENTITY_NUM_WORDS],
+);
 
 impl EntityTrait for EntityValue {
     fn as_any(&self) -> &dyn Any {
@@ -317,8 +325,8 @@ impl EntityValue {
     }
 
     pub unsafe fn from_trivial_unchecked<T: EntityTrait>(value: T) -> Self {
-        if std::mem::size_of::<T>() <= std::mem::size_of::<usize>() * 2 {
-            let mut buffer = [0usize; 2];
+        if std::mem::size_of::<T>() <= std::mem::size_of::<usize>() * TRIVIAL_ENTITY_NUM_WORDS {
+            let mut buffer = [0usize; TRIVIAL_ENTITY_NUM_WORDS];
             unsafe {
                 std::ptr::copy_nonoverlapping(&value, buffer.as_mut_ptr() as _, 1);
             }
