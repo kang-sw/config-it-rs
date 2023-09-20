@@ -83,7 +83,6 @@ pub fn derive_collect_fn(item: LangTokenStream) -> LangTokenStream {
             fn default_config() -> Self {
                 Self {
                     #(#fn_default_config)*
-                    ..todo!()
                 }
             }
 
