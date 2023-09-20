@@ -368,7 +368,7 @@ pub struct EntityData {
     /// Unique entity id for program run-time
     id: ItemID,
 
-    meta: Arc<Metadata>,
+    meta: &'static Metadata,
     version: AtomicUsize,
     value: Mutex<EntityValue>,
 
@@ -385,7 +385,7 @@ pub enum EntityUpdateError {
 }
 
 impl EntityData {
-    pub(crate) fn new(meta: Arc<Metadata>, hook: Arc<dyn EntityEventHook>) -> Self {
+    pub(crate) fn new(meta: &'static Metadata, hook: Arc<dyn EntityEventHook>) -> Self {
         Self {
             id: ItemID::new_unique(),
             version: AtomicUsize::new(0),
@@ -399,16 +399,16 @@ impl EntityData {
         self.id
     }
 
-    pub fn get_meta(&self) -> &Arc<Metadata> {
-        &self.meta
+    pub fn get_meta(&self) -> &'static Metadata {
+        self.meta
     }
 
     pub fn get_update_fence(&self) -> usize {
         self.version.load(Ordering::Relaxed)
     }
 
-    pub fn get_value(&self) -> (&Arc<Metadata>, EntityValue) {
-        (&self.meta, self.value.lock().clone())
+    pub fn get_value(&self) -> (&'static Metadata, EntityValue) {
+        (self.meta, self.value.lock().clone())
     }
 
     /// If `silent` option is disabled, increase config set and source argument's fence

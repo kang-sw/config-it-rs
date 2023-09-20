@@ -14,16 +14,13 @@ use std::sync::{Arc, Weak};
 ///
 pub trait Template: Clone + 'static {
     /// Returns table mapping to <offset_from_base:property_metadata>
-    fn prop_desc_table__() -> &'static HashMap<usize, PropData>;
+    fn prop_desc_table__() -> &'static HashMap<usize, PropDesc>;
 
     /// Get path of this config template (module path, struct name)
     fn template_name() -> (&'static str, &'static str);
 
     /// Create default object
     fn default_config() -> Self;
-
-    /// Fill defaulted values
-    fn fill_default(&mut self);
 
     /// Returns element at index as Any
     fn elem_at_mut__(&mut self, index: usize) -> &mut dyn Any;
@@ -35,10 +32,10 @@ pub trait Template: Clone + 'static {
     }
 }
 
-pub struct PropData {
+pub struct PropDesc {
     pub index: usize,
     pub type_id: TypeId,
-    pub meta: Arc<Metadata>,
+    pub meta: &'static Metadata,
 }
 
 ///
@@ -132,16 +129,13 @@ impl<T: Template> Group<T> {
         core: Arc<GroupContext>,
         unregister_anchor: Arc<dyn Any + Send + Sync>,
     ) -> Self {
-        let mut gen = Self {
+        Self {
             core,
             __body: T::default_config(),
             version_cached: 0,
             local: vec![PropLocalContext::default(); T::prop_desc_table__().len()].into(),
             _unregister_hook: unregister_anchor,
-        };
-
-        gen.fill_default();
-        gen
+        }
     }
 
     /// Fetch underlying object's updates and apply to local cache. Returns true if there was
@@ -211,7 +205,7 @@ impl<T: Template> Group<T> {
 
     /// Get property descriptor by element address. Provides primitive guarantee for type safety.
     #[doc(hidden)]
-    pub fn get_prop_by_ptr<U: 'static>(&self, e: *const U) -> Option<&PropData> {
+    pub fn get_prop_by_ptr<U: 'static>(&self, e: *const U) -> Option<&PropDesc> {
         let ptr = e as *const u8 as isize;
         let base = &self.__body as *const _ as *const u8 as isize;
 
@@ -280,7 +274,7 @@ impl<T: Template> Group<T> {
     }
 
     /// Get generated metadata of given element
-    pub fn metadata<U: 'static>(&self, elem: *const U) -> &Arc<Metadata> {
+    pub fn metadata<U: 'static>(&self, elem: *const U) -> &'static Metadata {
         &self.get_prop_by_ptr(elem).unwrap().meta
     }
 
@@ -310,11 +304,7 @@ fn _verify_send_impl() {
     #[derive(Clone, Default)]
     struct Example {}
     impl Template for Example {
-        fn prop_desc_table__() -> &'static HashMap<usize, PropData> {
-            unimplemented!()
-        }
-
-        fn fill_default(&mut self) {
+        fn prop_desc_table__() -> &'static HashMap<usize, PropDesc> {
             unimplemented!()
         }
 

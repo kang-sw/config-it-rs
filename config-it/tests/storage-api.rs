@@ -4,7 +4,7 @@ struct MyType {
 }
 
 impl config_it::Template for MyType {
-    fn prop_desc_table__() -> &'static std::collections::HashMap<usize, config_it::config::PropData>
+    fn prop_desc_table__() -> &'static std::collections::HashMap<usize, config_it::config::PropDesc>
     {
         todo!()
     }
@@ -14,10 +14,6 @@ impl config_it::Template for MyType {
     }
 
     fn default_config() -> Self {
-        todo!()
-    }
-
-    fn fill_default(&mut self) {
         todo!()
     }
 
