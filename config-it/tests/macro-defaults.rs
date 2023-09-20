@@ -6,4 +6,16 @@ struct Foo {
     /// ANd
     #[config(default = 14, desc = "This is a var")]
     var: u32,
+
+    #[config(default = (14, 8), desc = "This is a var")]
+    varg: (u32, u32),
+
+    #[config(default = "hello", desc = "This is a var")]
+    vk: String,
+
+    #[config(one_of=[1,3,4])]
+    tew: u32,
+
+    #[non_config_default_expr = "4i32"]
+    other: i32,
 }

@@ -24,9 +24,11 @@
 
 use proc_macro::TokenStream as LangTokenStream;
 use proc_macro2::{Span, TokenStream};
-use proc_macro_error::{emit_error, proc_macro_error};
+use proc_macro_error::{emit_error, emit_warning, proc_macro_error};
 use quote::{quote, quote_spanned};
-use syn::{punctuated::Punctuated, spanned::Spanned, Attribute, Expr, Meta, Token};
+use syn::{
+    punctuated::Punctuated, spanned::Spanned, Attribute, Expr, ExprLit, Lit, LitStr, Meta, Token,
+};
 
 #[proc_macro_error]
 #[proc_macro_derive(Template, attributes(config_it, config, non_config_default_expr))]
@@ -60,10 +62,11 @@ pub fn derive_collect_fn(item: LangTokenStream) -> LangTokenStream {
     } = gen;
 
     quote!(
+        #[allow(unused_parens)]
         impl #this_crate::Template for #ident {
             fn props__() -> &'static [# this_crate::config::PropDesc] {
                 #this_crate::lazy_static! {
-                    static ref PROPS: &'static [#this_crate::config::PropDesc] = &[#(#fn_props),*];
+                    static ref PROPS: &'static [#this_crate::config::PropDesc] = &[#(#fn_props)*];
                 };
 
                 *PROPS
@@ -79,7 +82,7 @@ pub fn derive_collect_fn(item: LangTokenStream) -> LangTokenStream {
 
             fn default_config() -> Self {
                 Self {
-                    #(#fn_default_config),*
+                    #(#fn_default_config)*
                     ..todo!()
                 }
             }
@@ -107,8 +110,12 @@ fn visit_fields(
     fn_elem_at_mut.reserve(n_field);
 
     let mut doc_string = Vec::new();
+    let mut property_index = 0;
 
     for field in fields.into_iter() {
+        let field_span = field.span();
+        let field_ident = field.ident.expect("This is struct with named fields");
+
         /* -------------------------------------------------------------------------------------- */
         /*                                    ATTRIBUTE PARSING                                   */
         /* -------------------------------------------------------------------------------------- */
@@ -149,23 +156,71 @@ fn visit_fields(
                 });
             } else if meta.path().is_ident("non_config_default_expr") {
                 /* --------------------------------- Non-config --------------------------------- */
+                let span = meta.span();
                 let Meta::NameValue(expr) = meta else {
                     emit_error!(meta, "Expected expression");
                     continue;
                 };
 
-                field_type = FieldType::PlainWithDefaultExpr { expr: expr.value };
+                let Some(expr) = expr_take_lit_str(expr.value) else {
+                    emit_error!(span, "Expected string literal");
+                    continue;
+                };
+
+                let span = expr.span();
+
+                let Ok(expr) = syn::parse_str::<Expr>(&expr.value()) else {
+                    emit_error!(span, "Expected valid expression");
+                    continue;
+                };
+
+                field_type = FieldType::PlainWithDefaultExpr(span, expr);
             }
         }
 
         /* -------------------------------------------------------------------------------------- */
         /*                                   FUNCTION GENERATION                                  */
         /* -------------------------------------------------------------------------------------- */
+        let prop = match field_type {
+            FieldType::Plain => continue,
+            FieldType::PlainWithDefaultExpr(span, expr) => {
+                fn_default_config.push(quote_spanned!(span => #field_ident: #expr,));
+                continue;
+            }
+            FieldType::Property(x) => x,
+        };
+
+        /* --------------------------------- Metadata Generation -------------------------------- */
+        // TODO
+
+        /* --------------------------------- Default Generation --------------------------------- */
+        fn_default_config.push(match prop.default {
+            Some(FieldPropertyDefault::Expr(expr)) => {
+                quote_spanned!(expr.span() => #field_ident: (#expr).to_owned(),)
+            }
+
+            Some(FieldPropertyDefault::ExprStr(lit)) => {
+                let span = lit.span();
+                let Ok(expr) = syn::parse_str::<Expr>(&lit.value()) else {
+                    emit_error!(span, "Expected valid expression");
+                    continue;
+                };
+
+                quote_spanned!(span => #field_ident: #expr,)
+            }
+
+            None => {
+                quote_spanned!(field_span => #field_ident: Default::default(),)
+            }
+        })
+
+        /* ------------------------------ Index Access Genenration ------------------------------ */
+        // TODO
     }
 }
 
-fn from_meta_list(meta_list: syn::MetaList) -> Option<FieldTypeProperty> {
-    let mut r = FieldTypeProperty::default();
+fn from_meta_list(meta_list: syn::MetaList) -> Option<FieldProperty> {
+    let mut r = FieldProperty::default();
     let span = meta_list.span();
     let Ok(parsed) =
         meta_list.parse_args_with(<Punctuated<syn::Meta, Token![,]>>::parse_terminated)
@@ -174,32 +229,97 @@ fn from_meta_list(meta_list: syn::MetaList) -> Option<FieldTypeProperty> {
         return None;
     };
 
-    for args in parsed {}
+    for arg in parsed {
+        let is_ = |x: &str| arg.path().is_ident(x);
+        match arg {
+            Meta::Path(_) => {
+                if is_("admin") {
+                    r.admin = true
+                } else if is_("admin_write") {
+                    r.admin_write = true
+                } else if is_("admin_read") {
+                    r.admin_read = true
+                } else if is_("transient") {
+                    r.transient = true
+                } else if is_("no_export") {
+                    r.no_export = true
+                } else if is_("no_import") {
+                    r.no_import = true
+                } else if is_("hide") {
+                    r.hide = true
+                } else {
+                    emit_warning!(arg, "Unknown attribute")
+                }
+            }
+            Meta::List(_) => {
+                emit_warning!(arg, "Unexpected list")
+            }
+            Meta::NameValue(syn::MetaNameValue { value, path, .. }) => {
+                let is_ = |x: &str| path.is_ident(x);
+                if is_("default") {
+                    r.default = Some(FieldPropertyDefault::Expr(value));
+                } else if is_("default_expr") {
+                    r.default = expr_take_lit_str(value).map(FieldPropertyDefault::ExprStr);
+                } else if is_("alias") {
+                    r.alias = expr_take_lit_str(value);
+                } else if is_("min") {
+                    r.min = Some(value);
+                } else if is_("max") {
+                    r.max = Some(value);
+                } else if is_("one_of") {
+                    let Expr::Array(one_of) = value else {
+                        emit_error!(value, "Expected array literal");
+                        continue;
+                    };
+
+                    r.one_of = Some(one_of);
+                } else if is_("env") {
+                    r.env = expr_take_lit_str(value);
+                } else if is_("editor") {
+                    r.editor = Some(value);
+                }
+            }
+        }
+    }
+
     Some(r)
 }
 
 enum FieldType {
     Plain,
-    PlainWithDefaultExpr { expr: syn::Expr },
-    Property(FieldTypeProperty),
+    PlainWithDefaultExpr(Span, Expr),
+    Property(FieldProperty),
+}
+
+fn expr_take_lit_str(expr: Expr) -> Option<LitStr> {
+    if let Expr::Lit(ExprLit { lit: Lit::Str(lit), .. }) = expr {
+        Some(lit)
+    } else {
+        emit_error!(expr, "Expected string literal");
+        None
+    }
+}
+
+enum FieldPropertyDefault {
+    Expr(Expr),
+    ExprStr(LitStr),
 }
 
 #[derive(Default)]
-struct FieldTypeProperty {
+struct FieldProperty {
     alias: Option<syn::LitStr>,
-    default: Option<syn::Expr>,
-    default_expr: Option<syn::LitStr>,
+    default: Option<FieldPropertyDefault>,
     admin: bool,
     admin_write: bool,
     admin_read: bool,
     min: Option<syn::Expr>,
     max: Option<syn::Expr>,
-    one_of: Option<Vec<syn::Expr>>,
+    one_of: Option<syn::ExprArray>,
     env: Option<syn::LitStr>,
     transient: bool,
     no_export: bool,
     no_import: bool,
-    editor: Option<syn::Meta>,
+    editor: Option<syn::Expr>,
     hide: bool,
 }
 
