@@ -55,16 +55,6 @@ struct Args {
     first_user_password: String,
 }
 
-impl Args {
-    fn get() -> &'static Self {
-        lazy_static::lazy_static!(
-            static ref ARGS: Args = <Args as clap::Parser>::parse();
-        );
-
-        &ARGS
-    }
-}
-
 #[tokio::main]
 async fn main() {
     if std::env::var("RUST_LOG").is_err() {

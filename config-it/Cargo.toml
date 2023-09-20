@@ -31,7 +31,6 @@ indexmap = { version = "2.0.0", features = ["serde"], optional = true }
 
 derive_more = "0.99"
 derive_setters = "0.1.6"
-lazy_static = "1"
 
 bitflags = { version = "2.4.0", features = ["serde"] }
 memoffset = "0.9.0"
