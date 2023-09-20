@@ -450,7 +450,7 @@ impl EntityData {
     /// If `silent` option is disabled, increase config set and source argument's fence
     ///  by 1, to make self and other instances of config set which shares the same core
     ///  be aware of this change.
-    pub fn __apply_value(&self, value: EntityValue) {
+    pub(crate) fn __apply_value(&self, value: EntityValue) {
         debug_assert!(self.meta.type_id == value.as_any().type_id());
 
         *self.value.lock() = value;
@@ -496,7 +496,7 @@ impl EntityData {
         }
     }
 
-    pub fn __notify_value_change(&self, make_storage_dirty: bool) {
+    pub(crate) fn __notify_value_change(&self, make_storage_dirty: bool) {
         self.hook.on_value_changed(self, !make_storage_dirty);
     }
 }
