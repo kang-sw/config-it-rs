@@ -221,28 +221,54 @@ pub struct MetadataProps {
     pub env: Option<Cow<'static, str>>,
 }
 
-#[cfg(feature = "jsonschema")]
-pub mod lookups {
+#[doc(hidden)]
+pub mod generic_lookup {
+    trait AnyType {}
+    impl<T> AnyType for T {}
+
+    /* -------------------------------------- Lookup Schema ------------------------------------- */
+    #[cfg(feature = "jsonschema")]
     pub trait HasSchema {
         fn get_schema(&self) -> Option<crate::Schema>;
     }
 
+    #[cfg(feature = "jsonschema")]
     impl<T: schemars::JsonSchema> HasSchema for T {
         fn get_schema(&self) -> Option<crate::Schema> {
             Some(schemars::schema_for!(T))
         }
     }
 
+    #[cfg(feature = "jsonschema")]
     pub trait NoSchema {
         fn get_schema(&self) -> Option<crate::Schema> {
             None
         }
     }
 
-    trait AnyType {}
-    impl<T> AnyType for T {}
-
+    #[cfg(feature = "jsonschema")]
     impl<T: AnyType> NoSchema for &T {}
+
+    /* ------------------------------------- Detect If Copy ------------------------------------- */
+    pub trait IsCopy {
+        fn is_copy(&self) -> bool;
+    }
+
+    impl<T: Copy> IsCopy for T {
+        fn is_copy(&self) -> bool {
+            true
+        }
+    }
+
+    pub trait IsNotCopy {
+        fn is_copy(&self) -> bool;
+    }
+
+    impl<T: AnyType> IsNotCopy for &T {
+        fn is_copy(&self) -> bool {
+            false
+        }
+    }
 }
 
 impl Metadata {

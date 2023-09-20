@@ -308,7 +308,7 @@ fn _verify_send_impl() {
     #[derive(Clone, Default)]
     struct Example {}
     impl Template for Example {
-        fn prop_at_offset__(offset: usize) -> Option<&'static PropDesc> {
+        fn prop_at_offset__(_offset: usize) -> Option<&'static PropDesc> {
             unimplemented!()
         }
 
