@@ -1,4 +1,4 @@
-use config_it::config::PropDesc;
+use config_it::beacon::group::Property;
 
 #[derive(Clone)]
 struct MyType {
@@ -6,11 +6,11 @@ struct MyType {
 }
 
 impl config_it::Template for MyType {
-    fn prop_at_offset__(offset: usize) -> Option<&'static PropDesc> {
+    fn prop_at_offset__(offset: usize) -> Option<&'static Property> {
         todo!()
     }
 
-    fn props__() -> &'static [PropDesc] {
+    fn props__() -> &'static [Property] {
         todo!()
     }
 

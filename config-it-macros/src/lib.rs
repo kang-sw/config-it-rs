@@ -66,12 +66,12 @@ pub fn derive_collect_fn(item: LangTokenStream) -> LangTokenStream {
     quote!(
         #[allow(unused_parens)]
         impl #this_crate::Template for #ident {
-            fn props__() -> &'static [#this_crate::config::PropDesc] {
-                static PROPS: std::sync::OnceLock<[#this_crate::config::PropDesc; #n_props]> = std::sync::OnceLock::new();
+            fn props__() -> &'static [#this_crate::beacon::group::Property] {
+                static PROPS: std::sync::OnceLock<[#this_crate::beacon::group::Property; #n_props]> = std::sync::OnceLock::new();
                 PROPS.get_or_init(|| [#(#fn_props)*] )
             }
 
-            fn prop_at_offset__(offset: usize) -> Option<&'static #this_crate::config::PropDesc> {
+            fn prop_at_offset__(offset: usize) -> Option<&'static #this_crate::beacon::group::Property> {
                 let index = match offset { #(#fn_prop_at_offset)* _ => None::<usize> };
                 index.map(|x| &Self::props__()[x])
             }

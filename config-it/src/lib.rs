@@ -234,7 +234,7 @@ mod beacon_export {
     #[cfg(feature = "beacon")]
     pub use macros::Template;
 
-    pub use config::{Group, Template};
+    pub use group::{Group, Template};
     pub use storage::Storage;
 
     pub type BroadcastReceiver = noti::Receiver;

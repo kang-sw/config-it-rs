@@ -15,8 +15,8 @@ use crate::{
 };
 
 use super::{
-    config::{self, GroupContext},
     entity::EntityEventHook,
+    group::{self, GroupContext},
 };
 
 /* ---------------------------------------------------------------------------------------------- */
@@ -74,9 +74,9 @@ impl Storage {
     pub fn find_or_create<'a, T>(
         &self,
         path: impl IntoIterator<Item = &'a (impl AsRef<str> + ?Sized + 'a)>,
-    ) -> Result<config::Group<T>, GroupFindOrCreateError>
+    ) -> Result<group::Group<T>, GroupFindOrCreateError>
     where
-        T: config::Template,
+        T: group::Template,
     {
         let keys_iter = path.into_iter().map(|x| x.as_ref().to_compact_string());
         let mut keys: Vec<CompactString> = keys_iter.collect();
@@ -107,17 +107,17 @@ impl Storage {
     }
 
     /// A shortcut for find_group_ex
-    pub fn find<'a, T: config::Template>(
+    pub fn find<'a, T: group::Template>(
         &self,
         path: impl Into<PathHash>,
-    ) -> Result<config::Group<T>, GroupFindError> {
+    ) -> Result<group::Group<T>, GroupFindError> {
         let path_hash = path.into();
 
         if let Some(group) = self.0.find_group(&path_hash) {
             if group.template_type_id != std::any::TypeId::of::<T>() {
                 Err(GroupFindError::MismatchedTypeID)
             } else if let Some(anchor) = group.w_unregister_hook.upgrade() {
-                Ok(config::Group::create_with__(group, anchor))
+                Ok(group::Group::create_with__(group, anchor))
             } else {
                 // This is corner case where group was disposed during `find_group` is invoked.
                 Err(GroupFindError::PathNotFound)
@@ -130,9 +130,9 @@ impl Storage {
     pub fn create<'a, T>(
         &self,
         path: impl IntoIterator<Item = &'a (impl AsRef<str> + ?Sized + 'a)>,
-    ) -> Result<config::Group<T>, GroupCreationError>
+    ) -> Result<group::Group<T>, GroupCreationError>
     where
-        T: config::Template,
+        T: group::Template,
     {
         let keys_iter = path.into_iter().map(|x| x.as_ref().to_compact_string());
         let keys: Vec<CompactString> = keys_iter.collect();
@@ -140,10 +140,10 @@ impl Storage {
         self.create_impl(keys)
     }
 
-    fn create_impl<T: config::Template>(
+    fn create_impl<T: group::Template>(
         &self,
         path: Vec<CompactString>,
-    ) -> Result<config::Group<T>, GroupCreationError> {
+    ) -> Result<group::Group<T>, GroupCreationError> {
         assert!(path.is_empty());
         assert!(path.iter().all(|x| !x.is_empty()));
 
@@ -195,7 +195,7 @@ impl Storage {
 
         self.0
             .register_group(path_hash, context, tx_noti)
-            .map(|context| config::Group::create_with__(context, unregister_anchor))
+            .map(|context| group::Group::create_with__(context, unregister_anchor))
     }
 
     /// Dump all  configs from storage.
