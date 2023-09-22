@@ -10,7 +10,11 @@
 //! - `default = <expr>`: Set default value for the field.
 //! - `default_expr = "<expr>"`: Set default value for the field.
 //! - `admin | admin_write | admin_read`: Prohibit access to the field for the user.
-//! - `min = <expr> | max = <expr> | one_of = [<expr>...]`: Sets constraint for the field
+//!
+//! - `min = <expr> | max = <expr> | one_of = [<expr>...]`: Sets constraint for the field.
+//! - `validate_with = "<function_name>"`: Sets validation function for the field. Its signature
+//!   must be `fn(&mut T) -> Result<Validation, impl Into<Cow<'static, str>>>`.
+//!
 //! - `env = "<literal>"`: Read default value from environment variable.
 //! - `env_once = "<literal>"`: Same as env, but caches value only once.
 //! - `transient | no_export | no_import`: Prohibit export/import of the field.
