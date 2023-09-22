@@ -1,3 +1,8 @@
+//! Set of commonly used data structures.
+
+pub mod archive;
+pub mod meta;
+
 use serde::{Deserialize, Serialize};
 use std::hash::Hasher;
 

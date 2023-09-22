@@ -66,7 +66,7 @@ pub fn derive_collect_fn(item: LangTokenStream) -> LangTokenStream {
     quote!(
         #[allow(unused_parens)]
         impl #this_crate::Template for #ident {
-            fn props__() -> &'static [# this_crate::config::PropDesc] {
+            fn props__() -> &'static [#this_crate::config::PropDesc] {
                 static PROPS: std::sync::OnceLock<[#this_crate::config::PropDesc; #n_props]> = std::sync::OnceLock::new();
                 PROPS.get_or_init(|| [#(#fn_props)*] )
             }

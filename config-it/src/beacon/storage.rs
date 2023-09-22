@@ -7,14 +7,17 @@ use std::{
     },
 };
 
-use crate::{
-    archive,
-    common::{GroupID, ItemID, PathHash},
-    config::{self, GroupContext},
-    entity::{self, EntityEventHook},
-    noti,
-};
 use compact_str::{CompactString, ToCompactString};
+
+use crate::{
+    beacon::{entity, noti},
+    core::{archive, GroupID, ItemID, PathHash},
+};
+
+use super::{
+    config::{self, GroupContext},
+    entity::EntityEventHook,
+};
 
 /* ---------------------------------------------------------------------------------------------- */
 /*                                      STORAGE MONITOR TRAIT                                     */
@@ -299,9 +302,8 @@ mod inner {
     use serde::de::IntoDeserializer;
 
     use crate::{
-        archive::{self},
-        entity::{EntityTrait, MetaFlag},
-        noti, Archive,
+        beacon::entity::EntityTrait,
+        core::{archive::Archive, meta::MetaFlag},
     };
 
     use super::*;

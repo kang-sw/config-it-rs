@@ -1,6 +1,3 @@
-use crate::common::GroupID;
-use crate::entity::{EntityData, EntityTrait, EntityValue, Metadata};
-use crate::noti;
 use compact_str::CompactString;
 use std::any::{Any, TypeId};
 use std::iter::zip;
@@ -8,17 +5,22 @@ use std::mem::replace;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};
 
+use crate::core::GroupID;
+
+use super::entity::{EntityData, EntityTrait, EntityValue, Metadata};
+use super::noti;
+
 ///
 /// Base trait that is automatically generated
 ///
 pub trait Template: Clone + 'static {
     /// Returns table mapping to <offset_from_base:property_metadata>
     #[doc(hidden)]
-    fn props__() -> &'static [PropDesc];
+    fn props__() -> &'static [Property];
 
     /// Gets property at memory offset
     #[doc(hidden)]
-    fn prop_at_offset__(offset: usize) -> Option<&'static PropDesc>;
+    fn prop_at_offset__(offset: usize) -> Option<&'static Property>;
 
     /// Get path of this config template (module path, struct name)
     fn template_name() -> (&'static str, &'static str);
@@ -36,8 +38,9 @@ pub trait Template: Clone + 'static {
     }
 }
 
-pub struct PropDesc {
+pub struct Property {
     pub index: usize,
+    pub memory_offset: usize,
     pub type_id: TypeId,
     pub meta: &'static Metadata,
 }
@@ -209,7 +212,7 @@ impl<T: Template> Group<T> {
 
     /// Get property descriptor by element address. Provides primitive guarantee for type safety.
     #[doc(hidden)]
-    pub fn get_prop_by_ptr<U: 'static>(&self, e: *const U) -> Option<&PropDesc> {
+    pub fn get_prop_by_ptr<U: 'static>(&self, e: *const U) -> Option<&Property> {
         let ptr = e as *const u8 as isize;
         let base = &self.__body as *const _ as *const u8 as isize;
 
@@ -308,11 +311,11 @@ fn _verify_send_impl() {
     #[derive(Clone, Default)]
     struct Example {}
     impl Template for Example {
-        fn prop_at_offset__(_offset: usize) -> Option<&'static PropDesc> {
+        fn prop_at_offset__(_offset: usize) -> Option<&'static Property> {
             unimplemented!()
         }
 
-        fn props__() -> &'static [PropDesc] {
+        fn props__() -> &'static [Property] {
             unimplemented!()
         }
 

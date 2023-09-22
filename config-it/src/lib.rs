@@ -201,107 +201,112 @@
 //! });
 //! ```
 //!
-pub mod archive;
-pub mod common;
-pub mod config;
-pub mod storage;
+pub mod beacon;
+pub mod core;
 
-#[doc(hidden)]
-pub mod entity;
-pub mod noti;
+// Just re-exported, for compatibility.
+pub extern crate serde;
 
+// Just re-exported, for any case if you want to use it.
 pub use compact_str::CompactString;
 
-pub use archive::Archive;
-pub use archive::CategoryRule as ArchiveCategoryRule;
-pub use config::Group;
-pub use config::Template;
-pub use noti::Receiver as BroadcastReceiver;
-pub use storage::Storage;
-
-/// Required by `config_it::Template` macro.
-pub use memoffset::offset_of;
-
-/// Primary macro for defining configuration group template.
-pub use macros::Template;
-
-pub use config::WatchUpdate;
+// [`core::archive::Archive`] utilizes this.
 pub use serde_json::Value as ArchiveValue;
-
-#[cfg(feature = "jsonschema")]
-pub use schemars::schema::RootSchema as Schema;
 
 #[cfg(feature = "jsonschema")]
 pub extern crate schemars;
 
-pub extern crate serde;
+#[cfg(feature = "jsonschema")]
+pub use schemars::schema::{RootSchema as Schema, SchemaObject};
 
-/// Shorthand macro for consuming multiple updates.
-///
-/// With bracket syntax, this macro returns array of bool values, which indicates whether each
-/// elements has been updated. With simple variadic syntax, this macro returns boolean value which
-/// indicates whether any of given elements has been updated.
-///
-/// If elements are wrapped inside parenthesis, this macro returns temporary struct which has
-/// boolean fields names each elements.
-///
-/// In both cases, all supplied arguments will be evaluated.
-#[macro_export]
-macro_rules! consume_update{
-    ($group: expr, [$($elems:ident),*]) => {
-        {
-            let __group = ($group).__macro_as_mut();
-            [$(__group.consume_update(&__group.$elems)), *]
-        }
-    };
+#[cfg(feature = "beacon")]
+pub use beacon_export::*;
 
-    ($group: expr, (($($elems:ident),*))) => {
-        {
-            #[derive(Debug, Clone, Copy)]
-            struct Updates {
-                $($elems: bool),*
+#[cfg(feature = "beacon")]
+mod beacon_export {
+    use crate::beacon::*;
+    use crate::core::*;
+
+    #[doc(hidden)]
+    pub use memoffset::offset_of;
+
+    /// Primary macro for defining configuration group template.
+    #[cfg(feature = "beacon")]
+    pub use macros::Template;
+
+    pub use config::{Group, Template};
+    pub use storage::Storage;
+
+    pub type BroadcastReceiver = noti::Receiver;
+    pub type ArchiveCategoryRule<'a> = archive::CategoryRule<'a>;
+
+    /// Shorthand macro for consuming multiple updates.
+    ///
+    /// With bracket syntax, this macro returns array of bool values, which indicates whether each
+    /// elements has been updated. With simple variadic syntax, this macro returns boolean value which
+    /// indicates whether any of given elements has been updated.
+    ///
+    /// If elements are wrapped inside parenthesis, this macro returns temporary struct which has
+    /// boolean fields names each elements.
+    ///
+    /// In both cases, all supplied arguments will be evaluated.
+    #[macro_export]
+    macro_rules! consume_update{
+        ($group: expr, [$($elems:ident),*]) => {
+            {
+                let __group = ($group).__macro_as_mut();
+                [$(__group.consume_update(&__group.$elems)), *]
             }
+        };
 
-            let __group = ($group).__macro_as_mut();
-            Updates {
-                $($elems: __group.consume_update(&__group.$elems)),*
+        ($group: expr, (($($elems:ident),*))) => {
+            {
+                #[derive(Debug, Clone, Copy)]
+                struct Updates {
+                    $($elems: bool),*
+                }
+
+                let __group = ($group).__macro_as_mut();
+                Updates {
+                    $($elems: __group.consume_update(&__group.$elems)),*
+                }
             }
-        }
-    };
+        };
 
-    ($group: expr, $($elems:ident),*) => {
-        {
-            let __group = ($group).__macro_as_mut();
-            $(__group.consume_update(&__group.$elems)) | *
-        }
-    };
-}
+        ($group: expr, $($elems:ident),*) => {
+            {
+                let __group = ($group).__macro_as_mut();
+                $(__group.consume_update(&__group.$elems)) | *
+            }
+        };
+    }
 
-/// Shorthand macro for marking multiple elements dirty.
-#[macro_export]
-macro_rules! mark_dirty{
+    /// Shorthand macro for marking multiple elements dirty.
+    #[macro_export]
+    macro_rules! mark_dirty{
     ($group: expr, $($elems:ident),+) => {
-        {
-            let __group = ($group).__macro_as_mut();
-            $(__group.mark_dirty(&__group.$elems)); *
+            {
+                let __group = ($group).__macro_as_mut();
+                $(__group.mark_dirty(&__group.$elems)); *
+            }
         }
     }
-}
 
-/// Shorthand macro for committing multiple elements.
-#[macro_export]
-macro_rules! commit_elem{
-    ($group: expr, ($($elems:ident),+)) => {
-        {
-            let __group = ($group).__macro_as_mut();
-            $(__group.commit_elem(&__group.$elems, false)); *
-        }
-    };
+    /// Shorthand macro for committing multiple elements.
+    #[macro_export]
+    macro_rules! commit_elem{
+        ($group: expr, ($($elems:ident),+)) => {
+            {
+                let __group = ($group).__macro_as_mut();
+                $(__group.commit_elem(&__group.$elems, false)); *
+            }
+        };
 
     ($group: expr, notify($($elems:ident),+)) => {
-        {
-            let __group = ($group).__macro_as_mut();
-            $(__group.commit_elem(&__group.$elems, true)); *
-        }
-    };
+            {
+                let __group = ($group).__macro_as_mut();
+                $(__group.commit_elem(&__group.$elems, true)); *
+            }
+        };
+    }
 }

@@ -1,8 +1,0 @@
-[package]
-name = "config-it-access-shared"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-schemars = "0.8.12"
-serde = { version = "1.0.164", features = ["derive"] }
