@@ -1,6 +1,7 @@
 use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use std::any::{Any, TypeId};
+use std::borrow::Cow;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -76,6 +77,19 @@ impl std::ops::Deref for Metadata {
     }
 }
 
+/// Validation result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Validation {
+    /// Data was valid. No change was made.
+    Valid,
+
+    /// Data was valid. Value was modified to satisfy validator constraint.
+    Modified,
+}
+
+/// Validation result. Error type is plain string to inform user.
+pub type ValidationResult = Result<Validation, std::borrow::Cow<'static, str>>;
+
 pub trait MetadataVTable: Send + Sync + 'static {
     /// Does implement `Copy`?
     fn implements_copy(&self) -> bool;
@@ -94,13 +108,13 @@ pub trait MetadataVTable: Send + Sync + 'static {
 
     /// Returns None if validation failed. Some(false) when source value was corrected.
     ///  Some(true) when value was correct.
-    fn validate(&self, value: &mut dyn Any) -> Option<bool>;
+    fn validate(&self, value: &mut dyn Any) -> ValidationResult;
 }
 
 pub struct MetadataVTableImpl<T: 'static> {
     impl_copy: bool,
     fn_default: fn() -> T,
-    fn_validate: fn(&mut T) -> Option<bool>,
+    fn_validate: fn(&mut T) -> ValidationResult,
 }
 
 impl<T: EntityTrait + Clone> MetadataVTable for MetadataVTableImpl<T> {
@@ -131,7 +145,7 @@ impl<T: EntityTrait + Clone> MetadataVTable for MetadataVTableImpl<T> {
         dst.clone_from(src);
     }
 
-    fn validate(&self, value: &mut dyn Any) -> Option<bool> {
+    fn validate(&self, value: &mut dyn Any) -> ValidationResult {
         let value = value.downcast_mut::<T>().unwrap();
         (self.fn_validate)(value)
     }
@@ -332,8 +346,8 @@ pub struct EntityData {
 
 #[derive(Debug, thiserror::Error)]
 pub enum EntityUpdateError {
-    #[error("Validation failed")]
-    ValueValidationFailed,
+    #[error("Validation failed: {0}")]
+    ValueValidationFailed(Cow<'static, str>),
 
     #[error("Deserialization failed")]
     DeserializeFailed(#[from] erased_serde::Error),
@@ -386,7 +400,7 @@ impl EntityData {
     ///                 to satisfy validator constraint
     /// * `Err(_)` - Deserialization or validation has failed.
     ///
-    pub fn update_value_from<'a, T>(&self, de: T) -> Result<bool, EntityUpdateError>
+    pub fn update_value_from<'a, T>(&self, de: T) -> Result<Validation, EntityUpdateError>
     where
         T: serde::Deserializer<'a>,
     {
@@ -397,8 +411,8 @@ impl EntityData {
         match vt.deserialize(&mut erased) {
             Ok(mut built) => {
                 let is_perfect = match vt.validate(built.as_any_mut()) {
-                    Some(clean) => clean,
-                    None => return Err(EntityUpdateError::ValueValidationFailed),
+                    Ok(clean) => clean,
+                    Err(e) => return Err(EntityUpdateError::ValueValidationFailed(e)),
                 };
 
                 self.__apply_value(built);

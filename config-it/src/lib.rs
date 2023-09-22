@@ -234,6 +234,8 @@ mod beacon_export {
     #[cfg(feature = "beacon")]
     pub use macros::Template;
 
+    pub use entity::{Validation, ValidationResult};
+
     pub use group::{Group, Template};
     pub use storage::Storage;
 

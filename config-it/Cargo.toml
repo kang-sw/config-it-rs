@@ -21,7 +21,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 erased-serde = "0.3"
 
-smallvec = { version = "1", features = ["serde", "write", "union"] }
 compact_str = { version = "0.7", features = ["serde"] }
 indexmap = { version = "2.0.0", features = ["serde"], optional = true }
 
@@ -35,6 +34,7 @@ derive_more = "0.99"
 
 thiserror = { version = "1", optional = true }
 
+smallvec = { version = "1", features = ["serde"], optional = true }
 log = { version = "0.4", optional = true }
 dashmap = { version = "5.5.3", optional = true }
 
@@ -70,6 +70,7 @@ beacon = [
 	"dep:dashmap",
 	"dep:derive_setters",
 	"dep:parking_lot",
+	"dep:smallvec",
 ]
 
 beacon-derive = ["dep:memoffset"]
