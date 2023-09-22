@@ -70,6 +70,8 @@ pub fn derive_collect_fn(item: LangTokenStream) -> LangTokenStream {
     quote!(
         #[allow(unused_parens)]
         impl #this_crate::Template for #ident {
+            type LocalPropContextArray = #this_crate::config::group::LocalPropContextArrayImpl<#n_props>;
+            
             fn props__() -> &'static [#this_crate::config::group::Property] {
                 static PROPS: std::sync::OnceLock<[#this_crate::config::group::Property; #n_props]> = std::sync::OnceLock::new();
                 PROPS.get_or_init(|| [#(#fn_props)*] )

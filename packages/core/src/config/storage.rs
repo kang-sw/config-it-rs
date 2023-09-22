@@ -187,7 +187,7 @@ impl Storage {
             w_unregister_hook: Arc::downgrade(
                 &(unregister_anchor.clone() as Arc<dyn Any + Send + Sync>),
             ),
-            sources: Arc::new(sources),
+            sources: sources.into(),
             version: AtomicU64::new(1), // NOTE: This will trigger initial check_update() always.
             update_receiver_channel: tx_noti.receiver(true),
             path: path.clone(),

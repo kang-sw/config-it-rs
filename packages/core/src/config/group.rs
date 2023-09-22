@@ -15,7 +15,7 @@ use super::noti;
 ///
 pub trait Template: Clone + 'static {
     /// Relevant type for stack allocation of props
-    type LocalPropArray: LocalPropContextArray;
+    type LocalPropContextArray: LocalPropContextArray;
 
     /// Returns table mapping to <offset_from_base:property_metadata>
     #[doc(hidden)]
@@ -85,9 +85,14 @@ pub struct Property {
 /// May storage implement this
 ///
 pub struct GroupContext {
+    /// This group's instance ID
     pub group_id: GroupID,
+
+    /// Type ID of base template. Used to verify newly creation group's validity.
     pub template_type_id: TypeId,
-    pub sources: Arc<Vec<EntityData>>,
+
+    /// List of sources; each element represents single property.
+    pub sources: Arc<[EntityData]>,
 
     pub(crate) w_unregister_hook: Weak<dyn Any + Send + Sync>,
     pub(crate) version: AtomicU64,
@@ -112,7 +117,7 @@ pub struct Group<T: Template> {
     version_cached: u64,
 
     /// Property-wise contexts
-    local: T::LocalPropArray,
+    local: T::LocalPropContextArray,
 
     /// List of managed properties. This act as source container
     origin: Arc<GroupContext>,
@@ -185,7 +190,7 @@ impl<T: Template> Group<T> {
             origin: core,
             __body: T::default_config(),
             version_cached: 0,
-            local: T::LocalPropArray::default(),
+            local: T::LocalPropContextArray::default(),
             _unregister_hook: unregister_anchor,
         }
     }
@@ -214,6 +219,11 @@ impl<T: Template> Group<T> {
         {
             // Perform quick check to see if given config entity has any update.
             match source.get_version() {
+                // SAFETY: The locally updated version uses only 63 bits of the bit variable, which
+                // may occasionally cause it to differ from the source version. However, this
+                // discrepancy is unlikely to be a practical issue because it would require a
+                // version gap of at least 2^63 to occur, and the tolerance resets to 2^63 whenever
+                // an update is made.
                 v if v == local.bits.version() => continue,
                 v => local.bits.set_version(v),
             }
@@ -361,7 +371,7 @@ fn _verify_send_impl() {
     #[derive(Clone, Default)]
     struct Example {}
     impl Template for Example {
-        type LocalPropArray = LocalPropContextArrayImpl<0>;
+        type LocalPropContextArray = LocalPropContextArrayImpl<0>;
 
         fn prop_at_offset__(_offset: usize) -> Option<&'static Property> {
             unimplemented!()
