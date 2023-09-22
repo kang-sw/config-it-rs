@@ -168,7 +168,7 @@ impl Storage {
         );
 
         let sources: Vec<_> = T::props__()
-            .into_iter()
+            .iter()
             .map(|prop| entity::EntityData::new(prop.meta.clone(), entity_hook.clone()))
             .collect();
 
@@ -206,7 +206,7 @@ impl Storage {
     ///   Otherwise, result will contain merge result of previously loaded archive.
     /// * `no_update` - If true, existing archive won't
     pub fn export(&self) -> inner::ExportTask {
-        inner::ExportTask::new(&*self.0)
+        inner::ExportTask::new(&self.0)
     }
 
     /// Deserializes data
@@ -239,7 +239,7 @@ impl Storage {
     /// }
     /// ```
     pub fn import(&self, archive: archive::Archive) -> inner::ImportOnDrop {
-        inner::ImportOnDrop::new(&*self.0, archive)
+        inner::ImportOnDrop::new(&self.0, archive)
     }
 
     /// Replace existing monitor to given one.
@@ -362,7 +362,7 @@ mod inner {
         pub fn notify_edition(&self, group_id: GroupID) {
             if let Some(group) = self.all_groups.get(&group_id) {
                 group.context.version.fetch_add(1, Ordering::Relaxed);
-                let _ = group.evt_on_update.notify();
+                group.evt_on_update.notify();
             }
         }
 
@@ -419,7 +419,7 @@ mod inner {
                 // of `GroupUnregisterHook` inside of the function `create_impl`.
 
                 // On valid removal, accumulate contents to cached archive.
-                Self::dump_node(&ctx.context, &mut *self.archive.write());
+                Self::dump_node(&ctx.context, &mut self.archive.write());
 
                 // Notify removal
                 self.monitor.read().group_removed(&group_id);
@@ -540,7 +540,7 @@ mod inner {
                     let Some(node) = archive.find_path(path) else { continue };
 
                     if Inner::load_node(&group.context, node, &**this.monitor.read()) {
-                        let _ = group.evt_on_update.notify();
+                        group.evt_on_update.notify();
                     }
                 }
             };

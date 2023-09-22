@@ -107,11 +107,11 @@ impl Archive {
         &'s self,
         path: impl IntoIterator<Item = &'a str>,
     ) -> Option<&'s Archive> {
-        let mut iter = path.into_iter();
+        let iter = path.into_iter();
         let mut paths = &self.paths;
         let mut node = None;
 
-        while let Some(key) = iter.next() {
+        for key in iter {
             if let Some(next_node) = paths.get(key) {
                 node = Some(next_node);
                 paths = &next_node.paths;
@@ -159,7 +159,7 @@ impl Archive {
                 let patch_v = base_v.create_patch(v);
                 if !patch_v.is_empty() {
                     patch.paths.insert(k.clone(), patch_v);
-                    v.is_empty() == false
+                    !v.is_empty()
                 } else {
                     true
                 }
@@ -265,7 +265,7 @@ impl Serialize for Archive {
             let mut key_b = CompactString::default();
 
             for (k, v) in &self.paths {
-                rule.make_category(&k, &mut key_b);
+                rule.make_category(k, &mut key_b);
                 map.serialize_entry(&key_b, v)?;
             }
 
@@ -274,7 +274,7 @@ impl Serialize for Archive {
 
         for (k, v) in &self.values {
             debug_assert!(
-                !k.starts_with("~"),
+                !k.starts_with('~'),
                 "Tilde prefixed key '{k}' for field is not allowed!"
             );
 
@@ -287,7 +287,7 @@ impl Serialize for Archive {
 
 #[test]
 fn test_archive_basic() {
-    let src = r##"
+    let src = r#"
         {
             "~root_path_1": {
                 "~subpath1": {
@@ -306,7 +306,7 @@ fn test_archive_basic() {
                 }
             }
         }
-    "##;
+    "#;
 
     let arch: Archive = serde_json::from_str(src).unwrap();
     assert!(arch.paths.len() == 2);
@@ -327,7 +327,7 @@ fn test_archive_basic() {
     assert!(p2.paths.is_empty());
     assert!(p2.values.len() == 4);
 
-    let newer = r##"
+    let newer = r#"
         {
             "~root_path_1": {
                 "~subpath1": {
@@ -351,7 +351,7 @@ fn test_archive_basic() {
                 }
             }
         }
-    "##;
+    "#;
     let newer: Archive = serde_json::from_str(newer).unwrap();
     let mut newer_consume = newer.clone();
     let patch = Archive::create_patch(&arch, &mut newer_consume);
@@ -369,7 +369,7 @@ fn test_archive_basic() {
     assert!(val_obj.contains_key("hello, world!"));
     assert!(val_obj.get("hello, world!") == Some(&serde_json::Value::from(3.141)));
 
-    let ref val = patch.find_path(["root_path_1", "new_path"]).unwrap().values;
+    let val = &patch.find_path(["root_path_1", "new_path"]).unwrap().values;
     assert!(val.contains_key("valll"));
     assert!(val.get("valll") == Some(&serde_json::Value::from(4.44)));
 }

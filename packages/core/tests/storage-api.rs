@@ -6,7 +6,7 @@ struct MyType {
 }
 
 impl config_it::Template for MyType {
-    fn prop_at_offset__(offset: usize) -> Option<&'static Property> {
+    fn prop_at_offset__(_offset: usize) -> Option<&'static Property> {
         todo!()
     }
 
@@ -22,13 +22,13 @@ impl config_it::Template for MyType {
         todo!()
     }
 
-    fn elem_at_mut__(&mut self, index: usize) -> &mut dyn std::any::Any {
+    fn elem_at_mut__(&mut self, _index: usize) -> &mut dyn std::any::Any {
         todo!()
     }
 }
 
 pub fn pewpew() {
     let st = config_it::Storage::default();
-    let g: config_it::Group<MyType> = st.create(["hello"]).unwrap();
+    let _g: config_it::Group<MyType> = st.create(["hello"]).unwrap();
     st.find::<MyType>(["hads", "hads"]).ok();
 }

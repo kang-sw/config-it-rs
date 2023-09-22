@@ -92,7 +92,7 @@ impl<T: Clone> Clone for Group<T> {
     fn clone(&self) -> Self {
         Self {
             __body: self.__body.clone(),
-            version_cached: self.version_cached.clone(),
+            version_cached: self.version_cached,
             local: self.local.clone(),
             core: self.core.clone(),
             _unregister_hook: self._unregister_hook.clone(),
@@ -140,7 +140,7 @@ impl<T: Template> Group<T> {
             core,
             __body: T::default_config(),
             version_cached: 0,
-            local: vec![PropLocalContext::default(); T::props__().len()].into(),
+            local: vec![PropLocalContext::default(); T::props__().len()],
             _unregister_hook: unregister_anchor,
         }
     }
@@ -176,7 +176,7 @@ impl<T: Template> Group<T> {
             local.dirty_flag = true;
 
             let (meta, value) = source.get_value();
-            self.__body.update_elem_at__(index, value.as_any(), &*meta);
+            self.__body.update_elem_at__(index, value.as_any(), meta);
         }
 
         has_update
@@ -203,11 +203,7 @@ impl<T: Template> Group<T> {
             e >= base && e < base + std::mem::size_of::<T>()
         });
 
-        if let Some(prop) = self.get_prop_by_ptr(e) {
-            Some(prop.index)
-        } else {
-            None
-        }
+        self.get_prop_by_ptr(e).map(|prop| prop.index)
     }
 
     /// Get property descriptor by element address. Provides primitive guarantee for type safety.
@@ -282,7 +278,7 @@ impl<T: Template> Group<T> {
 
     /// Get generated metadata of given element
     pub fn metadata<U: 'static>(&self, elem: *const U) -> &'static Metadata {
-        &self.get_prop_by_ptr(elem).unwrap().meta
+        self.get_prop_by_ptr(elem).unwrap().meta
     }
 
     /// Get instance path of `self`. This value is same as the list of tokens that you have
