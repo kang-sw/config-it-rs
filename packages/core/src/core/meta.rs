@@ -1,6 +1,9 @@
 use std::borrow::Cow;
 
 bitflags::bitflags! {
+    /// Metadata flags for this config entity.
+    ///
+    /// This flag contains various hints for config-it to determine how to handle this variable.
     #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Copy, PartialEq, Eq)]
     pub struct MetaFlag: u32 {
         /// Disable import from `import` operation
@@ -10,13 +13,25 @@ bitflags::bitflags! {
         const NO_EXPORT = 1 << 1;
 
         /// Hint monitor that this variable should be hidden from user.
-        const HIDDEN = 1 << 2;
+        const HIDDEN_NON_ADMIN = 1 << 2;
+
+        /// Hint monitor that this variable should be hidden from all users
+        const HIDDEN = 1 << 6;
 
         /// Hint monitor that this variable should only be read by admin.
         const ADMIN_READ = 1 << 3;
 
-        /// Hint monitor that this variable should only be written by admin.
+        /// Hint monitor  that this variable should only be written by admin.
         const ADMIN_WRITE = 1 << 4 | Self::ADMIN_READ.bits();
+
+        /// Hint monitor that this property is read-only. Even admin cannot write to this.
+        const READONLY = 1 << 5;
+
+        /// None can read this variable. (e.g. Secret)
+        const WRITEONLY = 1 << 7;
+
+        /// Encrypt this variable when saving to storage.
+        const SECRET = 1 << 8 | Self::WRITEONLY.bits();
 
         /// Hint monitor that this is admin-only variable.
         const ADMIN = Self::ADMIN_READ.bits() | Self::ADMIN_WRITE.bits();

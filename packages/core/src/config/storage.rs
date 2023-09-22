@@ -258,6 +258,13 @@ impl Storage {
             self.0.notify_edition(group);
         }
     }
+
+    /// Supply cypher key. If not specified until the first de/encryption, it will be generated from
+    /// machine, or if the machine-uid generation is not available, it'll simply use some hard-coded
+    /// sequence.
+    pub fn set_encryption_key(&self, key: &[u8]) {
+        todo!("Digest input key sequence")
+    }
 }
 
 /* ---------------------------------------------------------------------------------------------- */
@@ -333,6 +340,9 @@ mod inner {
 
         /// Cached archive. May contain contents for currently non-exist groups.
         pub archive: RwLock<archive::Archive>,
+
+        /// AES-256 key for encryption
+        encryption_key: RwLock<Option<[u8; 32]>>,
     }
 
     pub(super) struct EmptyMonitor;
@@ -356,6 +366,7 @@ mod inner {
                 monitor: RwLock::new(monitor),
                 path_hashes: Default::default(),
                 archive: Default::default(),
+                encryption_key: Default::default(),
             }
         }
 
@@ -441,6 +452,8 @@ mod inner {
             group.evt_on_update.notify();
         }
 
+        const CRYPTO_PREFIX: &str = "%%CONFIG-IT-SECRET%%";
+
         fn dump_node(ctx: &GroupContext, archive: &mut archive::Archive) {
             let paths = ctx.path.iter().map(|x| x.as_str());
             let node = archive.find_or_create_path_mut(paths);
@@ -448,13 +461,18 @@ mod inner {
             // Clear existing values before dumping.
             node.values.clear();
 
-            for (meta, val) in ctx
+            for (meta, mut val) in ctx
                 .sources
                 .iter()
                 .map(|e| e.get_value())
                 .filter(|(meta, _)| !meta.props.flags.contains(MetaFlag::NO_EXPORT))
             {
                 let dst = node.values.entry(meta.name.into()).or_default();
+
+                if meta.props.flags.contains(MetaFlag::SECRET) {
+                    todo!("JsonString => AES-256 Enc => Base64String => Prefix");
+                }
+
                 match serde_json::to_value(val.as_serialize()) {
                     Ok(val) => *dst = val,
                     Err(e) => log::warn!("failed to dump {}: {}", meta.name, e),
@@ -465,7 +483,7 @@ mod inner {
         fn load_node(ctx: &GroupContext, node: &archive::Archive, monitor: &dyn Monitor) -> bool {
             let mut has_update = false;
 
-            for (elem, de) in ctx
+            'outer: for (elem, de) in ctx
                 .sources
                 .iter()
                 .map(|e| (e, e.get_meta()))
@@ -474,6 +492,22 @@ mod inner {
                     node.values.get(m.name).map(|o| (e, o.clone().into_deserializer()))
                 })
             {
+                'decryption: {
+                    if !elem.get_meta().props.flags.contains(MetaFlag::SECRET) {
+                        break 'decryption;
+                    }
+
+                    let Some(str) = de.as_str() else { break 'decryption };
+
+                    if !str.starts_with(Self::CRYPTO_PREFIX) {
+                        break 'decryption;
+                    }
+
+                    todo!("'Prefixed' Base64String => AES-256 Dec => JsonValue");
+
+                    continue 'outer;
+                }
+
                 match elem.update_value_from(de) {
                     Ok(_) => {
                         has_update = true;
