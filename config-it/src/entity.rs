@@ -66,7 +66,7 @@ pub struct Metadata {
     pub type_id: TypeId,
 
     pub props: MetadataProps,
-    pub vtable: Box<dyn MetadataVTable>,
+    pub vtable: &'static dyn MetadataVTable,
 }
 
 impl std::ops::Deref for Metadata {
@@ -100,8 +100,8 @@ pub trait MetadataVTable: Send + Sync + 'static {
 
 pub struct MetadataVTableImpl<T: 'static> {
     impl_copy: bool,
-    fn_default: Cow<'static, fn() -> T>,
-    fn_validate: Cow<'static, fn(&mut T) -> Option<bool>>,
+    fn_default: fn() -> T,
+    fn_validate: fn(&mut T) -> Option<bool>,
 }
 
 impl<T: EntityTrait + Clone> MetadataVTable for MetadataVTableImpl<T> {
@@ -198,7 +198,7 @@ pub struct MetadataProps {
     pub name: &'static str,
 
     /// Typename for this config entity.
-    pub type_name: Cow<'static, str>,
+    pub type_name: &'static str,
 
     ///
     pub flags: MetaFlag,
@@ -212,13 +212,13 @@ pub struct MetadataProps {
     pub schema: Option<crate::Schema>,
 
     /// Source variable name. Usually same as 'name' unless another name is specified for it.
-    pub varname: Cow<'static, str>,
+    pub varname: &'static str,
 
     ///
-    pub description: Cow<'static, str>,
+    pub description: &'static str,
 
     /// Environment variable name
-    pub env: Option<Cow<'static, str>>,
+    pub env: Option<&'static str>,
 }
 
 #[doc(hidden)]
@@ -272,11 +272,14 @@ pub mod generic_lookup {
 }
 
 impl Metadata {
-    pub fn create_for_base_type<T>(init: MetadataVTableImpl<T>, props: MetadataProps) -> Self
+    pub fn create_for_base_type<T>(
+        init: &'static MetadataVTableImpl<T>,
+        props: MetadataProps,
+    ) -> Self
     where
         T: EntityTrait + Clone + serde::de::DeserializeOwned + serde::ser::Serialize,
     {
-        Self { type_id: TypeId::of::<T>(), props, vtable: Box::new(init) }
+        Self { type_id: TypeId::of::<T>(), props, vtable: init }
     }
 }
 
