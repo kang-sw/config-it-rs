@@ -2,7 +2,7 @@ use parking_lot::Mutex;
 use serde::de::DeserializeOwned;
 use std::any::{Any, TypeId};
 use std::borrow::Cow;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use crate::core::meta::MetadataProps;
@@ -338,7 +338,7 @@ pub struct EntityData {
     id: ItemID,
 
     meta: &'static Metadata,
-    version: AtomicUsize,
+    version: AtomicU64,
     value: Mutex<EntityValue>,
 
     hook: Arc<dyn EntityEventHook>,
@@ -357,7 +357,7 @@ impl EntityData {
     pub(crate) fn new(meta: &'static Metadata, hook: Arc<dyn EntityEventHook>) -> Self {
         Self {
             id: ItemID::new_unique(),
-            version: AtomicUsize::new(0),
+            version: AtomicU64::new(0),
             value: Mutex::new(meta.vtable.create_default()),
             meta,
             hook,
@@ -372,7 +372,7 @@ impl EntityData {
         self.meta
     }
 
-    pub fn get_update_fence(&self) -> usize {
+    pub fn get_version(&self) -> u64 {
         self.version.load(Ordering::Relaxed)
     }
 

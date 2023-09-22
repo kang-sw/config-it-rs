@@ -2,7 +2,7 @@ use std::{
     any::{Any, TypeId},
     mem::replace,
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicU64, Ordering},
         Arc, Weak,
     },
 };
@@ -188,7 +188,7 @@ impl Storage {
                 &(unregister_anchor.clone() as Arc<dyn Any + Send + Sync>),
             ),
             sources: Arc::new(sources),
-            version: AtomicUsize::new(1), // NOTE: This will trigger initial check_update() always.
+            version: AtomicU64::new(1), // NOTE: This will trigger initial check_update() always.
             update_receiver_channel: tx_noti.receiver(true),
             path: path.clone(),
         });

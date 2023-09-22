@@ -1,8 +1,8 @@
+use bitfield::bitfield;
 use compact_str::CompactString;
 use std::any::{Any, TypeId};
 use std::iter::zip;
-use std::mem::replace;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 
 use crate::core::GroupID;
@@ -14,6 +14,9 @@ use super::noti;
 /// Base trait that is automatically generated
 ///
 pub trait Template: Clone + 'static {
+    /// Relevant type for stack allocation of props
+    type LocalPropArray: LocalPropContextArray;
+
     /// Returns table mapping to <offset_from_base:property_metadata>
     #[doc(hidden)]
     fn props__() -> &'static [Property];
@@ -38,6 +41,39 @@ pub trait Template: Clone + 'static {
     }
 }
 
+/* --------------------------------------- Local Property --------------------------------------- */
+
+/// Allows local properties to be stored on stack.
+#[doc(hidden)]
+pub trait LocalPropContextArray: Clone + Default {
+    const N: usize;
+
+    fn as_slice(&self) -> &[PropLocalContext];
+    fn as_slice_mut(&mut self) -> &mut [PropLocalContext];
+}
+
+#[doc(hidden)]
+#[derive(Clone)]
+pub struct LocalPropContextArrayImpl<const N: usize>([PropLocalContext; N]);
+
+impl<const N: usize> LocalPropContextArray for LocalPropContextArrayImpl<N> {
+    const N: usize = N;
+
+    fn as_slice(&self) -> &[PropLocalContext] {
+        &self.0
+    }
+
+    fn as_slice_mut(&mut self) -> &mut [PropLocalContext] {
+        &mut self.0
+    }
+}
+
+impl<const N: usize> Default for LocalPropContextArrayImpl<N> {
+    fn default() -> Self {
+        Self([0; N].map(|_| PropLocalContext::default()))
+    }
+}
+
 pub struct Property {
     pub index: usize,
     pub memory_offset: usize,
@@ -54,7 +90,7 @@ pub struct GroupContext {
     pub sources: Arc<Vec<EntityData>>,
 
     pub(crate) w_unregister_hook: Weak<dyn Any + Send + Sync>,
-    pub(crate) version: AtomicUsize,
+    pub(crate) version: AtomicU64,
 
     /// Path of instantiated config set.
     pub path: Arc<[CompactString]>,
@@ -68,18 +104,18 @@ pub struct GroupContext {
 ///
 /// Wrap `ReflectData` derivative like `Group<MyData>`
 ///
-pub struct Group<T> {
+pub struct Group<T: Template> {
     /// Cached local content
     __body: T,
 
     /// Cached update fence
-    version_cached: usize,
+    version_cached: u64,
 
     /// Property-wise contexts
-    local: Vec<PropLocalContext>,
+    local: T::LocalPropArray,
 
     /// List of managed properties. This act as source container
-    core: Arc<GroupContext>,
+    origin: Arc<GroupContext>,
 
     /// Unregister hook anchor.
     ///
@@ -88,19 +124,19 @@ pub struct Group<T> {
     _unregister_hook: Arc<dyn Any + Send + Sync>,
 }
 
-impl<T: Clone> Clone for Group<T> {
+impl<T: Clone + Template> Clone for Group<T> {
     fn clone(&self) -> Self {
         Self {
             __body: self.__body.clone(),
             version_cached: self.version_cached,
             local: self.local.clone(),
-            core: self.core.clone(),
+            origin: self.origin.clone(),
             _unregister_hook: self._unregister_hook.clone(),
         }
     }
 }
 
-impl<T: std::fmt::Debug> std::fmt::Debug for Group<T> {
+impl<T: std::fmt::Debug + Template> std::fmt::Debug for Group<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Group")
             .field("__body", &self.__body)
@@ -110,19 +146,28 @@ impl<T: std::fmt::Debug> std::fmt::Debug for Group<T> {
 }
 
 #[derive(Clone)]
-struct PropLocalContext {
+pub struct PropLocalContext {
     /// Locally cached update fence.
-    update_fence: usize,
+    bits: VersionBits,
+}
 
-    /// Updated recently
-    dirty_flag: bool,
+bitfield! {
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    struct VersionBits(u64);
+    impl Debug;
+
+    version, set_version: 62, 0;
+    is_dirty, set_dirty: 63, 63;
 }
 
 impl Default for PropLocalContext {
     fn default() -> Self {
         Self {
-            update_fence: 0,
-            dirty_flag: true, // This forces initial 'check_update()' call to return true.
+            bits: {
+                let mut bits = VersionBits(0);
+                bits.set_dirty(1);
+                bits
+            },
         }
     }
 }
@@ -137,10 +182,10 @@ impl<T: Template> Group<T> {
         unregister_anchor: Arc<dyn Any + Send + Sync>,
     ) -> Self {
         Self {
-            core,
+            origin: core,
             __body: T::default_config(),
             version_cached: 0,
-            local: vec![PropLocalContext::default(); T::props__().len()],
+            local: T::LocalPropArray::default(),
             _unregister_hook: unregister_anchor,
         }
     }
@@ -148,32 +193,33 @@ impl<T: Template> Group<T> {
     /// Fetch underlying object's updates and apply to local cache. Returns true if there was
     /// any update available.
     pub fn update(&mut self) -> bool {
-        let Self { local, .. } = self;
+        let local = self.local.as_slice_mut();
 
         // Forces initial update always return true.
         let mut has_update = self.version_cached == 0;
 
         // Perform quick check: Does update fence value changed?
-        match self.core.version.load(Ordering::Relaxed) {
+        match self.origin.version.load(Ordering::Relaxed) {
             new_ver if new_ver == self.version_cached => return false,
             new_ver => self.version_cached = new_ver,
         }
 
         debug_assert_eq!(
             local.len(),
-            self.core.sources.len(),
+            self.origin.sources.len(),
             "Logic Error: set was not correctly initialized!"
         );
 
-        for ((index, local), source) in zip(zip(0..local.len(), &mut *local), &*self.core.sources) {
+        for ((index, local), source) in zip(zip(0..local.len(), &mut *local), &*self.origin.sources)
+        {
             // Perform quick check to see if given config entity has any update.
-            match source.get_update_fence() {
-                v if v == local.update_fence => continue,
-                v => local.update_fence = v,
+            match source.get_version() {
+                v if v == local.bits.version() => continue,
+                v => local.bits.set_version(v),
             }
 
             has_update = true;
-            local.dirty_flag = true;
+            local.bits.set_dirty(1);
 
             let (meta, value) = source.get_value();
             self.__body.update_elem_at__(index, value.as_any(), meta);
@@ -182,16 +228,23 @@ impl<T: Template> Group<T> {
         has_update
     }
 
-    #[deprecated(since = "0.4.0", note = "use `clear_flag` instead")]
-    pub fn check_elem_update<U: 'static>(&mut self, e: *const U) -> bool {
-        self.consume_update(e)
+    #[deprecated(since = "0.8.0", note = "Use `take_flag` instead")]
+    pub fn consume_update<U: 'static>(&mut self, prop: *const U) -> bool {
+        self.take_flag(prop)
     }
 
     /// Check element update from its address, and clears dirty flag on given element.
     /// This is only meaningful when followed by [`Group::update`] call.
-    pub fn consume_update<U: 'static>(&mut self, e: *const U) -> bool {
-        let Some(index) = self.get_index_by_ptr(e) else { return false };
-        replace(&mut self.local[index].dirty_flag, false)
+    pub fn take_flag<U: 'static>(&mut self, prop: *const U) -> bool {
+        let Some(index) = self.get_index_by_ptr(prop) else { return false };
+        let bits = &mut self.local.as_slice_mut()[index].bits;
+
+        if bits.is_dirty() == 1 {
+            bits.set_dirty(0);
+            true
+        } else {
+            false
+        }
     }
 
     /// Get index of element based on element address.
@@ -218,7 +271,7 @@ impl<T: Template> Group<T> {
             v => {
                 if let Some(prop) = T::prop_at_offset__(v as usize) {
                     debug_assert_eq!(prop.type_id, TypeId::of::<U>());
-                    debug_assert!(prop.index < self.local.len());
+                    debug_assert!(prop.index < self.local.as_slice().len());
                     Some(prop)
                 } else {
                     None
@@ -229,29 +282,30 @@ impl<T: Template> Group<T> {
 
     /// Commit changes on element to core context, then it will be propagated to all other groups
     /// which shares same core context.
-    pub fn commit_elem<U: Clone + EntityTrait>(&self, e: &U, notify: bool) {
+    pub fn commit_elem<U: Clone + EntityTrait>(&self, prop: &U, notify: bool) {
         // Replace source argument with created ptr
-        let elem = &(*self.core.sources)[self.get_index_by_ptr(e).unwrap()];
+        let elem = &(*self.origin.sources)[self.get_index_by_ptr(prop).unwrap()];
 
         // SAFETY: We know that `vtable.implements_copy()` is strictly managed.
         let impl_copy = elem.get_meta().vtable.implements_copy();
-        let new_value = unsafe { EntityValue::from_value(e.clone(), impl_copy) };
+        let new_value = unsafe { EntityValue::from_value(prop.clone(), impl_copy) };
 
         elem.__apply_value(new_value);
         elem.__notify_value_change(notify)
     }
 
-    pub fn touch_elem<U: 'static>(&self, e: *const U) {
-        let elem = &(*self.core.sources)[self.get_index_by_ptr(e).unwrap()];
+    /// Notifie this element has been changed, without committing any changes to core context.
+    pub fn touch_elem<U: 'static>(&self, prop: *const U) {
+        let elem = &(*self.origin.sources)[self.get_index_by_ptr(prop).unwrap()];
         elem.__notify_value_change(true)
     }
 
-    /// Clones new update receiver channel. Given channel will be notified whenever call to
+    /// Clone new update receiver channel. Given channel will be notified whenever call to
     /// `update()` method meaningful. However, as the event can be generated manually even
     /// if there's no actual update, it's not recommended to make critical logics rely on
     /// this signal.
     pub fn watch_update(&self) -> WatchUpdate {
-        let mut x = self.core.update_receiver_channel.clone();
+        let mut x = self.origin.update_receiver_channel.clone();
         x.invalidate();
         x
     }
@@ -261,7 +315,7 @@ impl<T: Template> Group<T> {
     /// each elements will return true.
     pub fn mark_all_elem_dirty(&mut self) {
         // Raising dirty flag does not incur remote reload.
-        self.local.iter_mut().for_each(|e| e.dirty_flag = true);
+        self.local.as_slice_mut().iter_mut().for_each(|e| e.bits.set_dirty(1));
     }
 
     /// Mark this group dirty. Next call to `update()` method will return true, regardless of
@@ -273,7 +327,7 @@ impl<T: Template> Group<T> {
     /// Mark given element dirty.
     pub fn mark_dirty<U: 'static>(&mut self, elem: *const U) {
         let index = self.get_index_by_ptr(elem).unwrap();
-        self.local[index].dirty_flag = true;
+        self.local.as_slice_mut()[index].bits.set_dirty(1);
     }
 
     /// Get generated metadata of given element
@@ -284,11 +338,11 @@ impl<T: Template> Group<T> {
     /// Get instance path of `self`. This value is same as the list of tokens that you have
     /// provided to [`crate::Storage::create_group`] method.
     pub fn path(&self) -> &Arc<[CompactString]> {
-        &self.core.path
+        &self.origin.path
     }
 }
 
-impl<T> std::ops::Deref for Group<T> {
+impl<T: Template> std::ops::Deref for Group<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -296,7 +350,7 @@ impl<T> std::ops::Deref for Group<T> {
     }
 }
 
-impl<T> std::ops::DerefMut for Group<T> {
+impl<T: Template> std::ops::DerefMut for Group<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.__body
     }
@@ -307,6 +361,8 @@ fn _verify_send_impl() {
     #[derive(Clone, Default)]
     struct Example {}
     impl Template for Example {
+        type LocalPropArray = LocalPropContextArrayImpl<0>;
+
         fn prop_at_offset__(_offset: usize) -> Option<&'static Property> {
             unimplemented!()
         }
@@ -332,7 +388,7 @@ fn _verify_send_impl() {
     _assert_send::<Group<Example>>();
 }
 
-impl<T> Group<T> {
+impl<T: Template> Group<T> {
     #[doc(hidden)]
     pub fn __macro_as_mut(&mut self) -> &mut Self {
         //! Use coercion to get mutable reference to self regardless of its expression.
