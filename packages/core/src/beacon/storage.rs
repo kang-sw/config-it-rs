@@ -10,7 +10,7 @@ use std::{
 use compact_str::{CompactString, ToCompactString};
 
 use crate::{
-    beacon::{entity, noti},
+    config::{entity, noti},
     core::{archive, GroupID, ItemID, PathHash},
 };
 
@@ -302,7 +302,7 @@ mod inner {
     use serde::de::IntoDeserializer;
 
     use crate::{
-        beacon::entity::EntityTrait,
+        config::entity::EntityTrait,
         core::{archive::Archive, meta::MetaFlag},
     };
 

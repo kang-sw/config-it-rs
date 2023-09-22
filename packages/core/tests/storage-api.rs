@@ -1,4 +1,4 @@
-use config_it::beacon::group::Property;
+use config_it::config::group::Property;
 
 #[derive(Clone)]
 struct MyType {

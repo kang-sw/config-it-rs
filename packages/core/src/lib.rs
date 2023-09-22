@@ -201,7 +201,7 @@
 //! });
 //! ```
 //!
-pub mod beacon;
+pub mod config;
 pub mod core;
 
 // Just re-exported, for compatibility.
@@ -219,19 +219,19 @@ pub extern crate schemars;
 #[cfg(feature = "jsonschema")]
 pub use schemars::schema::{RootSchema as Schema, SchemaObject};
 
-#[cfg(feature = "beacon")]
-pub use beacon_export::*;
+#[cfg(feature = "config")]
+pub use config_export::*;
 
-#[cfg(feature = "beacon")]
-mod beacon_export {
-    use crate::beacon::*;
+#[cfg(feature = "config")]
+mod config_export {
+    use crate::config::*;
     use crate::core::*;
 
     #[doc(hidden)]
     pub use memoffset::offset_of;
 
     /// Primary macro for defining configuration group template.
-    #[cfg(feature = "beacon")]
+    #[cfg(feature = "config")]
     pub use macros::Template;
 
     pub use entity::{Validation, ValidationResult};
