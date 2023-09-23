@@ -16,7 +16,7 @@ const TRIVIAL_ENTITY_NUM_WORDS: usize = 5;
 ///
 /// Config entity type must satisfy this constraint
 ///
-pub trait EntityTrait: Send + Sync + Any + 'static {
+pub trait Entity: Send + Sync + Any + 'static {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
     fn as_serialize(&self) -> &dyn erased_serde::Serialize;
@@ -24,10 +24,10 @@ pub trait EntityTrait: Send + Sync + Any + 'static {
         &mut self,
         de: &mut dyn erased_serde::Deserializer,
     ) -> Result<(), erased_serde::Error>;
-    fn duplicated(&self) -> Arc<dyn EntityTrait>;
+    fn duplicated(&self) -> Arc<dyn Entity>;
 }
 
-impl<T> EntityTrait for T
+impl<T> Entity for T
 where
     T: Send + Sync + Any + serde::Serialize + DeserializeOwned + Clone + 'static,
 {
@@ -51,7 +51,7 @@ where
         self as &dyn erased_serde::Serialize
     }
 
-    fn duplicated(&self) -> Arc<dyn EntityTrait> {
+    fn duplicated(&self) -> Arc<dyn Entity> {
         Arc::new(self.clone())
     }
 }
@@ -126,7 +126,7 @@ pub struct MetadataVTableImpl<T: 'static> {
     pub fn_validate: ValidateFn<T>,
 }
 
-impl<T: EntityTrait + Clone> MetadataVTable for MetadataVTableImpl<T> {
+impl<T: Entity + Clone> MetadataVTable for MetadataVTableImpl<T> {
     fn implements_copy(&self) -> bool {
         self.impl_copy
     }
@@ -164,7 +164,7 @@ impl<T: EntityTrait + Clone> MetadataVTable for MetadataVTableImpl<T> {
 #[derive(Clone)]
 pub enum EntityValue {
     Trivial(TrivialEntityValue),
-    Complex(Arc<dyn EntityTrait>),
+    Complex(Arc<dyn Entity>),
 }
 
 impl std::fmt::Debug for EntityValue {
@@ -178,7 +178,7 @@ impl std::fmt::Debug for EntityValue {
 }
 
 type ReinterpretInput<'a> = Result<&'a [usize], &'a mut [usize]>;
-type ReinterpretOutput<'a> = Result<&'a dyn EntityTrait, &'a mut dyn EntityTrait>;
+type ReinterpretOutput<'a> = Result<&'a dyn Entity, &'a mut dyn Entity>;
 
 /// Pair of function pointer to retrieve entity trait from given pointer and actual payload.
 #[derive(Clone, Copy)]
@@ -188,7 +188,7 @@ pub struct TrivialEntityValue(
     [usize; TRIVIAL_ENTITY_NUM_WORDS],
 );
 
-impl EntityTrait for EntityValue {
+impl Entity for EntityValue {
     fn as_any(&self) -> &dyn Any {
         self.as_entity().as_any()
     }
@@ -208,20 +208,20 @@ impl EntityTrait for EntityValue {
         self.as_entity_mut().deserialize(de)
     }
 
-    fn duplicated(&self) -> Arc<dyn EntityTrait> {
+    fn duplicated(&self) -> Arc<dyn Entity> {
         self.as_entity().duplicated()
     }
 }
 
 impl EntityValue {
-    pub fn as_entity(&self) -> &dyn EntityTrait {
+    pub fn as_entity(&self) -> &dyn Entity {
         match self {
             EntityValue::Trivial(t) => unsafe { (t.0)(Ok(&t.1)).unwrap_unchecked() },
             EntityValue::Complex(v) => v.as_ref(),
         }
     }
 
-    pub fn as_entity_mut(&mut self) -> &mut dyn EntityTrait {
+    pub fn as_entity_mut(&mut self) -> &mut dyn Entity {
         match self {
             EntityValue::Trivial(t) => unsafe { (t.0)(Err(&mut t.1)).unwrap_err_unchecked() },
             EntityValue::Complex(v) => {
@@ -235,19 +235,19 @@ impl EntityValue {
         }
     }
 
-    pub fn from_trivial<T: Copy + EntityTrait>(value: T) -> Self {
+    pub fn from_trivial<T: Copy + Entity>(value: T) -> Self {
         // SAFETY: This is safe as long as `T` is trivially copyable.
         unsafe { Self::from_trivial_unchecked(value) }
     }
 
-    pub unsafe fn from_trivial_unchecked<T: EntityTrait>(value: T) -> Self {
+    pub unsafe fn from_trivial_unchecked<T: Entity>(value: T) -> Self {
         if std::mem::size_of::<T>() <= std::mem::size_of::<usize>() * TRIVIAL_ENTITY_NUM_WORDS {
             let mut buffer = [0usize; TRIVIAL_ENTITY_NUM_WORDS];
             unsafe {
                 std::ptr::copy_nonoverlapping(&value, buffer.as_mut_ptr() as _, 1);
             }
 
-            unsafe fn retrieve_function<T: EntityTrait>(i: ReinterpretInput) -> ReinterpretOutput {
+            unsafe fn retrieve_function<T: Entity>(i: ReinterpretInput) -> ReinterpretOutput {
                 match i {
                     Ok(x) => Ok(&*(x.as_ptr() as *const T)),
                     Err(x) => Err(&mut *(x.as_mut_ptr() as *mut T)),
@@ -260,11 +260,11 @@ impl EntityValue {
         }
     }
 
-    pub fn from_complex<T: EntityTrait>(value: T) -> Self {
+    pub fn from_complex<T: Entity>(value: T) -> Self {
         Self::Complex(Arc::new(value))
     }
 
-    pub(crate) unsafe fn from_value<T: EntityTrait>(value: T, implements_copy: bool) -> Self {
+    pub(crate) unsafe fn from_value<T: Entity>(value: T, implements_copy: bool) -> Self {
         if implements_copy {
             // SAFETY: `implements_copy` must be managed very carefully to make this safe.
             unsafe { Self::from_trivial_unchecked(value) }

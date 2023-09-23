@@ -79,12 +79,12 @@ config = [
 	"dep:parking_lot",
 	"dep:smallvec",
 	"dep:bitfield",
-	"dep:aes-gcm",
 	"dep:cs",
 ]
 
 machine-id-encryption = ["dep:machine-uid"]
 config-derive = ["dep:memoffset", "dep:impls"]
+encryption = ["dep:aes-gcm"]
 
 indexmap = ["dep:indexmap"]
 jsonschema = ["dep:schemars", "macros/jsonschema"]

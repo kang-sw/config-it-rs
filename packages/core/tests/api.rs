@@ -186,6 +186,7 @@ fn test_use_case() {
             assert!(false == group.consume_update(&group.env_var));
 
             let mut watchdog = group.watch_update();
+            assert!(watchdog.try_recv().is_ok());
             assert!(watchdog.try_recv().is_err());
             commit_elem!(group, notify(c_string_type));
             assert!(watchdog.recv().await.is_ok());
@@ -326,7 +327,8 @@ fn test_use_case() {
         // through asynchronous channel. This is useful when you
         // want to immediately response to any configuration updates.
         let mut monitor = group.watch_update();
-        assert!(false == monitor.try_recv().is_ok());
+        assert!(monitor.try_recv().is_ok());
+        assert!(monitor.try_recv().is_err());
 
         let archive: config_it::Archive = serde_yaml::from_str(yaml).unwrap();
         storage.import(archive).apply_as_patch(false);

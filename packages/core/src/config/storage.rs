@@ -258,6 +258,7 @@ impl Storage {
     /// Supply cypher key. If not specified until the first de/encryption, it will be generated from
     /// machine, or if the machine-uid generation is not available, it'll simply use some hard-coded
     /// sequence.
+    #[cfg(feature = "encryption")]
     pub fn set_encryption_key(&self, key: &[u8]) {
         todo!("Digest input key sequence")
     }
@@ -305,7 +306,7 @@ mod inner {
     use serde::de::IntoDeserializer;
 
     use crate::{
-        config::entity::EntityTrait,
+        config::entity::Entity,
         shared::{archive::Archive, meta::MetaFlag},
     };
 
@@ -338,6 +339,7 @@ mod inner {
         pub archive: RwLock<archive::Archive>,
 
         /// AES-256 key for encryption
+        #[cfg(feature = "encryption")]
         #[debug(with = "fmt_encrpytion_key")]
         encryption_key: RwLock<Option<[u8; 32]>>,
     }
@@ -352,6 +354,7 @@ mod inner {
         write!(f, "{:?}", exists.then_some(ptr))
     }
 
+    #[cfg(feature = "encryption")]
     fn fmt_encrpytion_key(
         key: &RwLock<Option<[u8; 32]>>,
         f: &mut std::fmt::Formatter<'_>,
@@ -383,6 +386,7 @@ mod inner {
                 monitor: RwLock::new(monitor),
                 path_hashes: Default::default(),
                 archive: Default::default(),
+                #[cfg(feature = "encryption")]
                 encryption_key: Default::default(),
             }
         }
@@ -474,6 +478,7 @@ mod inner {
             old_monitor
         }
 
+        #[cfg(feature = "encryption")]
         const CRYPTO_PREFIX: &'static str = "%%CONFIG-IT-SECRET%%";
 
         fn dump_node(ctx: &GroupContext, archive: &mut archive::Archive) {
@@ -483,7 +488,7 @@ mod inner {
             // Clear existing values before dumping.
             node.values.clear();
 
-            for (meta, mut val) in ctx
+            for (meta, val) in ctx
                 .sources
                 .iter()
                 .map(|e| e.get_value())
@@ -491,6 +496,7 @@ mod inner {
             {
                 let dst = node.values.entry(meta.name.into()).or_default();
 
+                #[cfg(feature = "encryption")]
                 if meta.metadata.flags.contains(MetaFlag::SECRET) {
                     todo!("JsonString => AES-256 Enc => Base64String => Prefix");
                 }
@@ -505,7 +511,7 @@ mod inner {
         fn load_node(ctx: &GroupContext, node: &archive::Archive, monitor: &dyn Monitor) -> bool {
             let mut has_update = false;
 
-            'outer: for (elem, de) in ctx
+            '_outer: for (elem, de) in ctx
                 .sources
                 .iter()
                 .map(|e| (e, e.get_meta()))
@@ -514,6 +520,7 @@ mod inner {
                     node.values.get(m.name).map(|o| (e, o.clone().into_deserializer()))
                 })
             {
+                #[cfg(feature = "encryption")]
                 'decryption: {
                     if !elem.get_meta().metadata.flags.contains(MetaFlag::SECRET) {
                         break 'decryption;

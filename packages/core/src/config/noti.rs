@@ -47,11 +47,7 @@ impl Receiver {
         Wait { rx: self, state: WaitState::Created }
     }
 
-    pub fn fence(&self) -> usize {
-        self.0
-    }
-
-    pub fn update(&mut self) -> Option<()> {
+    pub fn consume_update(&mut self) -> Option<()> {
         self.1.upgrade().map(|x| self.0 = x.lock().fence)
     }
 
@@ -59,17 +55,15 @@ impl Receiver {
         self.0 = 0;
     }
 
-    pub fn is_dirty(&self) -> Option<bool> {
+    pub fn has_update(&self) -> Option<bool> {
         self.1.upgrade().map(|x| x.lock().fence != self.0)
     }
 
     /// API for channel compatibility
     pub fn try_recv(&mut self) -> Result<(), TryWaitError> {
-        if self.update().is_none() {
-            return Err(TryWaitError::Closed);
-        }
-
-        if self.is_dirty().unwrap() {
+        let flag = self.1.upgrade().ok_or(TryWaitError::Closed)?.lock().fence;
+        if self.0 != flag {
+            self.0 = flag;
             Ok(())
         } else {
             Err(TryWaitError::Empty)

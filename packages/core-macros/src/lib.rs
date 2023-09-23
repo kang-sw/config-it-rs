@@ -36,7 +36,7 @@ use std::borrow::Cow;
 
 use proc_macro::TokenStream as LangTokenStream;
 use proc_macro2::{Span, TokenStream};
-use proc_macro_error::{emit_error, emit_warning, proc_macro_error};
+use proc_macro_error::{emit_error,  proc_macro_error};
 use quote::{quote, quote_spanned};
 use syn::{
     punctuated::Punctuated, spanned::Spanned, Attribute, Expr, ExprLit, Ident, Lit, LitStr, Meta,
@@ -276,7 +276,6 @@ fn visit_fields(
         fn_default_config.push(quote_spanned!(field_span => #field_ident: #default_fn_ident(),));
 
         /* --------------------------------- Metadata Generation -------------------------------- */
-        // TODO
         {
             let FieldProperty {
                 alias,
@@ -335,7 +334,9 @@ fn visit_fields(
 
             let schema = cfg!(feature = "jsonschema").then(|| {
                 quote! {
-                    schema: None,
+                    schema: {
+                        __default_ref_ptr::<#field_ty>().get_schema()
+                    }
                 }
             });
             let validation_function = {
@@ -394,6 +395,7 @@ fn visit_fields(
                     use #this_crate::config as __config;
                     use #this_crate::shared as __shared;
                     use __config::entity as __entity;
+                    use __config::__lookup::*;
                     use __shared::meta as __meta;
 
                     __entity::PropertyInfo {
@@ -433,7 +435,6 @@ fn visit_fields(
         /* ------------------------------ Index Access Genenration ------------------------------ */
         fn_prop_at_offset.push(quote!(#const_offset_ident => Some(#field_index),));
         fn_elem_at_mut.push(quote!(#field_index => &mut self.#field_ident as &mut dyn Any,));
-        // TODO
         
         /* -------------------------------- Field Index Increment ------------------------------- */
         field_index += 1;

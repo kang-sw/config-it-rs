@@ -7,7 +7,7 @@ use strseq::SharedStringSequence;
 
 use crate::shared::GroupID;
 
-use super::entity::{EntityData, EntityTrait, EntityValue, PropertyInfo};
+use super::entity::{Entity, EntityData, EntityValue, PropertyInfo};
 use super::noti;
 
 ///
@@ -281,7 +281,7 @@ impl<T: Template> Group<T> {
 
     /// Commit changes on element to core context, then it will be propagated to all other groups
     /// which shares same core context.
-    pub fn commit_elem<U: Clone + EntityTrait>(&self, prop: &U, notify: bool) {
+    pub fn commit_elem<U: Clone + Entity>(&self, prop: &U, notify: bool) {
         // Replace source argument with created ptr
         let elem = &(*self.origin.sources)[self.get_index_by_ptr(prop).unwrap()];
 
@@ -304,9 +304,7 @@ impl<T: Template> Group<T> {
     /// if there's no actual update, it's not recommended to make critical logics rely on
     /// this signal.
     pub fn watch_update(&self) -> WatchUpdate {
-        let mut x = self.origin.update_receiver_channel.clone();
-        x.invalidate();
-        x
+        self.origin.update_receiver_channel.clone()
     }
 
     /// Mark all elements dirty. Next call to [`Group::update()`] may not return true if there
