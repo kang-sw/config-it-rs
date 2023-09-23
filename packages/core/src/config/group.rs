@@ -45,7 +45,7 @@ pub trait Template: Clone + 'static {
 
 /// Allows local properties to be stored on stack.
 #[doc(hidden)]
-pub trait LocalPropContextArray: Clone + Default {
+pub trait LocalPropContextArray: Clone + Default + std::fmt::Debug {
     const N: usize;
 
     fn as_slice(&self) -> &[PropLocalContext];
@@ -53,7 +53,7 @@ pub trait LocalPropContextArray: Clone + Default {
 }
 
 #[doc(hidden)]
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct LocalPropContextArrayImpl<const N: usize>([PropLocalContext; N]);
 
 impl<const N: usize> LocalPropContextArray for LocalPropContextArrayImpl<N> {
@@ -84,6 +84,7 @@ pub struct Property {
 ///
 /// May storage implement this
 ///
+#[derive(cs::Debug)]
 pub struct GroupContext {
     /// This group's instance ID
     pub group_id: GroupID,
@@ -150,7 +151,7 @@ impl<T: std::fmt::Debug + Template> std::fmt::Debug for Group<T> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct PropLocalContext {
     /// Locally cached update fence.
     bits: VersionBits,

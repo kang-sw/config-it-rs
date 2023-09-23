@@ -62,6 +62,7 @@ where
 ///  instances.
 ///
 ///
+#[derive(Debug)]
 pub struct Metadata {
     pub type_id: TypeId,
 
@@ -90,7 +91,7 @@ pub enum Validation {
 /// Validation result. Error type is plain string to inform user.
 pub type ValidationResult = Result<Validation, std::borrow::Cow<'static, str>>;
 
-pub trait MetadataVTable: Send + Sync + 'static {
+pub trait MetadataVTable: Send + Sync + 'static + std::fmt::Debug {
     /// Does implement `Copy`?
     fn implements_copy(&self) -> bool;
 
@@ -111,6 +112,7 @@ pub trait MetadataVTable: Send + Sync + 'static {
     fn validate(&self, value: &mut dyn Any) -> ValidationResult;
 }
 
+#[derive(cs::Debug)]
 pub struct MetadataVTableImpl<T: 'static> {
     impl_copy: bool,
     fn_default: fn() -> T,
@@ -218,6 +220,16 @@ impl Metadata {
 pub enum EntityValue {
     Trivial(TrivialEntityValue),
     Complex(Arc<dyn EntityTrait>),
+}
+
+impl std::fmt::Debug for EntityValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Trivial(_) => f.debug_struct("Trivial"),
+            Self::Complex(_) => f.debug_struct("Complex"),
+        }
+        .finish()
+    }
 }
 
 type ReinterpretInput<'a> = Result<&'a [usize], &'a mut [usize]>;
@@ -333,6 +345,7 @@ impl EntityValue {
 ///
 /// 3. Local set retrieves entity update
 ///
+#[derive(cs::Debug)]
 pub struct EntityData {
     /// Unique entity id for program run-time
     id: ItemID,
@@ -341,6 +354,7 @@ pub struct EntityData {
     version: AtomicU64,
     value: Mutex<EntityValue>,
 
+    #[debug(skip)]
     hook: Arc<dyn EntityEventHook>,
 }
 

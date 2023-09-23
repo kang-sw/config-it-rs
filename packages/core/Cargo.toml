@@ -46,6 +46,7 @@ bitfield = { version = "0.14.0", optional = true }
 
 machine-uid = { version = "0.5.1", optional = true }
 aes-gcm = { version = "0.10.3", optional = true }
+cs = { version = "0.5.1", package = "custom_debug_derive", optional = true }
 
 [dependencies.macros]
 package = "config-it-macros"
@@ -77,6 +78,7 @@ config = [
 	"dep:smallvec",
 	"dep:bitfield",
 	"dep:aes-gcm",
+	"dep:cs",
 ]
 
 machine-id-encryption = ["dep:machine-uid"]

@@ -23,6 +23,13 @@ use super::{
 /*                                      STORAGE MONITOR TRAIT                                     */
 /* ---------------------------------------------------------------------------------------------- */
 
+/// Monitors every storage actions. If monitor tracks every event of single storage, it can
+/// replicate internal state perfectly.
+///
+/// Monitor should properly handle property flags, such as `ADMIN`, `READONLY`, `SECRET`, etc ...
+///
+/// TODO: Handle flags; `HIDDEN`
+
 pub trait Monitor: Send + Sync + 'static {
     fn initial_groups(&self, iter: &mut dyn Iterator<Item = (&GroupID, &Arc<GroupContext>)>) {
         let _ = iter;
@@ -44,7 +51,7 @@ pub trait Monitor: Send + Sync + 'static {
 ///
 /// Storage manages multiple sets registered by preset key.
 ///
-#[derive(Default, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct Storage(Arc<inner::Inner>);
 
 #[derive(thiserror::Error, Debug)]
@@ -315,11 +322,10 @@ mod inner {
 
     use super::*;
 
-    ///
     /// Drives storage internal events.
     ///
     /// - Receives update request
-    ///
+    #[derive(cs::Debug)]
     pub(super) struct Inner {
         /// List of all config sets registered in this storage.
         ///
@@ -330,6 +336,7 @@ mod inner {
         ///
         /// On every monitor event, storage driver will iterate each session channels
         ///  and will try replication.
+        #[debug(with = "fmt_monitor")]
         pub monitor: RwLock<Arc<dyn Monitor>>,
 
         /// Registered path hashes. Used to quickly compare if there are any path name
@@ -342,9 +349,29 @@ mod inner {
         pub archive: RwLock<archive::Archive>,
 
         /// AES-256 key for encryption
+        #[debug(with = "fmt_encrpytion_key")]
         encryption_key: RwLock<Option<[u8; 32]>>,
     }
 
+    fn fmt_monitor(
+        monitor: &RwLock<Arc<dyn Monitor>>,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        let ptr = &**monitor.read() as *const _;
+        let exists = ptr != &EmptyMonitor as *const _;
+
+        write!(f, "{:?}", exists.then_some(ptr))
+    }
+
+    fn fmt_encrpytion_key(
+        key: &RwLock<Option<[u8; 32]>>,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        let exists = key.read().is_some();
+        write!(f, "{:?}", exists)
+    }
+
+    /// A dummy monitor class, which represnet empty monitor.
     pub(super) struct EmptyMonitor;
     impl Monitor for EmptyMonitor {}
 
@@ -354,6 +381,7 @@ mod inner {
         }
     }
 
+    #[derive(Debug)]
     struct GroupRegistration {
         context: Arc<GroupContext>,
         evt_on_update: noti::Sender,
