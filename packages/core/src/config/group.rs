@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 use strseq::SharedStringSequence;
 
-use crate::core::GroupID;
+use crate::shared::GroupID;
 
 use super::entity::{EntityData, EntityTrait, EntityValue, Metadata};
 use super::noti;
@@ -220,7 +220,7 @@ impl<T: Template> Group<T> {
         {
             // Perform quick check to see if given config entity has any update.
             match source.get_version() {
-                // SAFETY: The locally updated version uses only 63 bits of the bit variable, which
+                // NOTE: The locally updated version uses only 63 bits of the bit variable, which
                 // may occasionally cause it to differ from the source version. However, this
                 // discrepancy is unlikely to be a practical issue because it would require a
                 // version gap of at least 2^63 to occur, and the tolerance resets to 2^63 whenever

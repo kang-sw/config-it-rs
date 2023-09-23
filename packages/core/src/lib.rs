@@ -202,7 +202,7 @@
 //! ```
 //!
 pub mod config;
-pub mod core;
+pub mod shared;
 
 // Just re-exported, for compatibility.
 pub extern crate compact_str;
@@ -223,7 +223,7 @@ pub use config_export::*;
 #[cfg(feature = "config")]
 mod config_export {
     use crate::config::*;
-    use crate::core::*;
+    use crate::shared::*;
 
     #[doc(hidden)]
     pub use memoffset::offset_of;

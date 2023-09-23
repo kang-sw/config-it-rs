@@ -11,7 +11,7 @@ use strseq::SharedStringSequence;
 
 use crate::{
     config::{entity, noti},
-    core::{archive, GroupID, ItemID, PathHash},
+    shared::{archive, GroupID, ItemID, PathHash},
 };
 
 use super::{
@@ -306,7 +306,7 @@ mod inner {
 
     use crate::{
         config::entity::EntityTrait,
-        core::{archive::Archive, meta::MetaFlag},
+        shared::{archive::Archive, meta::MetaFlag},
     };
 
     use super::*;

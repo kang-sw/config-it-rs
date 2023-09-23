@@ -5,8 +5,8 @@ use std::borrow::Cow;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use crate::core::meta::MetadataProps;
-use crate::core::ItemID;
+use crate::shared::meta::MetadataProps;
+use crate::shared::ItemID;
 
 /// Number of available words for trivial entity value.
 ///
