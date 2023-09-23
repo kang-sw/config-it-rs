@@ -62,6 +62,24 @@ impl Receiver {
     pub fn is_dirty(&self) -> Option<bool> {
         self.1.upgrade().map(|x| x.lock().fence != self.0)
     }
+
+    /// API for channel compatibility
+    pub fn try_recv(&mut self) -> Result<(), TryWaitError> {
+        if self.update().is_none() {
+            return Err(TryWaitError::Closed);
+        }
+
+        if self.is_dirty().unwrap() {
+            Ok(())
+        } else {
+            Err(TryWaitError::Empty)
+        }
+    }
+
+    /// API for channel compatibility
+    pub fn recv(&mut self) -> Wait {
+        self.wait()
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -71,6 +89,15 @@ pub enum TryWaitError {
 
     #[error("There's no update")]
     Empty,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum WaitError {
+    #[error("Closed notify channel.")]
+    Closed,
+
+    #[error("Polled after expiration.")]
+    Expired,
 }
 
 #[derive(Debug)]
@@ -120,7 +147,7 @@ impl<'a> Drop for Wait<'a> {
 }
 
 impl<'a> std::future::Future for Wait<'a> {
-    type Output = Option<()>;
+    type Output = Result<(), WaitError>;
 
     fn poll(self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
@@ -130,7 +157,7 @@ impl<'a> std::future::Future for Wait<'a> {
             WaitState::Created => {
                 let Some(inner) = this.rx.1.upgrade() else {
                     this.state = WaitState::Expired;
-                    return Poll::Ready(None);
+                    return Poll::Ready(Err(WaitError::Closed));
                 };
 
                 let mut inner = inner.lock();
@@ -138,7 +165,7 @@ impl<'a> std::future::Future for Wait<'a> {
                 if inner.fence != this.rx.0 {
                     // Fast-path for early wakeup one
                     this.rx.0 = inner.fence;
-                    return Poll::Ready(Some(()));
+                    return Poll::Ready(Ok(()));
                 }
 
                 inner.waiters.push((id, cx.waker().clone()));
@@ -150,7 +177,7 @@ impl<'a> std::future::Future for Wait<'a> {
             WaitState::Registered => {
                 let Some(inner) = this.rx.1.upgrade() else {
                     this.state = WaitState::Expired;
-                    return Poll::Ready(None);
+                    return Poll::Ready(Err(WaitError::Closed));
                 };
 
                 let mut inner = inner.lock();
@@ -161,7 +188,7 @@ impl<'a> std::future::Future for Wait<'a> {
                     this.rx.0 = inner.fence;
                     this.state = WaitState::Expired;
 
-                    Poll::Ready(Some(()))
+                    Poll::Ready(Ok(()))
                 } else {
                     // For falsy wakeup, registers itself again
                     this.unregister();
@@ -171,7 +198,7 @@ impl<'a> std::future::Future for Wait<'a> {
                 }
             }
 
-            WaitState::Expired => Poll::Ready(None),
+            WaitState::Expired => Poll::Ready(Err(WaitError::Expired)),
         }
     }
 }

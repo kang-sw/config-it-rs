@@ -39,7 +39,8 @@ use proc_macro2::{Span, TokenStream};
 use proc_macro_error::{emit_error, emit_warning, proc_macro_error};
 use quote::{quote, quote_spanned};
 use syn::{
-    punctuated::Punctuated, spanned::Spanned, Attribute, Expr, ExprLit, Lit, LitStr, Meta, Token,
+    punctuated::Punctuated, spanned::Spanned, Attribute, Expr, ExprLit, Ident, Lit, LitStr, Meta,
+    Token,
 };
 
 #[proc_macro_error]
@@ -70,7 +71,7 @@ pub fn derive_collect_fn(item: LangTokenStream) -> LangTokenStream {
         fn_prop_at_offset,
         fn_default_config,
         fn_elem_at_mut,
-        fn_default_functions,
+        fn_global_constants,
         ..
     } = gen;
     let n_props = fn_props.len();
@@ -79,13 +80,13 @@ pub fn derive_collect_fn(item: LangTokenStream) -> LangTokenStream {
         #[allow(unused_parens)]
         #[allow(unused_braces)]
         const _: () = {
-            #( #fn_default_functions )*
+            #( #fn_global_constants )*
 
             impl #this_crate::Template for #ident {
                 type LocalPropContextArray = #this_crate::config::group::LocalPropContextArrayImpl<#n_props>;
 
                 fn props__() -> &'static [#this_crate::config::entity::PropertyInfo] {
-                    static PROPS: std::sync::OnceLock<[#this_crate::config::entity::PropertyInfo; #n_props]> = std::sync::OnceLock::new();
+                    static PROPS: ::std::sync::OnceLock<[#this_crate::config::entity::PropertyInfo; #n_props]> = ::std::sync::OnceLock::new();
                     PROPS.get_or_init(|| [#(#fn_props)*] )
                 }
 
@@ -105,6 +106,8 @@ pub fn derive_collect_fn(item: LangTokenStream) -> LangTokenStream {
                 }
 
                 fn elem_at_mut__(&mut self, index: usize) -> &mut dyn std::any::Any {
+                    use ::std::any::Any;
+                    
                     match index {
                         #(#fn_elem_at_mut)*
                         _ => panic!("Invalid index {}", index),
@@ -122,7 +125,7 @@ fn visit_fields(
         fn_prop_at_offset,
         fn_default_config,
         fn_elem_at_mut,
-        fn_default_functions,
+        fn_global_constants,
     }: &mut GenContext,
     GenInputCommon { this_crate, struct_ident }: GenInputCommon,
     syn::FieldsNamed { named: fields, .. }: syn::FieldsNamed,
@@ -134,8 +137,9 @@ fn visit_fields(
     fn_elem_at_mut.reserve(n_field);
 
     let mut doc_string = Vec::new();
+    let mut field_index = 0usize;
 
-    for (field_index, field) in fields.into_iter().enumerate() {
+    for  field in fields.into_iter() {
         let field_span = field.span();
         let field_ty = field.ty;
         let field_ident = field.ident.expect("This is struct with named fields");
@@ -206,7 +210,10 @@ fn visit_fields(
         /*                                   FUNCTION GENERATION                                  */
         /* -------------------------------------------------------------------------------------- */
         let prop = match field_type {
-            FieldType::Plain => continue,
+            FieldType::Plain => {
+                fn_default_config.push(quote_spanned!(field_span => #field_ident: Default::default(),));
+                continue;
+            },
             FieldType::PlainWithDefaultExpr(span, expr) => {
                 fn_default_config.push(quote_spanned!(span => #field_ident: #expr,));
                 continue;
@@ -253,12 +260,17 @@ fn visit_fields(
         };
 
         let default_fn_ident = format!("__fn_default_{}", field_ident);
-        let default_fn_ident = syn::Ident::new(&default_fn_ident, field_ident.span());
+        let default_fn_ident = Ident::new(&default_fn_ident, field_ident.span());
+        let field_ident_upper = field_ident.to_string().to_uppercase();
+        let const_offset_ident =
+            Ident::new(&format!("__COFST_{field_ident_upper}"), Span::call_site());
 
-        fn_default_functions.push(quote_spanned!(field_span =>
+        fn_global_constants.push(quote_spanned!(field_span =>
             fn #default_fn_ident() -> #field_ty {
                 #default_expr
             }
+
+            const #const_offset_ident: usize = #this_crate::offset_of!(#struct_ident, #field_ident);
         ));
 
         fn_default_config.push(quote_spanned!(field_span => #field_ident: #default_fn_ident(),));
@@ -351,7 +363,7 @@ fn visit_fields(
                     })
                 });
                 let fn_user = validate_with.map(|x| {
-                    let ident = syn::Ident::new(&x.value(), x.span());
+                    let ident = Ident::new(&x.value(), x.span());
                     quote_spanned!(x.span() => {
                         match #ident(mref) {
                             Ok(__entity::Validation::Valid) => {}
@@ -385,7 +397,7 @@ fn visit_fields(
 
                     __entity::PropertyInfo {
                         index: #field_index,
-                        memory_offset: #this_crate::offset_of!(#struct_ident, #field_ident),
+                        memory_offset: #const_offset_ident,
                         type_id: std::any::TypeId::of::<#field_ty>(),
                         metadata: __meta::Metadata {
                             flags: {
@@ -405,6 +417,7 @@ fn visit_fields(
                             fn_default: #default_fn_ident,
                             fn_validate: {
                                 fn __validate(mref: &mut #field_ty) -> __entity::ValidationResult {
+                                    let _ = mref; // Allow unused instance
                                     #validation_function
                                 }
 
@@ -417,7 +430,12 @@ fn visit_fields(
         }
 
         /* ------------------------------ Index Access Genenration ------------------------------ */
+        fn_prop_at_offset.push(quote!(#const_offset_ident => Some(#field_index),));
+        fn_elem_at_mut.push(quote!(#field_index => &mut self.#field_ident as &mut dyn Any,));
         // TODO
+        
+        /* -------------------------------- Field Index Increment ------------------------------- */
+        field_index += 1;
     }
 }
 
@@ -545,7 +563,7 @@ fn this_crate_name() -> TokenStream {
     match crate_name("config-it") {
         Ok(FoundCrate::Itself) => quote!(::config_it),
         Ok(FoundCrate::Name(name)) => {
-            let ident = syn::Ident::new(&name, Span::call_site());
+            let ident = Ident::new(&name, Span::call_site());
             quote!(::#ident)
         }
 
@@ -558,14 +576,14 @@ fn this_crate_name() -> TokenStream {
 
 struct GenInputCommon<'a> {
     this_crate: &'a TokenStream,
-    struct_ident: &'a syn::Ident,
+    struct_ident: &'a Ident,
 }
 
 #[derive(Default)]
 struct GenContext {
     fn_props: Vec<TokenStream>,
     fn_prop_at_offset: Vec<TokenStream>,
-    fn_default_functions: Vec<TokenStream>,
+    fn_global_constants: Vec<TokenStream>,
     fn_default_config: Vec<TokenStream>,
     fn_elem_at_mut: Vec<TokenStream>,
 }

@@ -1,6 +1,6 @@
 #![allow(unused_imports)]
 
-use config_it::archive::Archive;
+use config_it::Archive;
 use config_it::Group;
 use config_it::Template;
 use futures::executor::{self, block_on};
@@ -52,10 +52,10 @@ pub struct MyStruct {
     #[allow(unused)]
     my_invisible: f32,
 
-    #[nocfg = "[1,2,3,4]"]
+    #[non_config_default_expr = "[1,2,3,4]"]
     this_is_invisible_default: [i32; 4],
 
-    #[nocfg(Into::into("pewpew"))]
+    #[non_config_default_expr = r#"Into::into("pewpew")"#]
     this_is_invisible_default2: String,
 
     #[config]
@@ -68,45 +68,25 @@ struct MyType {
     b: i32,
 }
 
-#[cfg(any())]
-#[test]
-fn fewew() {
-    let s = MyStruct::default();
-
-    let echo = process::Command::new("rustfmt")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .unwrap();
-
-    echo.stdin.unwrap().write_all(hello().as_bytes()).unwrap();
-
-    let stdout_fmt =
-        Command::new("rustfmt").stdin(echo.stdout.unwrap()).stdout(Stdio::piped()).spawn().unwrap();
-
-    let content = stdout_fmt.wait_with_output().unwrap();
-    println!("\n\n{}\n", std::str::from_utf8(&content.stdout).unwrap());
-}
-
 #[test]
 fn config_set_valid_operations() {
     let async_op = async {
-        let (storage, worker) = config_it::create_storage();
-        thread::spawn(move || block_on(worker));
+        let storage = config_it::create_storage();
 
         std::env::set_var("MY_ARRAY_VAR", "14141");
         assert_eq!(std::env::var("MY_ARRAY_VAR").unwrap(), "14141");
 
-        let mut group = storage.create::<MyStruct>(["hello", "world!"]).await.unwrap();
+        let mut group = storage.create::<MyStruct>(["hello", "world!"]).unwrap();
 
         assert!(
-            storage.create::<MyStruct>(["hello", "world!"]).await.is_err(),
+            storage.create::<MyStruct>(["hello", "world!"]).is_err(),
             "Assert key duplication handled correctly"
         );
 
+        #[cfg(feature = "jsonschema")]
         {
-            assert!(group.get_metadata(&group.maximum).props.schema.is_some());
-            assert!(group.get_metadata(&group.my_type).props.schema.is_none());
+            assert!(group.property_info(&group.maximum).metadata.schema.is_some());
+            assert!(group.property_info(&group.my_type).metadata.schema.is_none());
         }
 
         let mut brd = group.watch_update();
@@ -165,7 +145,7 @@ fn config_set_valid_operations() {
         dbg!(&arch);
 
         assert!(brd.try_recv().is_err());
-        let _ = storage.import(arch, Default::default()).await;
+        storage.import(arch);
 
         thread::sleep(Duration::from_millis(100));
 
@@ -175,8 +155,8 @@ fn config_set_valid_operations() {
 
         dbg!(&*group);
 
-        let meta = group.get_metadata(&group.my_value);
-        dbg!((meta.name, &meta.props));
+        let meta = group.property_info(&group.my_value);
+        dbg!((meta.name, &meta.metadata));
 
         assert!(!group.update(), "Re-request handled correctly.");
         assert!(group.consume_update(&group.data), "Updated configs correctly applied.");
@@ -186,7 +166,7 @@ fn config_set_valid_operations() {
         assert!(!group.consume_update(&group.noimp), "No-import property correctly excluded");
         assert!(!group.consume_update(&group.median), "Unspecified update correctly excluded.");
 
-        let dumped = storage.export(Default::default()).await.unwrap();
+        let dumped = storage.exporter().collect();
         let dumped = serde_json::to_string_pretty(&dumped).unwrap();
         println!("{}", dumped);
 

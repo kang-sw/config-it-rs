@@ -143,7 +143,7 @@ impl Storage {
         &self,
         path: SharedStringSequence,
     ) -> Result<group::Group<T>, GroupCreationError> {
-        assert!(path.is_empty());
+        assert!(!path.is_empty());
         assert!(path.iter().all(|x| !x.is_empty()));
 
         let path_hash = PathHash::new(path.iter());
@@ -201,7 +201,7 @@ impl Storage {
     /// * `no_merge` - If true, only active archive contents will be collected.
     ///   Otherwise, result will contain merge result of previously loaded archive.
     /// * `no_update` - If true, existing archive won't
-    pub fn export(&self) -> inner::ExportTask {
+    pub fn exporter(&self) -> inner::ExportTask {
         inner::ExportTask::new(&self.0)
     }
 
@@ -648,7 +648,7 @@ mod inner {
         }
 
         /// Performs export operation with given settings
-        pub fn perform(self) -> Archive {
+        pub fn collect(self) -> Archive {
             let mut archive = Archive::default();
             let this = self.inner;
 

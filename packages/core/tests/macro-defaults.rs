@@ -16,6 +16,6 @@ struct Foo {
     #[config(one_of=[1,3,4])]
     tew: u32,
 
-    #[non_config_default_expr = "4i32"]
-    other: i32,
+    #[non_config_default_expr = "4"]
+    _other: i32,
 }

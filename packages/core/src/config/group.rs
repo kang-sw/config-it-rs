@@ -232,14 +232,9 @@ impl<T: Template> Group<T> {
         has_update
     }
 
-    #[deprecated(since = "0.8.0", note = "Use `take_flag` instead")]
-    pub fn consume_update<U: 'static>(&mut self, prop: *const U) -> bool {
-        self.take_flag(prop)
-    }
-
     /// Check element update from its address, and clears dirty flag on given element.
     /// This is only meaningful when followed by [`Group::update`] call.
-    pub fn take_flag<U: 'static>(&mut self, prop: *const U) -> bool {
+    pub fn consume_update<U: 'static>(&mut self, prop: *const U) -> bool {
         let Some(index) = self.get_index_by_ptr(prop) else { return false };
         let bits = &mut self.local.as_slice_mut()[index].bits;
 

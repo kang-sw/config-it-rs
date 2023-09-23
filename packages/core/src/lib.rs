@@ -208,6 +208,8 @@ pub mod shared;
 pub extern crate compact_str;
 pub extern crate serde;
 
+pub use shared::{archive, meta};
+
 // [`core::archive::Archive`] utilizes this.
 pub use serde_json::Value as ArchiveValue;
 
@@ -239,8 +241,13 @@ mod config_export {
 
     pub use entity::{Validation, ValidationResult};
 
+    pub use archive::Archive;
     pub use group::{Group, Template};
     pub use storage::Storage;
+
+    pub fn create_storage() -> Storage {
+        Storage::default()
+    }
 
     pub type BroadcastReceiver = noti::Receiver;
     pub type ArchiveCategoryRule<'a> = archive::CategoryRule<'a>;
