@@ -1,9 +1,9 @@
 use bitfield::bitfield;
-use compact_str::CompactString;
 use std::any::{Any, TypeId};
 use std::iter::zip;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
+use strseq::SharedStringSequence;
 
 use crate::core::GroupID;
 
@@ -99,7 +99,7 @@ pub struct GroupContext {
     pub(crate) version: AtomicU64,
 
     /// Path of instantiated config set.
-    pub path: Arc<[CompactString]>,
+    pub path: SharedStringSequence,
 
     /// Broadcast subscriber to receive updates from backend.
     pub(crate) update_receiver_channel: noti::Receiver,
@@ -348,7 +348,7 @@ impl<T: Template> Group<T> {
 
     /// Get instance path of `self`. This value is same as the list of tokens that you have
     /// provided to [`crate::Storage::create_group`] method.
-    pub fn path(&self) -> &Arc<[CompactString]> {
+    pub fn path(&self) -> &SharedStringSequence {
         &self.origin.path
     }
 }

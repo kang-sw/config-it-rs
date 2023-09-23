@@ -7,7 +7,7 @@ use std::{
     },
 };
 
-use compact_str::{CompactString, ToCompactString};
+use strseq::SharedStringSequence;
 
 use crate::{
     config::{entity, noti},
@@ -71,23 +71,22 @@ pub enum GroupFindOrCreateError {
 #[derive(thiserror::Error, Debug)]
 pub enum GroupCreationError {
     #[error("Path name duplicated, found early! Path was: {0:?}")]
-    PathCollisionEarly(Vec<CompactString>),
+    PathCollisionEarly(SharedStringSequence),
     #[error("Path name duplication found during registeration. Path was: {0:?}")]
-    PathCollisionRace(Arc<[CompactString]>),
+    PathCollisionRace(SharedStringSequence),
 }
 
 impl Storage {
     /// Tries to find existing group from path name, and if it doesn't exist, tries to create new
     pub fn find_or_create<'a, T>(
         &self,
-        path: impl IntoIterator<Item = &'a (impl AsRef<str> + ?Sized + 'a)>,
+        path: impl IntoIterator<Item = impl AsRef<str> + 'a>,
     ) -> Result<group::Group<T>, GroupFindOrCreateError>
     where
         T: group::Template,
     {
-        let keys_iter = path.into_iter().map(|x| x.as_ref().to_compact_string());
-        let mut keys: Vec<CompactString> = keys_iter.collect();
-        let path_hash = PathHash::new(keys.iter().map(|x| x.as_str()));
+        let keys = SharedStringSequence::from_iter(path);
+        let path_hash = PathHash::new(keys.iter());
 
         use GroupCreationError as GCE;
         use GroupFindError as GFE;
@@ -100,15 +99,11 @@ impl Storage {
                 Err(GFE::PathNotFound) => {}
             }
 
-            match self.create_impl::<T>(keys) {
+            match self.create_impl::<T>(keys.clone()) {
                 Ok(created) => break Ok(created),
 
-                // Retry from finding group if path collision was found.
-                Err(GCE::PathCollisionEarly(x)) => keys = x,
-
-                // Retry .. although this involves expensive iterative allocation, this should be
-                // corner case where multiple thread tries to create same group at the same time.
-                Err(GCE::PathCollisionRace(x)) => keys = (&x[..]).into(),
+                // Simply retry on path collision
+                Err(GCE::PathCollisionEarly(_) | GCE::PathCollisionRace(_)) => continue,
             }
         }
     }
@@ -141,28 +136,22 @@ impl Storage {
     where
         T: group::Template,
     {
-        let keys_iter = path.into_iter().map(|x| x.as_ref().to_compact_string());
-        let keys: Vec<CompactString> = keys_iter.collect();
-
-        self.create_impl(keys)
+        self.create_impl(path.into_iter().collect())
     }
 
     fn create_impl<T: group::Template>(
         &self,
-        path: Vec<CompactString>,
+        path: SharedStringSequence,
     ) -> Result<group::Group<T>, GroupCreationError> {
         assert!(path.is_empty());
         assert!(path.iter().all(|x| !x.is_empty()));
 
-        let path_hash = PathHash::new(path.iter().map(|x| x.as_str()));
+        let path_hash = PathHash::new(path.iter());
 
         // Naively check if there's already existing group with same path.
         if let Some(_) = self.0.find_group(&path_hash) {
             return Err(GroupCreationError::PathCollisionEarly(path));
         }
-
-        // Collect metadata
-        let path: Arc<[CompactString]> = path.into();
 
         // This ID may not be used if group creation failed ... it's generally okay since we have
         // 2^63 trials.
@@ -426,9 +415,7 @@ mod inner {
 
             let rg = GroupRegistration { context, evt_on_update };
 
-            if let Some(node) =
-                self.archive.read().find_path(rg.context.path.iter().map(|x| x.as_str()))
-            {
+            if let Some(node) = self.archive.read().find_path(rg.context.path.iter()) {
                 Self::load_node(&rg.context, node, &EmptyMonitor);
             }
 
@@ -483,7 +470,7 @@ mod inner {
         const CRYPTO_PREFIX: &str = "%%CONFIG-IT-SECRET%%";
 
         fn dump_node(ctx: &GroupContext, archive: &mut archive::Archive) {
-            let paths = ctx.path.iter().map(|x| x.as_str());
+            let paths = ctx.path.iter();
             let node = archive.find_or_create_path_mut(paths);
 
             // Clear existing values before dumping.
@@ -598,7 +585,7 @@ mod inner {
                 for elem in this.all_groups.iter() {
                     let group = elem.value();
                     let path = &group.context.path;
-                    let path = path.iter().map(|x| x.as_str());
+                    let path = path.iter();
                     let Some(node) = archive.find_path(path) else { continue };
 
                     if Inner::load_node(&group.context, node, &**this.monitor.read()) {

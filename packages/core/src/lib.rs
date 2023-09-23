@@ -205,10 +205,8 @@ pub mod config;
 pub mod core;
 
 // Just re-exported, for compatibility.
+pub extern crate compact_str;
 pub extern crate serde;
-
-// Just re-exported, for any case if you want to use it.
-pub use compact_str::CompactString;
 
 // [`core::archive::Archive`] utilizes this.
 pub use serde_json::Value as ArchiveValue;

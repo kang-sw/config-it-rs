@@ -1,6 +1,6 @@
 use std::{cell::Cell, mem::take};
 
-use compact_str::CompactString;
+use compact_str::{CompactString, ToCompactString};
 use serde::{ser::SerializeMap, Deserialize, Serialize};
 
 #[cfg(not(feature = "indexmap"))]
@@ -96,23 +96,113 @@ impl<'a> CategoryRule<'a> {
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct Archive {
     /// Every '~' prefixed keys
-    pub paths: Map<CompactString, Archive>,
+    pub(crate) paths: Map<CompactString, Archive>,
 
     /// All elements except child path nodes.
-    pub values: Map<CompactString, serde_json::Value>,
+    pub(crate) values: Map<CompactString, serde_json::Value>,
 }
 
 impl Archive {
-    pub fn find_path<'s, 'a>(
+    pub fn iter_values(&self) -> impl Iterator<Item = (&str, &serde_json::Value)> {
+        self.values.iter().map(|(k, v)| (k.as_str(), v))
+    }
+
+    pub fn iter_paths(&self) -> impl Iterator<Item = (&str, &Archive)> {
+        self.paths.iter().map(|(k, v)| (k.as_str(), v))
+    }
+
+    pub fn iter_paths_mut(&mut self) -> impl Iterator<Item = (&str, &mut Archive)> {
+        self.paths.iter_mut().map(|(k, v)| (k.as_str(), v))
+    }
+
+    pub fn iter_values_mut(&mut self) -> impl Iterator<Item = (&str, &mut serde_json::Value)> {
+        self.values.iter_mut().map(|(k, v)| (k.as_str(), v))
+    }
+
+    pub fn get_value(&self, key: &str) -> Option<&serde_json::Value> {
+        self.values.get(key)
+    }
+
+    pub fn get_value_mut(&mut self, key: &str) -> Option<&mut serde_json::Value> {
+        self.values.get_mut(key)
+    }
+
+    pub fn get_path(&self, key: &str) -> Option<&Archive> {
+        self.paths.get(key)
+    }
+
+    pub fn get_path_mut(&mut self, key: &str) -> Option<&mut Archive> {
+        self.paths.get_mut(key)
+    }
+
+    pub fn insert_value(&mut self, key: impl ToCompactString, value: serde_json::Value) {
+        self.values.insert(key.to_compact_string(), value);
+    }
+
+    pub fn insert_path(&mut self, key: impl ToCompactString, value: Archive) {
+        self.paths.insert(key.to_compact_string(), value);
+    }
+
+    pub fn remove_value(&mut self, key: &str) -> Option<serde_json::Value> {
+        self.values.remove(key)
+    }
+
+    pub fn remove_path(&mut self, key: &str) -> Option<Archive> {
+        self.paths.remove(key)
+    }
+
+    pub fn clear_values(&mut self) {
+        self.values.clear();
+    }
+
+    pub fn clear_paths(&mut self) {
+        self.paths.clear();
+    }
+
+    pub fn is_empty_values(&self) -> bool {
+        self.values.is_empty()
+    }
+
+    pub fn is_empty_paths(&self) -> bool {
+        self.paths.is_empty()
+    }
+
+    pub fn len_values(&self) -> usize {
+        self.values.len()
+    }
+
+    pub fn len_paths(&self) -> usize {
+        self.paths.len()
+    }
+
+    pub fn reserve_values(&mut self, additional: usize) {
+        self.values.reserve(additional);
+    }
+
+    pub fn reserve_paths(&mut self, additional: usize) {
+        self.paths.reserve(additional);
+    }
+
+    pub fn shrink_to_fit_values(&mut self) {
+        self.values.shrink_to_fit();
+    }
+
+    pub fn shrink_to_fit_paths(&mut self) {
+        self.paths.shrink_to_fit();
+    }
+}
+
+impl Archive {
+    pub fn find_path<'s, 'a, T: AsRef<str> + 'a>(
         &'s self,
-        path: impl IntoIterator<Item = &'a str>,
+        path: impl IntoIterator<Item = T>,
     ) -> Option<&'s Archive> {
         let iter = path.into_iter();
         let mut paths = &self.paths;
         let mut node = None;
 
         for key in iter {
-            if let Some(next_node) = paths.get(key) {
+            if let Some(next_node) = paths.get(key.as_ref()) {
                 node = Some(next_node);
                 paths = &next_node.paths;
             } else {
