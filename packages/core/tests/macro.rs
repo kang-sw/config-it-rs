@@ -23,10 +23,10 @@ pub struct MyStruct {
     #[config_it(default = 24, max = 3)]
     maximum_va: usize,
 
-    #[config_it(default = "3@", one_of("ab3", "go04"))]
+    #[config_it(default = "3@", one_of = ["ab3", "go04"])]
     data: String,
 
-    #[config_it(default = 3112, one_of(1, 2, 3, 4, 5))]
+    #[config_it(default = 3112, one_of = [1, 2, 3, 4, 5])]
     median: i32,
 
     /// Complicated default value expressions should be wrapped within quotes, and assigned into

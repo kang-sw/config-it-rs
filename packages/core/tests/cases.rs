@@ -15,7 +15,7 @@ fn concepts() {
         #[config(max = 250)]
         pub age: u32,
 
-        #[config(default = "unspecified", one_of("left", "right", "up", "down"))]
+        #[config(default = "unspecified", one_of = ["left", "right", "up", "down"])]
         pub position: String,
     }
 

@@ -357,7 +357,7 @@ fn visit_fields(
                 });
                 let fn_one_of = one_of.map(|x| {
                     quote_spanned!(x.span() => {
-                        if !#x.contains(mref) {
+                        if #x.into_iter().all(|x| x != *mref) {
                             return Err("Value is not one of the allowed values".into());
                         }
                     })
@@ -375,6 +375,7 @@ fn visit_fields(
 
                 quote! {
                     let mut editted = false;
+                    
                     #fn_min
                     #fn_max
                     #fn_one_of
@@ -474,11 +475,11 @@ fn from_meta_list(meta_list: syn::MetaList) -> Option<FieldProperty> {
                 } else if is_("hidden") {
                     r.hidden = true
                 } else {
-                    emit_warning!(arg, "Unknown attribute")
+                    emit_error!(arg, "Unknown attribute, {:?}", arg.path())
                 }
             }
             Meta::List(_) => {
-                emit_warning!(arg, "Unexpected list")
+                emit_error!(arg, "Unexpected list")
             }
             Meta::NameValue(syn::MetaNameValue { value, path, .. }) => {
                 let is_ = |x: &str| path.is_ident(x);
@@ -507,6 +508,8 @@ fn from_meta_list(meta_list: syn::MetaList) -> Option<FieldProperty> {
                     r.env = expr_take_lit_str(value).map(|x| (false, x));
                 } else if is_("editor") {
                     r.editor = Some(value);
+                } else {
+                    emit_error!(path.span(), "Unknown attribute, {:?}", path)
                 }
             }
         }

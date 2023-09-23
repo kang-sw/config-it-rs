@@ -4,13 +4,13 @@ struct Foo {
     /// Multi
     ///
     /// ANd
-    #[config(default = 14, desc = "This is a var", env_once = "DLOGIIO")]
+    #[config(default = 14, env_once = "DLOGIIO")]
     var: u32,
 
-    #[config(default = (14, 8), desc = "This is a var")]
+    #[config(default = (14, 8))]
     varg: (u32, u32),
 
-    #[config(default = "hello", desc = "This is a var", env = "ADLSOC")]
+    #[config(default = "hello", env = "ADLSOC")]
     vk: String,
 
     #[config(one_of=[1,3,4])]

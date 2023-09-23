@@ -28,13 +28,13 @@ struct MyConfig {
     /// > alias name. In current implementation, `~` is
     /// > used to indicate group object in archive
     /// > representation during serialization.
-    #[config(alias = "alias", access(user))]
+    #[config(alias = "alias")]
     non_alias: f32,
 
     /// Only specified set of values are allowed for
     /// this field, however, default field can be
     /// excluded from this set.
-    #[config_it(default = "default", one_of("a", "b", "c"))]
+    #[config_it(default = "default", one_of = ["a", "b", "c"])]
     one_of_field: String,
 
     /// Any 'serde' compatible type can be used as config field.
