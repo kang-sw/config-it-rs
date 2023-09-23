@@ -52,7 +52,7 @@ struct MyConfig {
     env_var: i64,
 
     /// Complicated default value are represented as expression.
-    #[config_it(default_expr = "[1,2,3,4,5].into()")]
+    #[config_it(default = [1,2,3,4,5])]
     array_init: Vec<i32>,
 
     /// This field is not part of config_it system.

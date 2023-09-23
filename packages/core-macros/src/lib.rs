@@ -224,7 +224,7 @@ fn visit_fields(
         /* --------------------------------- Default Generation --------------------------------- */
         let default_expr = match prop.default {
             Some(FieldPropertyDefault::Expr(expr)) => {
-                quote_spanned!(expr.span() => (#expr).to_owned())
+                quote_spanned!(expr.span() => <#field_ty>::try_from(#expr).unwrap())
             }
 
             Some(FieldPropertyDefault::ExprStr(lit)) => {
