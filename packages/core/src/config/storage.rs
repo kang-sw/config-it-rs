@@ -165,7 +165,7 @@ impl Storage {
 
         let sources: Vec<_> = T::props__()
             .iter()
-            .map(|prop| entity::EntityData::new(prop.meta.clone(), entity_hook.clone()))
+            .map(|prop| entity::EntityData::new(prop, entity_hook.clone()))
             .collect();
 
         // Drops the group when the final group instance is dropped.
@@ -467,7 +467,7 @@ mod inner {
             group.evt_on_update.notify();
         }
 
-        const CRYPTO_PREFIX: &str = "%%CONFIG-IT-SECRET%%";
+        const CRYPTO_PREFIX: &'static str = "%%CONFIG-IT-SECRET%%";
 
         fn dump_node(ctx: &GroupContext, archive: &mut archive::Archive) {
             let paths = ctx.path.iter();
@@ -480,11 +480,11 @@ mod inner {
                 .sources
                 .iter()
                 .map(|e| e.get_value())
-                .filter(|(meta, _)| !meta.props.flags.contains(MetaFlag::NO_EXPORT))
+                .filter(|(meta, _)| !meta.metadata.flags.contains(MetaFlag::NO_EXPORT))
             {
                 let dst = node.values.entry(meta.name.into()).or_default();
 
-                if meta.props.flags.contains(MetaFlag::SECRET) {
+                if meta.metadata.flags.contains(MetaFlag::SECRET) {
                     todo!("JsonString => AES-256 Enc => Base64String => Prefix");
                 }
 
@@ -502,13 +502,13 @@ mod inner {
                 .sources
                 .iter()
                 .map(|e| (e, e.get_meta()))
-                .filter(|(_, m)| !m.props.flags.contains(MetaFlag::NO_IMPORT))
+                .filter(|(_, m)| !m.metadata.flags.contains(MetaFlag::NO_IMPORT))
                 .filter_map(|(e, m)| {
                     node.values.get(m.name).map(|o| (e, o.clone().into_deserializer()))
                 })
             {
                 'decryption: {
-                    if !elem.get_meta().props.flags.contains(MetaFlag::SECRET) {
+                    if !elem.get_meta().metadata.flags.contains(MetaFlag::SECRET) {
                         break 'decryption;
                     }
 

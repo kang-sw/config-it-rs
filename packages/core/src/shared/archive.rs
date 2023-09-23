@@ -320,7 +320,7 @@ impl<'a> Deserialize<'a> for Archive {
                 A: serde::de::MapAccess<'de>,
             {
                 CATEGORY_RULE.with(|rule| {
-                    let rule = rule.clone().take();
+                    let rule = rule.take();
 
                     while let Some(mut key) = map.next_key::<CompactString>()? {
                         if !key.is_empty() && rule.is_category(&key) {
@@ -351,7 +351,7 @@ impl Serialize for Archive {
         let mut map = se.serialize_map(Some(self.paths.len() + self.values.len()))?;
 
         CATEGORY_RULE.with(|rule| {
-            let rule = rule.clone().take();
+            let rule = rule.take();
             let mut key_b = CompactString::default();
 
             for (k, v) in &self.paths {

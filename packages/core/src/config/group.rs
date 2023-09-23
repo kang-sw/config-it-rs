@@ -7,7 +7,7 @@ use strseq::SharedStringSequence;
 
 use crate::shared::GroupID;
 
-use super::entity::{EntityData, EntityTrait, EntityValue, Metadata};
+use super::entity::{EntityData, EntityTrait, EntityValue, PropertyInfo};
 use super::noti;
 
 ///
@@ -19,11 +19,11 @@ pub trait Template: Clone + 'static {
 
     /// Returns table mapping to <offset_from_base:property_metadata>
     #[doc(hidden)]
-    fn props__() -> &'static [Property];
+    fn props__() -> &'static [PropertyInfo];
 
     /// Gets property at memory offset
     #[doc(hidden)]
-    fn prop_at_offset__(offset: usize) -> Option<&'static Property>;
+    fn prop_at_offset__(offset: usize) -> Option<&'static PropertyInfo>;
 
     /// Get path of this config template (module path, struct name)
     fn template_name() -> (&'static str, &'static str);
@@ -35,7 +35,7 @@ pub trait Template: Clone + 'static {
     fn elem_at_mut__(&mut self, index: usize) -> &mut dyn Any;
 
     #[doc(hidden)]
-    fn update_elem_at__(&mut self, index: usize, value: &dyn Any, meta: &Metadata) {
+    fn update_elem_at__(&mut self, index: usize, value: &dyn Any, meta: &PropertyInfo) {
         let data = self.elem_at_mut__(index);
         meta.vtable.clone_in_place(value, data);
     }
@@ -72,13 +72,6 @@ impl<const N: usize> Default for LocalPropContextArrayImpl<N> {
     fn default() -> Self {
         Self([0; N].map(|_| PropLocalContext::default()))
     }
-}
-
-pub struct Property {
-    pub index: usize,
-    pub memory_offset: usize,
-    pub type_id: TypeId,
-    pub meta: &'static Metadata,
 }
 
 ///
@@ -272,7 +265,7 @@ impl<T: Template> Group<T> {
 
     /// Get property descriptor by element address. Provides primitive guarantee for type safety.
     #[doc(hidden)]
-    pub fn get_prop_by_ptr<U: 'static>(&self, e: *const U) -> Option<&Property> {
+    pub fn get_prop_by_ptr<U: 'static>(&self, e: *const U) -> Option<&'static PropertyInfo> {
         let ptr = e as *const u8 as isize;
         let base = &self.__body as *const _ as *const u8 as isize;
 
@@ -342,8 +335,8 @@ impl<T: Template> Group<T> {
     }
 
     /// Get generated metadata of given element
-    pub fn metadata<U: 'static>(&self, elem: *const U) -> &'static Metadata {
-        self.get_prop_by_ptr(elem).unwrap().meta
+    pub fn property_info<U: 'static>(&self, elem: *const U) -> &'static PropertyInfo {
+        self.get_prop_by_ptr(elem).unwrap()
     }
 
     /// Get instance path of `self`. This value is same as the list of tokens that you have
@@ -374,11 +367,11 @@ fn _verify_send_impl() {
     impl Template for Example {
         type LocalPropContextArray = LocalPropContextArrayImpl<0>;
 
-        fn prop_at_offset__(_offset: usize) -> Option<&'static Property> {
+        fn prop_at_offset__(_offset: usize) -> Option<&'static PropertyInfo> {
             unimplemented!()
         }
 
-        fn props__() -> &'static [Property] {
+        fn props__() -> &'static [PropertyInfo] {
             unimplemented!()
         }
 

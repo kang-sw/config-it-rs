@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use crate::shared::meta::MetadataProps;
+use crate::shared::meta::Metadata;
 use crate::shared::ItemID;
 
 /// Number of available words for trivial entity value.
@@ -63,18 +63,21 @@ where
 ///
 ///
 #[derive(Debug)]
-pub struct Metadata {
+pub struct PropertyInfo {
     pub type_id: TypeId,
 
-    pub props: MetadataProps,
+    pub index: usize,
+    pub memory_offset: usize,
+
+    pub metadata: Metadata,
     pub vtable: &'static dyn MetadataVTable,
 }
 
-impl std::ops::Deref for Metadata {
-    type Target = MetadataProps;
+impl std::ops::Deref for PropertyInfo {
+    type Target = Metadata;
 
     fn deref(&self) -> &Self::Target {
-        &self.props
+        &self.metadata
     }
 }
 
@@ -200,18 +203,6 @@ pub mod generic_lookup {
         fn is_copy(&self) -> bool {
             false
         }
-    }
-}
-
-impl Metadata {
-    pub fn create_for_base_type<T>(
-        init: &'static MetadataVTableImpl<T>,
-        props: MetadataProps,
-    ) -> Self
-    where
-        T: EntityTrait + Clone + serde::de::DeserializeOwned + serde::ser::Serialize,
-    {
-        Self { type_id: TypeId::of::<T>(), props, vtable: init }
     }
 }
 
@@ -350,7 +341,7 @@ pub struct EntityData {
     /// Unique entity id for program run-time
     id: ItemID,
 
-    meta: &'static Metadata,
+    meta: &'static PropertyInfo,
     version: AtomicU64,
     value: Mutex<EntityValue>,
 
@@ -368,7 +359,7 @@ pub enum EntityUpdateError {
 }
 
 impl EntityData {
-    pub(crate) fn new(meta: &'static Metadata, hook: Arc<dyn EntityEventHook>) -> Self {
+    pub(crate) fn new(meta: &'static PropertyInfo, hook: Arc<dyn EntityEventHook>) -> Self {
         Self {
             id: ItemID::new_unique(),
             version: AtomicU64::new(0),
@@ -382,7 +373,7 @@ impl EntityData {
         self.id
     }
 
-    pub fn get_meta(&self) -> &'static Metadata {
+    pub fn get_meta(&self) -> &'static PropertyInfo {
         self.meta
     }
 
@@ -390,7 +381,7 @@ impl EntityData {
         self.version.load(Ordering::Relaxed)
     }
 
-    pub fn get_value(&self) -> (&'static Metadata, EntityValue) {
+    pub fn get_value(&self) -> (&'static PropertyInfo, EntityValue) {
         (self.meta, self.value.lock().clone())
     }
 
@@ -435,8 +426,8 @@ impl EntityData {
             Err(e) => {
                 log::error!(
                     "(Deserialization Failed) {}(var:{}) \n\nERROR: {e:#?}",
-                    meta.props.name,
-                    meta.props.varname,
+                    meta.metadata.name,
+                    meta.metadata.varname,
                 );
                 Err(e.into())
             }

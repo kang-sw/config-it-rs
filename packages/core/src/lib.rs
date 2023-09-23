@@ -220,13 +220,13 @@ pub use schemars::schema::{RootSchema as Schema, SchemaObject};
 #[cfg(feature = "config")]
 pub use config_export::*;
 
+#[doc(hidden)]
+#[cfg(feature = "config")]
+pub use memoffset::offset_of;
 #[cfg(feature = "config")]
 mod config_export {
     use crate::config::*;
     use crate::shared::*;
-
-    #[doc(hidden)]
-    pub use memoffset::offset_of;
 
     /// Primary macro for defining configuration group template.
     #[cfg(feature = "config")]

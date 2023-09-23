@@ -70,7 +70,7 @@ pub enum MetadataEditorHint {
 
 /// Shared generic properties of this metadata entity.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
-pub struct MetadataProps {
+pub struct Metadata {
     /// Identifier for this config entity.
     pub name: &'static str,
 
