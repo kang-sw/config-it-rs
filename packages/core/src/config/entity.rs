@@ -94,6 +94,9 @@ pub enum Validation {
 /// Validation result. Error type is plain string to inform user.
 pub type ValidationResult = Result<Validation, std::borrow::Cow<'static, str>>;
 
+/// Signature of function to validate config entity
+pub type ValidateFn<T> = fn(&mut T) -> ValidationResult;
+
 pub trait MetadataVTable: Send + Sync + 'static + std::fmt::Debug {
     /// Does implement `Copy`?
     fn implements_copy(&self) -> bool;
@@ -116,10 +119,11 @@ pub trait MetadataVTable: Send + Sync + 'static + std::fmt::Debug {
 }
 
 #[derive(cs::Debug)]
+#[doc(hidden)]
 pub struct MetadataVTableImpl<T: 'static> {
-    impl_copy: bool,
-    fn_default: fn() -> T,
-    fn_validate: fn(&mut T) -> ValidationResult,
+    pub impl_copy: bool,
+    pub fn_default: fn() -> T,
+    pub fn_validate: ValidateFn<T>,
 }
 
 impl<T: EntityTrait + Clone> MetadataVTable for MetadataVTableImpl<T> {
@@ -153,56 +157,6 @@ impl<T: EntityTrait + Clone> MetadataVTable for MetadataVTableImpl<T> {
     fn validate(&self, value: &mut dyn Any) -> ValidationResult {
         let value = value.downcast_mut::<T>().unwrap();
         (self.fn_validate)(value)
-    }
-}
-
-#[doc(hidden)]
-pub mod generic_lookup {
-    trait AnyType {}
-    impl<T> AnyType for T {}
-
-    /* -------------------------------------- Lookup Schema ------------------------------------- */
-    #[cfg(feature = "jsonschema")]
-    pub trait HasSchema {
-        fn get_schema(&self) -> Option<crate::Schema>;
-    }
-
-    #[cfg(feature = "jsonschema")]
-    impl<T: schemars::JsonSchema> HasSchema for T {
-        fn get_schema(&self) -> Option<crate::Schema> {
-            Some(schemars::schema_for!(T))
-        }
-    }
-
-    #[cfg(feature = "jsonschema")]
-    pub trait NoSchema {
-        fn get_schema(&self) -> Option<crate::Schema> {
-            None
-        }
-    }
-
-    #[cfg(feature = "jsonschema")]
-    impl<T: AnyType> NoSchema for &T {}
-
-    /* ------------------------------------- Detect If Copy ------------------------------------- */
-    pub trait IsCopy {
-        fn is_copy(&self) -> bool;
-    }
-
-    impl<T: Copy> IsCopy for T {
-        fn is_copy(&self) -> bool {
-            true
-        }
-    }
-
-    pub trait IsNotCopy {
-        fn is_copy(&self) -> bool;
-    }
-
-    impl<T: AnyType> IsNotCopy for &T {
-        fn is_copy(&self) -> bool {
-            false
-        }
     }
 }
 

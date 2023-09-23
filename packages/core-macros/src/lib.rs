@@ -15,17 +15,24 @@
 //! - `validate_with = "<function_name>"`: Sets validation function for the field. Its signature
 //!   must be `fn(&mut T) -> Result<Validation, impl Into<Cow<'static, str>>>`.
 //!
+//! - `readonly | writeonly`: Mark element as read-only or write-only.
+//! - `secret`: Mark element as secret. (e.g. password)
+//!
 //! - `env = "<literal>"`: Read default value from environment variable.
 //! - `env_once = "<literal>"`: Same as env, but caches value only once.
 //! - `transient | no_export | no_import`: Prohibit export/import of the field.
 //! - `editor = $this::MetadataEditorHint::<ident>`: Sets editor hint for the field.
-//! - `hide`: Hide field from the editor.
+//!
+//! - `hidden`: Hide field from the editor.
+//! - `hidden_non_admin`: Hide field only from non-admin users.
 //!
 //! # Using with non-config-it types
 //!
 //! For types which are not part of configuration, but does not provides `Default` trait, you can
 //! use `#[non_config_default_expr = "<expr>"]` attribute to provide default for these types.
 //!
+
+use std::borrow::Cow;
 
 use proc_macro::TokenStream as LangTokenStream;
 use proc_macro2::{Span, TokenStream};
@@ -63,48 +70,60 @@ pub fn derive_collect_fn(item: LangTokenStream) -> LangTokenStream {
         fn_prop_at_offset,
         fn_default_config,
         fn_elem_at_mut,
+        fn_default_functions,
         ..
     } = gen;
     let n_props = fn_props.len();
 
     quote!(
         #[allow(unused_parens)]
-        impl #this_crate::Template for #ident {
-            type LocalPropContextArray = #this_crate::config::group::LocalPropContextArrayImpl<#n_props>;
-            
-            fn props__() -> &'static [#this_crate::config::group::Property] {
-                static PROPS: std::sync::OnceLock<[#this_crate::config::group::Property; #n_props]> = std::sync::OnceLock::new();
-                PROPS.get_or_init(|| [#(#fn_props)*] )
-            }
+        #[allow(unused_braces)]
+        const _: () = {
+            #( #fn_default_functions )*
 
-            fn prop_at_offset__(offset: usize) -> Option<&'static #this_crate::config::group::Property> {
-                let index = match offset { #(#fn_prop_at_offset)* _ => None::<usize> };
-                index.map(|x| &Self::props__()[x])
-            }
+            impl #this_crate::Template for #ident {
+                type LocalPropContextArray = #this_crate::config::group::LocalPropContextArrayImpl<#n_props>;
 
-            fn template_name() -> (&'static str, &'static str) {
-                (module_path!(), stringify!(#ident))
-            }
+                fn props__() -> &'static [#this_crate::config::entity::PropertyInfo] {
+                    static PROPS: std::sync::OnceLock<[#this_crate::config::entity::PropertyInfo; #n_props]> = std::sync::OnceLock::new();
+                    PROPS.get_or_init(|| [#(#fn_props)*] )
+                }
 
-            fn default_config() -> Self {
-                Self {
-                    #(#fn_default_config)*
+                fn prop_at_offset__(offset: usize) -> Option<&'static #this_crate::config::entity::PropertyInfo> {
+                    let index = match offset { #(#fn_prop_at_offset)* _ => None::<usize> };
+                    index.map(|x| &Self::props__()[x])
+                }
+
+                fn template_name() -> (&'static str, &'static str) {
+                    (module_path!(), stringify!(#ident))
+                }
+
+                fn default_config() -> Self {
+                    Self {
+                        #(#fn_default_config)*
+                    }
+                }
+
+                fn elem_at_mut__(&mut self, index: usize) -> &mut dyn std::any::Any {
+                    match index {
+                        #(#fn_elem_at_mut)*
+                        _ => panic!("Invalid index {}", index),
+                    }
                 }
             }
-
-            fn elem_at_mut__(&mut self, index: usize) -> &mut dyn std::any::Any {
-                match index {
-                    #(#fn_elem_at_mut)*
-                    _ => panic!("Invalid index {}", index),
-                }
-            }
-        }
+        };
     )
     .into()
 }
 
 fn visit_fields(
-    GenContext { fn_props, fn_prop_at_offset, fn_default_config, fn_elem_at_mut }: &mut GenContext,
+    GenContext {
+        fn_props,
+        fn_prop_at_offset,
+        fn_default_config,
+        fn_elem_at_mut,
+        fn_default_functions,
+    }: &mut GenContext,
     GenInputCommon { this_crate, struct_ident }: GenInputCommon,
     syn::FieldsNamed { named: fields, .. }: syn::FieldsNamed,
 ) {
@@ -195,9 +214,6 @@ fn visit_fields(
             FieldType::Property(x) => x,
         };
 
-        /* --------------------------------- Metadata Generation -------------------------------- */
-        // TODO
-
         /* --------------------------------- Default Generation --------------------------------- */
         let default_expr = match prop.default {
             Some(FieldPropertyDefault::Expr(expr)) => {
@@ -219,7 +235,7 @@ fn visit_fields(
             }
         };
 
-        let default_expr = if let Some((once, env)) = prop.env {
+        let default_expr = if let Some((once, env)) = prop.env.clone() {
             let env_var = env.value();
             if once {
                 quote_spanned!(env.span() => {
@@ -236,7 +252,169 @@ fn visit_fields(
             default_expr
         };
 
-        fn_default_config.push(quote_spanned!(field_span => #field_ident: #default_expr,));
+        let default_fn_ident = format!("__fn_default_{}", field_ident);
+        let default_fn_ident = syn::Ident::new(&default_fn_ident, field_ident.span());
+
+        fn_default_functions.push(quote_spanned!(field_span =>
+            fn #default_fn_ident() -> #field_ty {
+                #default_expr
+            }
+        ));
+
+        fn_default_config.push(quote_spanned!(field_span => #field_ident: #default_fn_ident(),));
+
+        /* --------------------------------- Metadata Generation -------------------------------- */
+        // TODO
+        {
+            let FieldProperty {
+                alias,
+                admin,
+                admin_write,
+                admin_read,
+                min,
+                max,
+                one_of,
+                transient,
+                no_export,
+                no_import,
+                editor,
+                hidden,
+                secret,
+                readonly,
+                writeonly,
+                env,
+                validate_with,
+                ..
+            } = prop;
+
+            let flags = [
+                readonly.then(|| quote!(MetaFlag::READONLY)),
+                writeonly.then(|| quote!(MetaFlag::WRITEONLY)),
+                hidden.then(|| quote!(MetaFlag::HIDDEN)),
+                secret.then(|| quote!(MetaFlag::SECRET)),
+                admin.then(|| quote!(MetaFlag::ADMIN)),
+                admin_write.then(|| quote!(MetaFlag::ADMIN_WRITE)),
+                admin_read.then(|| quote!(MetaFlag::ADMIN_READ)),
+                transient.then(|| quote!(MetaFlag::TRANSIENT)),
+                no_export.then(|| quote!(MetaFlag::NO_EXPORT)),
+                no_import.then(|| quote!(MetaFlag::NO_IMPORT)),
+            ]
+            .into_iter()
+            .filter_map(|x| x);
+
+            let varname = field_ident.to_string();
+            let name = alias
+                .map(|x| Cow::Owned(x.value()))
+                .unwrap_or_else(|| Cow::Borrowed(varname.as_str()));
+            let doc_string = doc_string.join("\n");
+            let none = quote!(None);
+            let env = env
+                .as_ref()
+                .map(|x| x.1.value())
+                .map(|env| quote!(Some(#env)))
+                .unwrap_or_else(|| none.clone());
+            let editor_hint = editor
+                .map(|x| {
+                    quote!(Some(
+                        __meta::MetadataEditorHint::#x
+                    ))
+                })
+                .unwrap_or_else(|| none.clone());
+
+            let schema = cfg!(feature = "jsonschema").then(|| {
+                quote! {
+                    schema: None,
+                }
+            });
+            let validation_function = {
+                let fn_min = min.map(|x| {
+                    quote_spanned!(x.span() => {
+                        if *mref < #x {
+                            editted = true;
+                            *mref = #x;
+                        }
+                    })
+                });
+                let fn_max = max.map(|x| {
+                    quote_spanned!(x.span() => {
+                        if *mref > #x {
+                            editted = true;
+                            *mref = #x;
+                        }
+                    })
+                });
+                let fn_one_of = one_of.map(|x| {
+                    quote_spanned!(x.span() => {
+                        if !#x.contains(mref) {
+                            return Err("Value is not one of the allowed values".into());
+                        }
+                    })
+                });
+                let fn_user = validate_with.map(|x| {
+                    let ident = syn::Ident::new(&x.value(), x.span());
+                    quote_spanned!(x.span() => {
+                        match #ident(mref) {
+                            Ok(__entity::Validation::Valid) => {}
+                            Ok(__entity::Validation::Modified) => { editted = true }
+                            Err(e) => return Err(e),
+                        }
+                    })
+                });
+
+                quote! {
+                    let mut editted = false;
+                    #fn_min
+                    #fn_max
+                    #fn_one_of
+                    #fn_user
+
+                    if !editted {
+                        Ok(__entity::Validation::Valid)
+                    } else {
+                        Ok(__entity::Validation::Modified)
+                    }
+                }
+            };
+
+            fn_props.push(quote_spanned! { field_span =>
+                {
+                    use #this_crate::config as __config;
+                    use #this_crate::shared as __shared;
+                    use __config::entity as __entity;
+                    use __shared::meta as __meta;
+
+                    __entity::PropertyInfo {
+                        index: #field_index,
+                        memory_offset: #this_crate::offset_of!(#struct_ident, #field_ident),
+                        type_id: std::any::TypeId::of::<#field_ty>(),
+                        metadata: __meta::Metadata {
+                            flags: {
+                                use __meta::MetaFlag;
+                                #(#flags |)* MetaFlag::empty()
+                            },
+                            name: #name,
+                            type_name: stringify!(#field_ty),
+                            varname: #varname,
+                            description: #doc_string,
+                            env: #env,
+                            editor_hint: #editor_hint,
+                            #schema
+                        },
+                        vtable: Box::leak(Box::new(__entity::MetadataVTableImpl {
+                            impl_copy: #this_crate::impls!(#field_ty: Copy),
+                            fn_default: #default_fn_ident,
+                            fn_validate: {
+                                fn __validate(mref: &mut #field_ty) -> __entity::ValidationResult {
+                                    #validation_function
+                                }
+
+                                __validate
+                            },
+                        }))
+                    }
+                },
+            });
+        }
 
         /* ------------------------------ Index Access Genenration ------------------------------ */
         // TODO
@@ -269,8 +447,14 @@ fn from_meta_list(meta_list: syn::MetaList) -> Option<FieldProperty> {
                     r.no_export = true
                 } else if is_("no_import") {
                     r.no_import = true
-                } else if is_("hide") {
-                    r.hide = true
+                } else if is_("secret") {
+                    r.secret = true
+                } else if is_("readonly") {
+                    r.readonly = true
+                } else if is_("writeonly") {
+                    r.writeonly = true
+                } else if is_("hidden") {
+                    r.hidden = true
                 } else {
                     emit_warning!(arg, "Unknown attribute")
                 }
@@ -297,6 +481,8 @@ fn from_meta_list(meta_list: syn::MetaList) -> Option<FieldProperty> {
                     };
 
                     r.one_of = Some(one_of);
+                } else if is_("validate_with") {
+                    r.validate_with = expr_take_lit_str(value);
                 } else if is_("env_once") {
                     r.env = expr_take_lit_str(value).map(|x| (true, x));
                 } else if is_("env") {
@@ -338,15 +524,19 @@ struct FieldProperty {
     admin: bool,
     admin_write: bool,
     admin_read: bool,
+    secret: bool,
+    readonly: bool,
+    writeonly: bool,
     min: Option<syn::Expr>,
     max: Option<syn::Expr>,
     one_of: Option<syn::ExprArray>,
     env: Option<(bool, syn::LitStr)>, // (IsOnce, EnvKey)
+    validate_with: Option<syn::LitStr>,
     transient: bool,
     no_export: bool,
     no_import: bool,
     editor: Option<syn::Expr>,
-    hide: bool,
+    hidden: bool,
 }
 
 fn this_crate_name() -> TokenStream {
@@ -375,6 +565,7 @@ struct GenInputCommon<'a> {
 struct GenContext {
     fn_props: Vec<TokenStream>,
     fn_prop_at_offset: Vec<TokenStream>,
+    fn_default_functions: Vec<TokenStream>,
     fn_default_config: Vec<TokenStream>,
     fn_elem_at_mut: Vec<TokenStream>,
 }

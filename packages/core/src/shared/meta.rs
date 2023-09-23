@@ -74,6 +74,9 @@ pub struct Metadata {
     /// Identifier for this config entity.
     pub name: &'static str,
 
+    /// Source variable name. Usually same as 'name' unless another name is specified for it.
+    pub varname: &'static str,
+
     /// Typename for this config entity.
     pub type_name: &'static str,
 
@@ -87,9 +90,6 @@ pub struct Metadata {
     /// Optional schema. Will be used by remote monitor to manage this variable.
     #[cfg(feature = "jsonschema")]
     pub schema: Option<crate::Schema>,
-
-    /// Source variable name. Usually same as 'name' unless another name is specified for it.
-    pub varname: &'static str,
 
     ///
     pub description: &'static str,

@@ -223,6 +223,11 @@ pub use config_export::*;
 #[doc(hidden)]
 #[cfg(feature = "config")]
 pub use memoffset::offset_of;
+
+#[doc(hidden)]
+#[cfg(feature = "config")]
+pub use impls::impls;
+
 #[cfg(feature = "config")]
 mod config_export {
     use crate::config::*;
