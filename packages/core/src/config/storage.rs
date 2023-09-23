@@ -31,7 +31,7 @@ use super::{
 /// TODO: Handle flags; `HIDDEN`
 
 pub trait Monitor: Send + Sync + 'static {
-    fn initial_groups(&self, iter: &mut dyn Iterator<Item = (&GroupID, &Arc<GroupContext>)>) {
+    fn group_add_batch(&self, iter: &mut dyn Iterator<Item = (GroupID, Arc<GroupContext>)>) {
         let _ = iter;
     }
     fn group_added(&self, group_id: &GroupID, group: &Arc<GroupContext>) {
@@ -239,8 +239,8 @@ impl Storage {
     }
 
     /// Replace existing monitor to given one.
-    pub fn reset_monitor(&self, handler: Arc<impl Monitor>) -> Arc<dyn Monitor> {
-        replace(&mut *self.0.monitor.write(), handler)
+    pub fn replace_monitor(&self, handler: Arc<impl Monitor>) -> Arc<dyn Monitor> {
+        self.0.replace_monitor(handler)
     }
 
     /// Unset monitor instance.
@@ -424,8 +424,7 @@ mod inner {
                 "Group ID never be duplicated." // as long as we didn't consume all 2^64 candidates ...
             );
 
-            let path_hash = self.path_hashes.entry(path_hash).or_insert(group_id);
-            if path_hash.value() != &group_id {
+            if self.path_hashes.entry(path_hash).or_insert(group_id).value() != &group_id {
                 // This is corner case where path hash was registered by other thread. In this case,
                 // we should remove group registration and return error.
                 self.all_groups.remove(&group_id);
@@ -465,6 +464,14 @@ mod inner {
             let Some(group) = self.all_groups.get(&group_id) else { return };
             group.context.version.fetch_add(1, Ordering::Relaxed);
             group.evt_on_update.notify();
+        }
+
+        pub fn replace_monitor(&self, new_monitor: Arc<dyn Monitor>) -> Arc<dyn Monitor> {
+            let old_monitor = replace(&mut *self.monitor.write(), new_monitor.clone());
+            new_monitor.group_add_batch(&mut self.path_hashes.iter().filter_map(|elem| {
+                self.all_groups.get(&elem.value()).map(|e| (*e.key(), e.context.clone()))
+            }));
+            old_monitor
         }
 
         const CRYPTO_PREFIX: &'static str = "%%CONFIG-IT-SECRET%%";
