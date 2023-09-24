@@ -56,12 +56,12 @@ fn concepts() {
     assert_eq!(scorch.position, "unspecified");
 
     // Calling 'update' method will update the property to the value in archive.
-    assert!(scorch.update() == true);
-    assert!(john.update() == true);
+    assert!(scorch.update());
+    assert!(john.update());
 
     // You can check dirty flag of individual property.
-    assert!(scorch.consume_update(&scorch.name) == true);
-    assert!(scorch.consume_update(&scorch.name) == false);
+    assert!(scorch.consume_update(&scorch.name));
+    assert!(!scorch.consume_update(&scorch.name));
 
     // Now the property values are updated.
     assert_eq!(scorch.name, "Scorch");
@@ -117,8 +117,8 @@ fn find_or() {
     assert!(matches!(storage.find::<TemplateA>(path()), Err(GroupFindError::PathNotFound)));
 
     let mut a = storage.create::<TemplateA>(path()).unwrap();
-    assert!(a.update() == true);
-    assert!(a.consume_update(&a.name) == true);
+    assert!(a.update());
+    assert!(a.consume_update(&a.name));
     assert!(a.name == "unspecified");
     a.name.clear();
     a.name.push_str("John");
@@ -126,8 +126,8 @@ fn find_or() {
 
     assert!(storage.create::<TemplateA>(path()).is_err());
     let mut a2 = storage.find_or_create::<TemplateA>(path()).unwrap();
-    assert!(a2.update() == true);
-    assert!(a2.consume_update(&a2.name) == true);
+    assert!(a2.update());
+    assert!(a2.consume_update(&a2.name));
     assert!(a2.name == "John");
 
     assert!(matches!(storage.find::<TemplateB>(path()), Err(GroupFindError::MismatchedTypeID)));

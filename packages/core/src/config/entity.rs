@@ -249,13 +249,17 @@ impl EntityValue {
         unsafe { Self::from_trivial_unchecked(value) }
     }
 
-    pub unsafe fn from_trivial_unchecked<T: Entity>(value: T) -> Self {
+    #[doc(hidden)]
+    pub(crate) unsafe fn from_trivial_unchecked<T: Entity>(value: T) -> Self {
         if std::mem::size_of::<T>() <= std::mem::size_of::<usize>() * TRIVIAL_ENTITY_NUM_WORDS {
             let mut buffer = [0usize; TRIVIAL_ENTITY_NUM_WORDS];
+
+            // SAFETY: This is safe as long as `T` is trivially copyable.
             unsafe {
                 std::ptr::copy_nonoverlapping(&value, buffer.as_mut_ptr() as _, 1);
             }
 
+            // SAFETY: Won't be used outside of delivered context.
             unsafe fn retrieve_function<T: Entity>(i: ReinterpretInput) -> ReinterpretOutput {
                 match i {
                     Ok(x) => Ok(&*(x.as_ptr() as *const T)),

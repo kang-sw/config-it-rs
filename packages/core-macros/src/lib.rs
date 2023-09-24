@@ -100,6 +100,8 @@ pub fn derive_collect_fn(item: LangTokenStream) -> LangTokenStream {
     quote!(
         #[allow(unused_parens)]
         #[allow(unused_braces)]
+        #[allow(clippy::useless_conversion)]
+        #[allow(clippy::redundant_closure)]
         const _: () = {
             #( #fn_global_constants )*
 
@@ -335,7 +337,7 @@ fn visit_fields(
                 no_import.then(|| quote!(MetaFlag::NO_IMPORT)),
             ]
             .into_iter()
-            .filter_map(|x| x);
+            .flatten();
 
             let varname = field_ident.to_string();
             let name = rename

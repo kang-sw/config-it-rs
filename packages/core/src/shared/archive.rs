@@ -276,16 +276,9 @@ impl Archive {
     ) -> &'s mut Archive {
         let mut iter = path.into_iter();
 
-        let mut key = iter.next().unwrap();
-        let mut node = self.paths.entry(key.into()).or_default();
+        let mut node = self.paths.entry(iter.next().unwrap().into()).or_default();
 
-        loop {
-            if let Some(k) = iter.next() {
-                key = k;
-            } else {
-                break;
-            }
-
+        for key in iter {
             node = node.paths.entry(key.into()).or_default();
         }
 

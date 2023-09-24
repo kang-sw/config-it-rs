@@ -164,7 +164,7 @@ impl Storage {
     /// Returns a `Result` containing the found group or a `GroupFindError` if the group was not
     /// found or if the template type does not match the expected type. Value remains in template
     /// default until you call first `update()` on it.
-    pub fn find<'a, T: group::Template>(
+    pub fn find<T: group::Template>(
         &self,
         path: impl Into<PathHash>,
     ) -> Result<group::Group<T>, GroupFindError> {
@@ -206,7 +206,7 @@ impl Storage {
         let path_hash = PathHash::new(path.iter());
 
         // Naively check if there's already existing group with same path.
-        if let Some(_) = self.0.find_group(&path_hash) {
+        if self.0.find_group(&path_hash).is_some() {
             return Err(GroupCreationError::PathCollisionEarly(path));
         }
 
@@ -426,7 +426,9 @@ mod inner {
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         let ptr = &**monitor.read() as *const _;
-        let exists = ptr != &EmptyMonitor as *const _;
+
+        // Extract data pointers of `ptr`, and `&EmptyMonitor`
+        let exists = ptr as *const () != &EmptyMonitor as *const _ as *const ();
 
         write!(f, "{:?}", exists.then_some(ptr))
     }
@@ -571,7 +573,7 @@ mod inner {
             //   assume we see a consistent state of `path_hashes` during shard iteration, given
             //   we're observing the read-locked state of that shard.
             for path in self.path_hashes.iter() {
-                let Some(group) = self.all_groups.get(&path.value()) else {
+                let Some(group) = self.all_groups.get(path.value()) else {
                     unreachable!(
                         "As long as the group_id is found from path_hashes, \
                         the group must be found from `all_groups`."
@@ -579,7 +581,7 @@ mod inner {
                 };
 
                 // Since we call `group_added` on every group,
-                new_monitor.group_added(&path.value(), &group.context);
+                new_monitor.group_added(path.value(), &group.context);
             }
 
             old_monitor

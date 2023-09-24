@@ -131,38 +131,38 @@ fn test_use_case() {
         // Since this is the first call to update,
         //
         // You can understand `update()` as clearing dirty flag.
-        assert!(group.update() == true);
+        assert!(group.update());
 
         // After `update()`, as long as there's no new update,
         // `update()` will return false.
-        assert!(group.update() == false);
+        assert!(!group.update());
 
         // Every individual properties has their own dirty flag.
-        assert!(true == group.consume_update(&group.array_init));
-        assert!(true == group.consume_update(&group.c_string_type));
-        assert!(true == group.consume_update(&group.env_var));
-        assert!(true == group.consume_update(&group.no_imp_exp));
-        assert!(true == group.consume_update(&group.no_imp_exp_2));
-        assert!(true == group.consume_update(&group.non_alias));
-        assert!(true == group.consume_update(&group.int_field));
-        assert!(true == group.consume_update(&group.one_of_field));
-        assert!(true == group.consume_update(&group.string_field));
+        assert!(group.consume_update(&group.array_init));
+        assert!(group.consume_update(&group.c_string_type));
+        assert!(group.consume_update(&group.env_var));
+        assert!(group.consume_update(&group.no_imp_exp));
+        assert!(group.consume_update(&group.no_imp_exp_2));
+        assert!(group.consume_update(&group.non_alias));
+        assert!(group.consume_update(&group.int_field));
+        assert!(group.consume_update(&group.one_of_field));
+        assert!(group.consume_update(&group.string_field));
 
-        assert!(false == group.consume_update(&group.array_init));
-        assert!(false == group.consume_update(&group.c_string_type));
-        assert!(false == group.consume_update(&group.env_var));
-        assert!(false == group.consume_update(&group.no_imp_exp));
-        assert!(false == group.consume_update(&group.no_imp_exp_2));
-        assert!(false == group.consume_update(&group.int_field));
-        assert!(false == group.consume_update(&group.non_alias));
-        assert!(false == group.consume_update(&group.one_of_field));
-        assert!(false == group.consume_update(&group.string_field));
+        assert!(!group.consume_update(&group.array_init));
+        assert!(!group.consume_update(&group.c_string_type));
+        assert!(!group.consume_update(&group.env_var));
+        assert!(!group.consume_update(&group.no_imp_exp));
+        assert!(!group.consume_update(&group.no_imp_exp_2));
+        assert!(!group.consume_update(&group.int_field));
+        assert!(!group.consume_update(&group.non_alias));
+        assert!(!group.consume_update(&group.one_of_field));
+        assert!(!group.consume_update(&group.string_field));
 
         {
             mark_dirty!(group, c_string_type, one_of_field, env_var);
-            assert!(true == group.consume_update(&group.c_string_type));
-            assert!(true == group.consume_update(&group.one_of_field));
-            assert!(true == group.consume_update(&group.env_var));
+            assert!(group.consume_update(&group.c_string_type));
+            assert!(group.consume_update(&group.one_of_field));
+            assert!(group.consume_update(&group.env_var));
 
             mark_dirty!(group, c_string_type, one_of_field, env_var);
             assert_eq!(
@@ -174,16 +174,16 @@ fn test_use_case() {
                 [false, false, false],
             );
 
-            assert!(false == group.consume_update(&group.c_string_type));
-            assert!(false == group.consume_update(&group.one_of_field));
-            assert!(false == group.consume_update(&group.env_var));
+            assert!(!group.consume_update(&group.c_string_type));
+            assert!(!group.consume_update(&group.one_of_field));
+            assert!(!group.consume_update(&group.env_var));
 
             mark_dirty!(group, c_string_type, one_of_field, env_var);
             assert!(consume_update!(group, c_string_type, one_of_field, env_var));
 
-            assert!(false == group.consume_update(&group.c_string_type));
-            assert!(false == group.consume_update(&group.one_of_field));
-            assert!(false == group.consume_update(&group.env_var));
+            assert!(!group.consume_update(&group.c_string_type));
+            assert!(!group.consume_update(&group.one_of_field));
+            assert!(!group.consume_update(&group.env_var));
 
             let mut watchdog = group.watch_update();
             assert!(watchdog.try_recv().is_ok());
@@ -191,8 +191,8 @@ fn test_use_case() {
             commit_elem!(group, notify(c_string_type));
             assert!(watchdog.recv().await.is_ok());
 
-            assert!(group.update() == true);
-            assert!(true == group.consume_update(&group.c_string_type));
+            assert!(group.update());
+            assert!(group.consume_update(&group.c_string_type));
 
             mark_dirty!(group, c_string_type, one_of_field, env_var);
             let up = consume_update!(group, ((c_string_type, one_of_field, env_var)));
@@ -208,7 +208,7 @@ fn test_use_case() {
         // 3. Properties
         //
         // You can access each field of the group instance in common deref manner.
-        assert!(group.string_field == "");
+        assert!(group.string_field.is_empty());
         assert!(group.array_init == &[1, 2, 3, 4, 5]);
         assert!(group.env_var == 123);
 
@@ -275,7 +275,7 @@ fn test_use_case() {
         // Importing is similar to exporting. You can import a
         // whole storage from an archive. For this, you should
         // create a new archive. Archive can be created using serde either.
-        let yaml = r##"
+        let yaml = r#"
 ~path:
     ~to:
         ~my:
@@ -287,13 +287,13 @@ fn test_use_case() {
                 int_field: 3 # If there's no change, it won't be updated.
                                 # This behavior can be overridden by import options.
                 env_var: 59
-                one_of_field: "hello" # This is not in the 'one_of' list..."##;
+                one_of_field: "hello" # This is not in the 'one_of' list..."#;
 
         let archive: config_it::Archive = serde_yaml::from_str(yaml).unwrap();
         storage.import(archive);
 
         // Now, let's check if the changes are applied.
-        assert!(group.update() == true);
+        assert!(group.update());
 
         // Data update is regardless of the individual properties' dirty flag control.
         // Data is modified only when `group.update()` is called.
@@ -304,21 +304,21 @@ fn test_use_case() {
         assert_eq!(group.one_of_field, "default"); // Not in the 'one_of' list. no change.
 
         // Only updated properties' dirty flag will be set.
-        assert!(true == group.consume_update(&group.non_alias));
-        assert!(true == group.consume_update(&group.array_init));
-        assert!(true == group.consume_update(&group.env_var));
+        assert!(group.consume_update(&group.non_alias));
+        assert!(group.consume_update(&group.array_init));
+        assert!(group.consume_update(&group.env_var));
 
         // Since this property had no change, dirty flag was not set.
-        assert!(false == group.consume_update(&group.int_field));
+        assert!(!group.consume_update(&group.int_field));
 
         // Since this property was not in the 'one_of' list, it was ignored.
-        assert!(false == group.consume_update(&group.one_of_field));
+        assert!(!group.consume_update(&group.one_of_field));
 
         // These were simply not in the list.
-        assert!(false == group.consume_update(&group.c_string_type));
-        assert!(false == group.consume_update(&group.no_imp_exp));
-        assert!(false == group.consume_update(&group.no_imp_exp_2));
-        assert!(false == group.consume_update(&group.string_field));
+        assert!(!group.consume_update(&group.c_string_type));
+        assert!(!group.consume_update(&group.no_imp_exp));
+        assert!(!group.consume_update(&group.no_imp_exp_2));
+        assert!(!group.consume_update(&group.string_field));
 
         // 5. Other features
 
@@ -333,7 +333,7 @@ fn test_use_case() {
         let archive: config_it::Archive = serde_yaml::from_str(yaml).unwrap();
         storage.import(archive).apply_as_patch(false);
 
-        assert!(true == monitor.recv().await.is_ok());
+        assert!(monitor.recv().await.is_ok());
         assert!(group.update());
 
         // 5.2. Commit
@@ -355,7 +355,7 @@ fn test_use_case() {
 
         assert!(
             archive
-                .find_path(path.iter().map(|x| *x))
+                .find_path(path.iter().copied())
                 .unwrap()
                 .get_value("int_field")
                 .unwrap()
