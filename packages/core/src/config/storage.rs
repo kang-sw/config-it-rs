@@ -49,17 +49,21 @@ use super::{
 /// manner. (e.g. forwarding events to channel)
 pub trait Monitor: Send + Sync + 'static {
     /// Called when new group is added.
-    fn group_added(&self, group_id: &GroupID, group: &Arc<GroupContext>) {
+    fn group_added(&mut self, group_id: &GroupID, group: &Arc<GroupContext>) {
         let _ = (group_id, group);
     }
 
     /// Can be call with falsy group_id if monitor is being replaced.
-    fn group_removed(&self, group_id: &GroupID) {
+    fn group_removed(&mut self, group_id: &GroupID) {
         let _ = group_id;
     }
 
     /// Called when any entity value is updated. Can be called with falsy group_id if monitor is
     /// being replaced.
+    ///
+    /// Since this is called frequently compared to group modification commands, receives immutable
+    /// self reference. Therefore, all state modification should be handled with interior
+    /// mutability!
     fn entity_value_updated(&self, group_id: &GroupID, item_id: &ItemID) {
         let _ = (group_id, item_id);
     }
@@ -108,6 +112,11 @@ pub enum GroupCreationError {
 }
 
 impl Storage {
+    /// Gets ID of this storage instance. ID is unique per single program instance.
+    pub fn storage_id(&self) -> crate::shared::StorageID {
+        self.0.id
+    }
+
     /// Searches for an existing item of type `T` in the storage, or creates a new one if it doesn't
     /// exist.
     ///
@@ -305,13 +314,13 @@ impl Storage {
     /// # Returns
     ///
     /// The previous monitor that has been replaced.
-    pub fn replace_monitor(&self, handler: Arc<impl Monitor>) -> Arc<dyn Monitor> {
+    pub fn replace_monitor(&self, handler: Box<impl Monitor>) -> Box<dyn Monitor> {
         self.0.replace_monitor(handler)
     }
 
     /// Unset monitor instance.
     pub fn unset_monitor(&self) {
-        *self.0.monitor.write() = Arc::new(inner::EmptyMonitor);
+        *self.0.monitor.write() = Box::new(inner::EmptyMonitor);
     }
 
     /// Send monitor event to storage driver.
@@ -377,7 +386,7 @@ mod inner {
 
     use crate::{
         config::entity::Entity,
-        shared::{archive::Archive, meta::MetaFlag},
+        shared::{archive::Archive, meta::MetaFlag, StorageID},
     };
 
     use super::*;
@@ -388,6 +397,9 @@ mod inner {
     /// the underlying storage mechanisms.
     #[derive(cs::Debug)]
     pub(super) struct Inner {
+        /// Unique(during runtime) identifier for this storage.
+        pub id: StorageID,
+
         /// Maintains a registry of all configuration sets within this storage.
         ///
         /// The key is the group's unique identifier, `GroupID`.
@@ -399,7 +411,7 @@ mod inner {
         /// attempt replication. This ensures that all components are kept in sync with storage
         /// changes.
         #[debug(with = "fmt_monitor")]
-        pub monitor: RwLock<Arc<dyn Monitor>>,
+        pub monitor: RwLock<Box<dyn Monitor>>,
 
         /// Keeps track of registered path hashes to quickly identify potential path name
         /// duplications.
@@ -422,7 +434,7 @@ mod inner {
     }
 
     fn fmt_monitor(
-        monitor: &RwLock<Arc<dyn Monitor>>,
+        monitor: &RwLock<Box<dyn Monitor>>,
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
         let ptr = &**monitor.read() as *const _;
@@ -448,7 +460,7 @@ mod inner {
 
     impl Default for Inner {
         fn default() -> Self {
-            Self::new(Arc::new(EmptyMonitor))
+            Self::new(Box::new(EmptyMonitor))
         }
     }
 
@@ -459,8 +471,9 @@ mod inner {
     }
 
     impl Inner {
-        pub fn new(monitor: Arc<dyn Monitor>) -> Self {
+        pub fn new(monitor: Box<dyn Monitor>) -> Self {
             Self {
+                id: StorageID::new_unique_incremental(),
                 all_groups: Default::default(),
                 monitor: RwLock::new(monitor),
                 path_hashes: Default::default(),
@@ -517,7 +530,7 @@ mod inner {
             }
 
             // Notify the monitor that a new group has been added.
-            self.monitor.read().group_added(&group_id, &inserted);
+            self.monitor.write().group_added(&group_id, &inserted);
             Ok(inserted)
         }
 
@@ -534,7 +547,7 @@ mod inner {
                 Self::dump_node(&ctx.context, &mut self.archive.write());
 
                 // Notify about the removal
-                self.monitor.read().group_removed(&group_id);
+                self.monitor.write().group_removed(&group_id);
             }
         }
 
@@ -554,14 +567,14 @@ mod inner {
             }
         }
 
-        pub fn replace_monitor(&self, new_monitor: Arc<dyn Monitor>) -> Arc<dyn Monitor> {
+        pub fn replace_monitor(&self, new_monitor: Box<dyn Monitor>) -> Box<dyn Monitor> {
             // At the start of the operation, we replace the monitor. This means that before we add all
             // valid groups to the new monitor, there may be notifications about group removals or updates.
             // Without redesigning the entire storage system into a more expensive locking mechanism,
             // there's no way to avoid this. We assume that monitor implementation providers will handle
             // any incorrect updates gracefully and thus, we are ignoring this case.
 
-            let old_monitor = replace(&mut *self.monitor.write(), new_monitor.clone());
+            let old_monitor = replace(&mut *self.monitor.write(), new_monitor);
 
             // NOTE: Ensuring thread-safe behavior during the initialization of a new monitor:
             // - Iteration partially locks `path_hashes` based on shards (see DashMap
@@ -581,7 +594,7 @@ mod inner {
                 };
 
                 // Since we call `group_added` on every group,
-                new_monitor.group_added(path.value(), &group.context);
+                self.monitor.write().group_added(path.value(), &group.context);
             }
 
             old_monitor
