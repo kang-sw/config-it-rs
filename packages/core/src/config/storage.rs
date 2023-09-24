@@ -112,6 +112,11 @@ pub enum GroupCreationError {
 }
 
 impl Storage {
+    /// Gets ID of this storage instance. ID is unique per single program instance.
+    pub fn storage_id(&self) -> crate::shared::StorageID {
+        self.0.id
+    }
+
     /// Searches for an existing item of type `T` in the storage, or creates a new one if it doesn't
     /// exist.
     ///
@@ -381,7 +386,7 @@ mod inner {
 
     use crate::{
         config::entity::Entity,
-        shared::{archive::Archive, meta::MetaFlag},
+        shared::{archive::Archive, meta::MetaFlag, StorageID},
     };
 
     use super::*;
@@ -392,6 +397,9 @@ mod inner {
     /// the underlying storage mechanisms.
     #[derive(cs::Debug)]
     pub(super) struct Inner {
+        /// Unique(during runtime) identifier for this storage.
+        pub id: StorageID,
+
         /// Maintains a registry of all configuration sets within this storage.
         ///
         /// The key is the group's unique identifier, `GroupID`.
@@ -465,6 +473,7 @@ mod inner {
     impl Inner {
         pub fn new(monitor: Box<dyn Monitor>) -> Self {
             Self {
+                id: StorageID::new_unique_incremental(),
                 all_groups: Default::default(),
                 monitor: RwLock::new(monitor),
                 path_hashes: Default::default(),
