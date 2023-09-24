@@ -495,7 +495,7 @@ mod inner {
             self.path_hashes
                 .read()
                 .get(path_hash)
-                .and_then(|id| self.all_groups.read().get(&*id).map(|x| x.context.clone()))
+                .and_then(|id| self.all_groups.read().get(id).map(|x| x.context.clone()))
         }
 
         pub fn register_group(
