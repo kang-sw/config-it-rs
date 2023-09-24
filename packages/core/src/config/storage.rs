@@ -626,7 +626,7 @@ mod inner {
         }
 
         #[cfg(feature = "crypt")]
-        const CRYPT_PREFIX: &'static str = "%%CONFIG-IT-SECRET%%";
+        const CRYPT_PREFIX: &'static str = "?Bq9:CFG:T$gp_U*ZVgW5";
 
         /// Uses hard coded NONCE, just to run the algorithm.
         #[cfg(feature = "crypt")]
@@ -695,7 +695,10 @@ mod inner {
 
                     // Check if key was correctly loaded. If not, skip serialization itself to not
                     // export delicate data.
-                    let Ok(key) = crypt_key.as_ref().unwrap() else { continue '_outer };
+                    let Ok(key) = crypt_key.as_ref().unwrap() else {
+                        tr::warn!("Crypt key missing. Skipping secret data serialization.");
+                        continue '_outer;
+                    };
                     let Ok(json) = serde_json::to_vec(val.as_serialize()) else {
                         tr::warn!("JSON dump failed");
                         continue '_outer;
@@ -712,6 +715,8 @@ mod inner {
                         Self::CRYPT_PREFIX,
                         BASE64_STANDARD.encode(&enc)
                     ));
+
+                    continue '_outer;
                 }
 
                 #[cfg(not(feature = "crypt"))]
@@ -772,8 +777,8 @@ mod inner {
                         has_update = true;
                         monitor.entity_value_updated(ctx.group_id, elem.id);
                     }
-                    Err(e) => {
-                        tr::warn!("Element value update error during node loading: {e:?}")
+                    Err(error) => {
+                        tr::warn!(%error, "Element value update error during node loading")
                     }
                 }
             }

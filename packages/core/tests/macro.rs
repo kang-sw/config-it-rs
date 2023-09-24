@@ -159,7 +159,7 @@ fn config_set_valid_operations() {
 
         dbg!(&*group);
 
-        let meta = group.property_info(&group.my_value);
+        let meta = group.meta(&group.my_value);
         dbg!((meta.name, &*meta));
 
         assert!(!group.update(), "Re-request handled correctly.");

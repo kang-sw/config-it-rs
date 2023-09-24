@@ -85,8 +85,8 @@ config = [
 ]
 
 config-derive = ["dep:memoffset", "dep:impls", "dep:macros"]
-crypt-machine-id = ["dep:machine-uid", "crypt", "dep:sha2"]
-crypt = ["dep:aes-gcm", "dep:base64"]
+crypt-machine-id = ["dep:machine-uid", "crypt"]
+crypt = ["dep:aes-gcm", "dep:base64", "dep:sha2"]
 
 indexmap = ["dep:indexmap"]
 jsonschema = ["dep:schemars", "macros/jsonschema"]

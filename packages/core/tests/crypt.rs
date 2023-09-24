@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use config_it::commit_elem;
+use config_it::{commit_elem, meta::MetaFlag};
 
 #[derive(config_it::Template, Clone)]
 struct CryptTest {
@@ -23,7 +23,6 @@ struct CryptTest {
 fn test_crypt() {
     let storage = config_it::create_storage();
     let mut group = storage.create::<CryptTest>(["Basics"]).unwrap().updated();
-    let mut group_compare = group.clone();
 
     group.secret_str = "Hello, world!".to_string();
     group.secret_seq = vec![1, 2, 3, 4, 5];
@@ -32,6 +31,11 @@ fn test_crypt() {
         vec![(1, "one".to_string()), (2, "two".to_string()), (3, "three".to_string())]
             .into_iter()
             .collect();
+
+    assert!(group.meta(&group.secret_str).flags.contains(MetaFlag::SECRET));
+    assert!(group.meta(&group.secret_seq).flags.contains(MetaFlag::SECRET));
+    assert!(group.meta(&group.secret_floats).flags.contains(MetaFlag::SECRET));
+    assert!(group.meta(&group.secret_map).flags.contains(MetaFlag::SECRET));
 
     commit_elem!(group, notify(secret_str, secret_seq, secret_floats, secret_map));
 

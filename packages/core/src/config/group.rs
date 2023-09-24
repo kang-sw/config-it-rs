@@ -418,7 +418,7 @@ impl<T: Template> Group<T> {
     }
 
     /// Get generated metadata of given element
-    pub fn property_info<U: 'static>(&self, elem: *const U) -> &'static PropertyInfo {
+    pub fn meta<U: 'static>(&self, elem: *const U) -> &'static PropertyInfo {
         self.get_prop_by_ptr(elem).unwrap()
     }
 
