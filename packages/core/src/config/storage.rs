@@ -246,6 +246,7 @@ impl Storage {
         let context = Arc::new(GroupContext {
             group_id: register_id,
             template_type_id: TypeId::of::<T>(),
+            template_name: T::template_name(),
             w_unregister_hook: Arc::downgrade(
                 &(unregister_anchor.clone() as Arc<dyn Any + Send + Sync>),
             ),
@@ -379,9 +380,10 @@ impl EntityEventHook for EntityHookImpl {
 mod inner {
     use std::mem::ManuallyDrop;
 
+    use aes_gcm::AeadInPlace;
     use dashmap::DashMap;
     use derive_setters::Setters;
-    use parking_lot::RwLock;
+    use parking_lot::{Mutex, RwLock};
     use serde::de::IntoDeserializer;
 
     use crate::{
@@ -446,7 +448,7 @@ mod inner {
     }
 
     #[cfg(feature = "encryption")]
-    fn fmt_encrpytion_key(
+    fn fmt_encryption_key(
         key: &RwLock<Option<[u8; 32]>>,
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
@@ -512,6 +514,7 @@ mod inner {
 
             // If the path already exists in the archive, load the corresponding node.
             if let Some(node) = self.archive.read().find_path(rg.context.path.iter()) {
+                let key_loader = || {};
                 Self::load_node(&rg.context, node, &EmptyMonitor);
             }
 
@@ -537,6 +540,12 @@ mod inner {
         pub fn unregister_group(&self, group_id: GroupID, path_hash: PathHash) {
             self.path_hashes.remove_if(&path_hash, |_, v| v == &group_id);
             if let Some((_, ctx)) = self.all_groups.remove(&group_id) {
+                let _s = tr::info_span!(
+                    "unregister_group()",
+                    template = ?ctx.context.template_name,
+                    path = ?ctx.context.path
+                );
+
                 // Consider the removal valid only if the group was previously and validly created.
                 // The method `all_groups.remove` might return `None` if the group was not
                 // successfully registered during `register_group`. If this happens, this function
@@ -544,7 +553,9 @@ mod inner {
                 // `create_impl` function.
 
                 // For valid removals, add contents to the cached archive.
-                Self::dump_node(&ctx.context, &mut self.archive.write());
+                #[cfg(feature = "encryption")]
+                let key_loader = || self.encryption_key.read().or_else(Self::crypt_sys_key);
+                Self::dump_node(&ctx.context, &mut self.archive.write(), key_loader);
 
                 // Notify about the removal
                 self.monitor.write().group_removed(&group_id);
@@ -601,36 +612,118 @@ mod inner {
         }
 
         #[cfg(feature = "encryption")]
-        const CRYPTO_PREFIX: &'static str = "%%CONFIG-IT-SECRET%%";
+        const CRYPT_PREFIX: &'static str = "%%CONFIG-IT-SECRET%%";
 
-        fn dump_node(ctx: &GroupContext, archive: &mut archive::Archive) {
+        /// Uses hard coded NONCE, just to run the algorithm.
+        #[cfg(feature = "encryption")]
+        const CRYPT_NONCE: [u8; 12] = [15, 43, 5, 12, 6, 66, 126, 231, 141, 18, 33, 71];
+
+        #[cfg(feature = "encryption")]
+        fn crypt_sys_key() -> Option<[u8; 32]> {
+            use std::sync::OnceLock;
+
+            #[cfg(feature = "machine-id-encryption")]
+            {
+                static CACHED: OnceLock<Option<[u8; 32]>> = OnceLock::new();
+
+                *CACHED.get_or_init(|| {
+                    machine_uid::get().ok().map(|uid| {
+                        use sha2::{Digest, Sha256};
+                        let arr = &*Sha256::new().chain_update(uid).finalize();
+                        std::array::from_fn(|index| arr[index])
+                    })
+                })
+            }
+
+            #[cfg(not(feature = "machine-id-encryption"))]
+            {
+                None
+            }
+        }
+
+        fn dump_node(
+            ctx: &GroupContext,
+            archive: &mut archive::Archive,
+            #[cfg(feature = "encryption")] crypt_key_loader: impl Fn() -> Option<[u8; 32]>,
+        ) {
+            let _s = tr::info_span!("dump_node()", template=?ctx.template_name, path=?ctx.path);
+
             let paths = ctx.path.iter();
             let node = archive.find_or_create_path_mut(paths);
 
             // Clear existing values before dumping.
             node.values.clear();
 
-            for (meta, val) in ctx
+            #[cfg(feature = "encryption")]
+            let mut crypt_key = None;
+
+            '_outer: for (meta, val) in ctx
                 .sources
                 .iter()
                 .map(|e| e.property_value())
                 .filter(|(meta, _)| !meta.metadata.flags.contains(MetaFlag::NO_EXPORT))
             {
+                let _s = tr::info_span!("node dump", varname=?meta.varname);
                 let dst = node.values.entry(meta.name.into()).or_default();
 
                 #[cfg(feature = "encryption")]
+                'encryption: {
+                    use aes_gcm::aead::{Aead, KeyInit};
+                    use base64::prelude::*;
+
+                    if !meta.metadata.flags.contains(MetaFlag::SECRET) {
+                        break 'encryption;
+                    }
+
+                    if crypt_key.is_none() {
+                        crypt_key = Some(crypt_key_loader().ok_or(()));
+                    }
+
+                    // Check if key was correctly loaded. If not, skip serialization itself to not
+                    // export delicate data.
+                    let Ok(key) = crypt_key.as_ref().unwrap() else { continue '_outer };
+                    let Ok(json) = serde_json::to_vec(val.as_serialize()) else {
+                        tr::warn!("JSON dump failed");
+                        continue '_outer;
+                    };
+
+                    let cipher = aes_gcm::Aes256Gcm::new(key.into());
+                    let Ok(enc) = cipher.encrypt(&Self::CRYPT_NONCE.into(), &json[..]) else {
+                        tr::warn!("Encryption failed");
+                        continue '_outer;
+                    };
+
+                    *dst = serde_json::Value::String(format!(
+                        "{}{}",
+                        Self::CRYPT_PREFIX,
+                        BASE64_STANDARD.encode(&enc)
+                    ));
+                }
+
+                #[cfg(not(feature = "encryption"))]
                 if meta.metadata.flags.contains(MetaFlag::SECRET) {
-                    todo!("JsonString => AES-256 Enc => Base64String => Prefix");
+                    // To prevent accidental data leak, secret data is not exported when encryption
+                    // is disabled
+
+                    tr::warn!(
+                        "Skipping secret data serialization. \
+                         To enable secret data export, enable `encryption` feature."
+                    );
+
+                    continue;
                 }
 
                 match serde_json::to_value(val.as_serialize()) {
                     Ok(val) => *dst = val,
-                    Err(e) => log::warn!("failed to dump {}: {}", meta.name, e),
+                    Err(error) => {
+                        tr::warn!(%error, "JSON dump failed");
+                    }
                 }
             }
         }
 
         fn load_node(ctx: &GroupContext, node: &archive::Archive, monitor: &dyn Monitor) -> bool {
+            let _s = tr::info_span!("load_node()", template=?ctx.template_name, path=?ctx.path);
             let mut has_update = false;
 
             '_outer: for (elem, de) in ctx
@@ -641,21 +734,25 @@ mod inner {
                     node.values.get(x.meta.name).map(|o| (x, o.clone().into_deserializer()))
                 })
             {
+                let _s = tr::info_span!("node load", varname=?elem.meta.varname);
+
                 #[cfg(feature = "encryption")]
                 'decryption: {
-                    if !elem.get_meta().metadata.flags.contains(MetaFlag::SECRET) {
+                    if !elem.meta.flags.contains(MetaFlag::SECRET) {
                         break 'decryption;
                     }
 
+                    // Non-string value is not an encrypted property. serve as-is.
                     let Some(str) = de.as_str() else { break 'decryption };
 
-                    if !str.starts_with(Self::CRYPTO_PREFIX) {
+                    // Verify if it is encrpyted string repr.
+                    if !str.starts_with(Self::CRYPT_PREFIX) {
                         break 'decryption;
                     }
 
                     todo!("'Prefixed' Base64String => AES-256 Dec => JsonValue");
 
-                    continue 'outer;
+                    continue '_outer;
                 }
 
                 match elem.update_value_from(de) {
@@ -664,7 +761,7 @@ mod inner {
                         monitor.entity_value_updated(&ctx.group_id, &elem.id);
                     }
                     Err(e) => {
-                        log::warn!("Element value update error during node loading: {e:?}")
+                        tr::warn!("Element value update error during node loading: {e:?}")
                     }
                 }
             }
@@ -790,7 +887,10 @@ mod inner {
 
             for elem in this.all_groups.iter() {
                 let group = elem.value();
-                Inner::dump_node(&group.context, &mut archive);
+
+                #[cfg(feature = "encryption")]
+                let key_loader = || this.encryption_key.read().or_else(Inner::crypt_sys_key);
+                Inner::dump_node(&group.context, &mut archive, key_loader);
             }
 
             let mut self_archive = this.archive.write();

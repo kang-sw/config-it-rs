@@ -36,19 +36,23 @@ derive_more = "0.99"
 thiserror = { version = "1", optional = true }
 
 smallvec = { version = "1", features = ["serde"], optional = true }
-log = { version = "0.4", optional = true }
+tr = { version = "0.1", optional = true, package = "tracing" }
 dashmap = { version = "5.5.3", optional = true }
 
 derive_setters = { version = "0.1.6", optional = true }
 
 memoffset = { version = "0.9.0", optional = true }
+impls = { version = "1.0.3", optional = true }
+
 parking_lot = { version = "0.12.0", optional = true }
 bitfield = { version = "0.14.0", optional = true }
 
+cs = { version = "0.5.1", package = "custom_debug_derive", optional = true }
+
 machine-uid = { version = "0.5.1", optional = true }
 aes-gcm = { version = "0.10.3", optional = true }
-cs = { version = "0.5.1", package = "custom_debug_derive", optional = true }
-impls = { version = "1.0.3", optional = true }
+base64 = { version = "0.21", optional = true }
+sha2 = { version = "0.10", optional = true }
 
 [dependencies.macros]
 package = "config-it-macros"
@@ -73,7 +77,7 @@ default = ["config", "indexmap", "jsonschema"]
 config = [
 	"config-derive",
 	"dep:thiserror",
-	"dep:log",
+	"dep:tr",
 	"dep:dashmap",
 	"dep:derive_setters",
 	"dep:parking_lot",
@@ -83,7 +87,12 @@ config = [
 ]
 
 config-derive = ["dep:memoffset", "dep:impls"]
-machine-id-encryption = ["dep:machine-uid", "encryption"]
+machine-id-encryption = [
+	"dep:machine-uid",
+	"encryption",
+	"dep:base64",
+	"dep:sha2",
+]
 encryption = ["dep:aes-gcm"]
 
 indexmap = ["dep:indexmap"]

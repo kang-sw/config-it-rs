@@ -407,13 +407,14 @@ impl EntityData {
                 self.__apply_value(built);
                 Ok(is_perfect)
             }
-            Err(e) => {
-                log::error!(
-                    "(Deserialization Failed) {}(var:{}) \n\nERROR: {e:#?}",
-                    meta.metadata.name,
-                    meta.metadata.varname,
+            Err(error) => {
+                tr::debug!(
+                    %error,
+                    name = meta.varname,
+                    r#type = meta.type_name,
+                    "(Deserialization Failed)",
                 );
-                Err(e.into())
+                Err(error.into())
             }
         }
     }
