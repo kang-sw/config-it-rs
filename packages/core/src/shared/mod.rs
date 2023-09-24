@@ -108,6 +108,7 @@ impl<'a, T: IntoIterator<Item = &'a str>> From<T> for PathHash {
 macro_rules! gen_new_fn {
     ($type:path) => {
         impl $type {
+            #[cfg(feature = "config")]
             pub(crate) fn new_unique_incremental() -> Self {
                 static ID_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
                 Self(ID_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed))

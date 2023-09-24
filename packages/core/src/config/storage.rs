@@ -339,8 +339,10 @@ impl Storage {
     ///
     /// * `key` - Byte slice representing the encryption key.
     #[cfg(feature = "crypt")]
-    pub fn set_encryption_key(&self, key: &[u8]) {
-        todo!("Digest input key sequence")
+    pub fn set_crypt_key(&self, key: impl AsRef<[u8]>) {
+        use sha2::{Digest, Sha256};
+        let arr = &*Sha256::new().chain_update(key).finalize();
+        self.0.crypt_key.write().replace(std::array::from_fn(|index| arr[index]));
     }
 }
 
@@ -429,7 +431,7 @@ mod inner {
         /// encrypted, adding an additional layer of security.
         #[cfg(feature = "crypt")]
         #[debug(with = "fmt_encryption_key")]
-        encryption_key: RwLock<Option<[u8; 32]>>,
+        pub crypt_key: RwLock<Option<[u8; 32]>>,
     }
 
     fn fmt_monitor(
@@ -476,7 +478,7 @@ mod inner {
                 monitor: RwLock::new(monitor),
                 archive: Default::default(),
                 #[cfg(feature = "crypt")]
-                encryption_key: Default::default(),
+                crypt_key: Default::default(),
 
                 // NOTE: Uses 4 shards for both maps. The default implementation's shared amount,
                 all_groups: Default::default(),
@@ -513,8 +515,13 @@ mod inner {
 
             // If the path already exists in the archive, load the corresponding node.
             if let Some(node) = self.archive.read().find_path(rg.context.path.iter()) {
-                let key_loader = || {};
-                Self::load_node(&rg.context, node, &EmptyMonitor);
+                Self::load_node(
+                    &rg.context,
+                    node,
+                    &EmptyMonitor,
+                    #[cfg(feature = "crypt")]
+                    Self::crypt_key_loader(&self.crypt_key),
+                );
             }
 
             // Ensure that the Group ID is unique.
@@ -561,13 +568,11 @@ mod inner {
                 // `create_impl` function.
 
                 // For valid removals, add contents to the cached archive.
-                #[cfg(feature = "crypt")]
-                let key_loader = || self.encryption_key.read().or_else(Self::crypt_sys_key);
                 Self::dump_node(
                     &ctx.context,
                     &mut self.archive.write(),
                     #[cfg(feature = "crypt")]
-                    key_loader,
+                    Self::crypt_key_loader(&self.crypt_key),
                 );
 
                 // Notify about the removal
@@ -625,8 +630,19 @@ mod inner {
             old_monitor
         }
 
+        /// ⚠️ **CAUTION!** Do NOT alter this literal! Any modification will DESTROY all existing
+        /// encrypted data irreparably! ⚠️
+        ///
+        /// PREFIX itself is valid base64, which is decorated word 'secret'.
         #[cfg(feature = "crypt")]
-        const CRYPT_PREFIX: &'static str = "?Bq9:CFG:T$gp_U*ZVgW5";
+        const CRYPT_PREFIX: &'static str = "+/+sE/cRE+t//";
+
+        #[cfg(feature = "crypt")]
+        fn crypt_key_loader(
+            key: &RwLock<Option<[u8; 32]>>,
+        ) -> impl Fn() -> Option<[u8; 32]> + '_ + Copy {
+            || key.read().or_else(Self::crypt_sys_key)
+        }
 
         /// Uses hard coded NONCE, just to run the algorithm.
         #[cfg(feature = "crypt")]
@@ -634,10 +650,9 @@ mod inner {
 
         #[cfg(feature = "crypt")]
         fn crypt_sys_key() -> Option<[u8; 32]> {
-            use std::sync::OnceLock;
-
             #[cfg(feature = "crypt-machine-id")]
             {
+                use std::sync::OnceLock;
                 static CACHED: OnceLock<Option<[u8; 32]>> = OnceLock::new();
 
                 *CACHED.get_or_init(|| {
@@ -713,7 +728,7 @@ mod inner {
                     *dst = serde_json::Value::String(format!(
                         "{}{}",
                         Self::CRYPT_PREFIX,
-                        BASE64_STANDARD.encode(&enc)
+                        BASE64_STANDARD_NO_PAD.encode(&enc)
                     ));
 
                     continue '_outer;
@@ -721,14 +736,7 @@ mod inner {
 
                 #[cfg(not(feature = "crypt"))]
                 if meta.metadata.flags.contains(MetaFlag::SECRET) {
-                    // To prevent accidental data leak, secret data is not exported when encryption
-                    // is disabled
-
-                    tr::warn!(
-                        "Skipping secret data serialization. \
-                         To enable secret data export, enable `encryption` feature."
-                    );
-
+                    tr::warn!("`crypt` Feature disabled: Skipping secret data serialization.");
                     continue;
                 }
 
@@ -741,9 +749,17 @@ mod inner {
             }
         }
 
-        fn load_node(ctx: &GroupContext, node: &archive::Archive, monitor: &dyn Monitor) -> bool {
+        fn load_node(
+            ctx: &GroupContext,
+            node: &archive::Archive,
+            monitor: &dyn Monitor,
+            #[cfg(feature = "crypt")] crypt_key_loader: impl Fn() -> Option<[u8; 32]>,
+        ) -> bool {
             let _s = tr::info_span!("load_node()", template=?ctx.template_name, path=?ctx.path);
             let mut has_update = false;
+
+            #[cfg(feature = "crypt")]
+            let mut crypt_key = None;
 
             '_outer: for (elem, de) in ctx
                 .sources
@@ -753,9 +769,16 @@ mod inner {
             {
                 let _s = tr::info_span!("node load", varname=?elem.meta.varname);
 
+                #[allow(unused_mut)]
+                let mut update_result = None;
+
                 #[cfg(feature = "crypt")]
                 'decryption: {
+                    use aes_gcm::aead::{Aead, KeyInit};
+                    use base64::prelude::*;
+
                     if !elem.meta.flags.contains(MetaFlag::SECRET) {
+                        // Just try to deserialize from plain value.
                         break 'decryption;
                     }
 
@@ -764,15 +787,47 @@ mod inner {
 
                     // Verify if it is encrpyted string repr.
                     if !str.starts_with(Self::CRYPT_PREFIX) {
+                        tr::debug!("Non-encrypted string repr. serve as-is.");
                         break 'decryption;
                     }
 
-                    todo!("'Prefixed' Base64String => AES-256 Dec => JsonValue");
+                    let str = &str[Self::CRYPT_PREFIX.len()..];
+                    let Ok(bin) = BASE64_STANDARD_NO_PAD.decode(str).map_err(|error| {
+                        tr::debug!(
+                            %error,
+                            "Crypt-prefixed string is not valid base64. \
+                             Trying to parse as plain string."
+                        )
+                    }) else {
+                        break 'decryption;
+                    };
 
-                    continue '_outer;
+                    if crypt_key.is_none() {
+                        crypt_key = Some(crypt_key_loader().ok_or(()));
+                    }
+
+                    // Check if key was correctly loaded. If not, just try to parse string as plain
+                    // string ... which woun't be very useful though.
+                    let Ok(key) = crypt_key.as_ref().unwrap() else {
+                        tr::warn!("Crypt key missing. Skipping secret data serialization.");
+                        break 'decryption;
+                    };
+
+                    let cipher = aes_gcm::Aes256Gcm::new(key.into());
+                    let Ok(json) =
+                        cipher.decrypt(&Self::CRYPT_NONCE.into(), &bin[..]).map_err(|error| {
+                            tr::warn!(%error, "Failed to decrypt secret data");
+                        })
+                    else {
+                        break 'decryption;
+                    };
+
+                    update_result = Some(
+                        elem.update_value_from(&mut serde_json::Deserializer::from_slice(&json)),
+                    );
                 }
 
-                match elem.update_value_from(de) {
+                match update_result.unwrap_or_else(|| elem.update_value_from(de)) {
                     Ok(_) => {
                         has_update = true;
                         monitor.entity_value_updated(ctx.group_id, elem.id);
@@ -834,13 +889,22 @@ mod inner {
             let mut imported = unsafe { ManuallyDrop::take(&mut self.archive) };
             let this = self.inner;
 
+            #[cfg(feature = "crypt")]
+            let key_loader = Inner::crypt_key_loader(&this.crypt_key);
+
             let import_archive = |archive: &Archive| {
                 for group in this.all_groups.read().values() {
                     let path = &group.context.path;
                     let path = path.iter();
                     let Some(node) = archive.find_path(path) else { continue };
 
-                    if Inner::load_node(&group.context, node, &**this.monitor.read()) {
+                    if Inner::load_node(
+                        &group.context,
+                        node,
+                        &**this.monitor.read(),
+                        #[cfg(feature = "crypt")]
+                        key_loader,
+                    ) {
                         group.evt_on_update.notify();
                     }
                 }
@@ -901,9 +965,10 @@ mod inner {
             let mut archive = Archive::default();
             let this = self.inner;
 
+            #[cfg(feature = "crypt")]
+            let key_loader = Inner::crypt_key_loader(&this.crypt_key);
+
             for group in this.all_groups.read().values() {
-                #[cfg(feature = "crypt")]
-                let key_loader = || this.encryption_key.read().or_else(Inner::crypt_sys_key);
                 Inner::dump_node(
                     &group.context,
                     &mut archive,

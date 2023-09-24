@@ -69,10 +69,12 @@ futures = "0.3"
 serde_yaml = "0"
 indoc = "2"
 tokio = { version = "1", features = ["full"] }
+rand = "0.8"
+threadpool = "1.8"
 
 [features]
-default = ["config", "config-derive", "indexmap"]
-full = ["config", "config-derive", "indexmap", "jsonschema", "crypt-machine-id"]
+default = ["config-derive"]
+full = ["config-derive", "indexmap", "jsonschema", "crypt-machine-id"]
 
 config = [
 	"dep:thiserror",
@@ -84,9 +86,9 @@ config = [
 	"dep:cs",
 ]
 
-config-derive = ["dep:memoffset", "dep:impls", "dep:macros"]
+config-derive = ["config", "dep:memoffset", "dep:impls", "dep:macros"]
 crypt-machine-id = ["dep:machine-uid", "crypt"]
 crypt = ["dep:aes-gcm", "dep:base64", "dep:sha2"]
 
-indexmap = ["dep:indexmap"]
-jsonschema = ["dep:schemars", "macros/jsonschema"]
+indexmap = ["config", "dep:indexmap"]
+jsonschema = ["config", "dep:schemars", "macros/jsonschema"]
