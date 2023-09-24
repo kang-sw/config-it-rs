@@ -218,9 +218,7 @@ fn visit_fields(
                     continue;
                 };
 
-                let span = expr.span();
-
-                let Ok(expr) = syn::parse_str::<Expr>(&expr.value()) else {
+                let Ok(expr) = expr.parse::<Expr>() else {
                     emit_error!(span, "Expected valid expression");
                     continue;
                 };
@@ -254,13 +252,12 @@ fn visit_fields(
             }
 
             Some(FieldPropertyDefault::ExprStr(lit)) => {
-                let span = lit.span();
-                let Ok(expr) = syn::parse_str::<Expr>(&lit.value()) else {
-                    emit_error!(span, "Expected valid expression");
+                let Ok(expr) = lit.parse::<Expr>() else {
+                    emit_error!(lit.span(), "Expected valid expression");
                     continue;
                 };
 
-                quote_spanned!(span => #expr)
+                quote!(#expr)
             }
 
             None => {
@@ -390,7 +387,10 @@ fn visit_fields(
                     })
                 });
                 let fn_user = validate_with.map(|x| {
-                    let ident = Ident::new(&x.value(), x.span());
+                    let Ok(ident) = x.parse::<syn::ExprPath>() else {
+                        emit_error!(x, "Expected valid identifier");
+                        return none.clone();
+                    };
                     quote_spanned!(x.span() => {
                         match #ident(mref) {
                             Ok(__entity::Validation::Valid) => {}

@@ -1,5 +1,5 @@
 [workspace]
 resolver = "2"
 
-members = ["packages/core-macros/", "packages/core/"]
+members = ["packages/core-macros/", "packages/core/", "packages/dashboard/"]
 exclude = ["config-it-access"]

@@ -1,6 +1,6 @@
 [package]
 name = "config-it-macros"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 authors = ["kang-sw <ki6080@gmail.com>"]
 categories = ["config"]

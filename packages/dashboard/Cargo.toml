@@ -1,0 +1,5 @@
+[package]
+name = "config-it-dashboard"
+version = "0.1.0"
+edition = "2021"
+description = "Embedded web dashboard for config-it project"

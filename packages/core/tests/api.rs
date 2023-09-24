@@ -1,4 +1,4 @@
-use config_it::{commit_elem, consume_update, mark_dirty, Storage};
+use config_it::{commit_elem, consume_update, mark_dirty, Storage, ValidationResult};
 use futures::executor::block_on;
 
 /// This is a 'Template' struct, which is minimal unit of
@@ -69,13 +69,26 @@ struct MyConfig {
     no_imp_exp_2: Vec<f64>,
 
     /// Alternative attribute is allowed.
-    #[config]
+    #[config(validate_with = "validate_int")]
     another_attr: i32,
 
     /// If any non-default-able but excluded field exists, you can provide
     /// your own default value to make this template default-constructible.
     #[non_config_default_expr = "std::num::NonZeroUsize::new(1).unwrap()"]
     _nonzero_var: std::num::NonZeroUsize,
+}
+
+fn validate_int(value: &mut i32) -> ValidationResult {
+    if *value < 0 {
+        return Err("value must be positive".into());
+    }
+
+    if *value < 50 || *value > 250 {
+        *value = (*value).clamp(50, 250);
+        Ok(config_it::Validation::Modified)
+    } else {
+        Ok(config_it::Validation::Valid)
+    }
 }
 
 #[test]
