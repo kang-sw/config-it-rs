@@ -49,12 +49,12 @@ use super::{
 /// manner. (e.g. forwarding events to channel)
 pub trait Monitor: Send + Sync + 'static {
     /// Called when new group is added.
-    fn group_added(&mut self, group_id: &GroupID, group: &Arc<GroupContext>) {
+    fn group_added(&mut self, group_id: GroupID, group: &Arc<GroupContext>) {
         let _ = (group_id, group);
     }
 
     /// Can be call with falsy group_id if monitor is being replaced.
-    fn group_removed(&mut self, group_id: &GroupID) {
+    fn group_removed(&mut self, group_id: GroupID) {
         let _ = group_id;
     }
 
@@ -64,7 +64,7 @@ pub trait Monitor: Send + Sync + 'static {
     /// Since this is called frequently compared to group modification commands, receives immutable
     /// self reference. Therefore, all state modification should be handled with interior
     /// mutability!
-    fn entity_value_updated(&self, group_id: &GroupID, item_id: &ItemID) {
+    fn entity_value_updated(&self, group_id: GroupID, item_id: ItemID) {
         let _ = (group_id, item_id);
     }
 }
@@ -338,7 +338,7 @@ impl Storage {
     /// # Arguments
     ///
     /// * `key` - Byte slice representing the encryption key.
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "crypt")]
     pub fn set_encryption_key(&self, key: &[u8]) {
         todo!("Digest input key sequence")
     }
@@ -378,13 +378,10 @@ impl EntityEventHook for EntityHookImpl {
 }
 
 mod inner {
-    use std::mem::ManuallyDrop;
+    use std::{collections::HashMap, mem::ManuallyDrop};
 
-    use aes_gcm::AeadInPlace;
-    use dashmap::DashMap;
     use derive_setters::Setters;
-    use parking_lot::{Mutex, RwLock};
-    use serde::de::IntoDeserializer;
+    use parking_lot::RwLock;
 
     use crate::{
         config::entity::Entity,
@@ -405,7 +402,7 @@ mod inner {
         /// Maintains a registry of all configuration sets within this storage.
         ///
         /// The key is the group's unique identifier, `GroupID`.
-        all_groups: DashMap<GroupID, GroupRegistration>,
+        all_groups: RwLock<HashMap<GroupID, GroupRegistration>>,
 
         /// Maintains a list of all monitors registered to this storage.
         ///
@@ -420,7 +417,7 @@ mod inner {
         ///
         /// Uses the path's hash representation as the key and its corresponding `GroupID` as the
         /// value.
-        path_hashes: DashMap<PathHash, GroupID>,
+        path_hashes: RwLock<HashMap<PathHash, GroupID>>,
 
         /// Holds a cached version of the archive. This may include content for groups that are
         /// currently non-existent.
@@ -430,7 +427,7 @@ mod inner {
         ///
         /// This key is used when the encryption feature is enabled. It ensures that stored data is
         /// encrypted, adding an additional layer of security.
-        #[cfg(feature = "encryption")]
+        #[cfg(feature = "crypt")]
         #[debug(with = "fmt_encryption_key")]
         encryption_key: RwLock<Option<[u8; 32]>>,
     }
@@ -447,7 +444,7 @@ mod inner {
         write!(f, "{:?}", exists.then_some(ptr))
     }
 
-    #[cfg(feature = "encryption")]
+    #[cfg(feature = "crypt")]
     fn fmt_encryption_key(
         key: &RwLock<Option<[u8; 32]>>,
         f: &mut std::fmt::Formatter<'_>,
@@ -476,17 +473,19 @@ mod inner {
         pub fn new(monitor: Box<dyn Monitor>) -> Self {
             Self {
                 id: StorageID::new_unique_incremental(),
-                all_groups: Default::default(),
                 monitor: RwLock::new(monitor),
-                path_hashes: Default::default(),
                 archive: Default::default(),
-                #[cfg(feature = "encryption")]
+                #[cfg(feature = "crypt")]
                 encryption_key: Default::default(),
+
+                // NOTE: Uses 4 shards for both maps. The default implementation's shared amount,
+                all_groups: Default::default(),
+                path_hashes: Default::default(),
             }
         }
 
         pub fn notify_edition(&self, group_id: GroupID) {
-            if let Some(group) = self.all_groups.get(&group_id) {
+            if let Some(group) = self.all_groups.read().get(&group_id) {
                 group.context.version.fetch_add(1, Ordering::Relaxed);
                 group.evt_on_update.notify();
             }
@@ -494,9 +493,9 @@ mod inner {
 
         pub fn find_group(&self, path_hash: &PathHash) -> Option<Arc<GroupContext>> {
             self.path_hashes
+                .read()
                 .get(path_hash)
-                .and_then(|id| self.all_groups.get(&*id))
-                .map(|ctx| ctx.context.clone())
+                .and_then(|id| self.all_groups.read().get(&*id).map(|x| x.context.clone()))
         }
 
         pub fn register_group(
@@ -520,26 +519,35 @@ mod inner {
 
             // Ensure that the Group ID is unique.
             assert!(
-                self.all_groups.insert(group_id, rg).is_none(),
+                self.all_groups.write().insert(group_id, rg).is_none(),
                 "Group IDs must be unique." // Ensure we haven't exhausted all 2^64 possibilities.
             );
 
             // Check for path-hash collisions. In the rare case where a collision occurs due to
             // another thread registering the same path-hash, we remove the current group
             // registration and return an error.
-            if self.path_hashes.entry(path_hash).or_insert(group_id).value() != &group_id {
-                self.all_groups.remove(&group_id);
+            if self.path_hashes.write().entry(path_hash).or_insert(group_id) != &group_id {
+                self.all_groups.write().remove(&group_id);
                 return Err(GroupCreationError::PathCollisionRace(inserted.path.clone()));
             }
 
             // Notify the monitor that a new group has been added.
-            self.monitor.write().group_added(&group_id, &inserted);
+            self.monitor.write().group_added(group_id, &inserted);
             Ok(inserted)
         }
 
         pub fn unregister_group(&self, group_id: GroupID, path_hash: PathHash) {
-            self.path_hashes.remove_if(&path_hash, |_, v| v == &group_id);
-            if let Some((_, ctx)) = self.all_groups.remove(&group_id) {
+            {
+                let mut path_hashes = self.path_hashes.write();
+                if !path_hashes.get(&path_hash).is_some_and(|v| *v == group_id) {
+                    tr::debug!(?group_id, ?path_hash, "unregister_group() call to unexist group");
+                    return;
+                };
+
+                path_hashes.remove(&path_hash);
+            }
+
+            if let Some(ctx) = self.all_groups.write().remove(&group_id) {
                 let _s = tr::info_span!(
                     "unregister_group()",
                     template = ?ctx.context.template_name,
@@ -553,18 +561,23 @@ mod inner {
                 // `create_impl` function.
 
                 // For valid removals, add contents to the cached archive.
-                #[cfg(feature = "encryption")]
+                #[cfg(feature = "crypt")]
                 let key_loader = || self.encryption_key.read().or_else(Self::crypt_sys_key);
-                Self::dump_node(&ctx.context, &mut self.archive.write(), key_loader);
+                Self::dump_node(
+                    &ctx.context,
+                    &mut self.archive.write(),
+                    #[cfg(feature = "crypt")]
+                    key_loader,
+                );
 
                 // Notify about the removal
-                self.monitor.write().group_removed(&group_id);
+                self.monitor.write().group_removed(group_id);
             }
         }
 
         pub fn on_value_update(&self, group_id: GroupID, data: &entity::EntityData, silent: bool) {
             // Monitor should always be notified on value update, regardless of silent flag
-            self.monitor.read().entity_value_updated(&group_id, &data.id);
+            self.monitor.read().entity_value_updated(group_id, data.id);
 
             // If silent flag is set, skip internal notify to other instances.
             if silent {
@@ -572,7 +585,7 @@ mod inner {
             }
 
             // This is trivially fallible operation.
-            if let Some(group) = self.all_groups.get(&group_id) {
+            if let Some(group) = self.all_groups.read().get(&group_id) {
                 group.context.version.fetch_add(1, Ordering::Relaxed);
                 group.evt_on_update.notify();
             }
@@ -596,8 +609,9 @@ mod inner {
             // - Since every group insertion or removal first modifies `path_hashes`, it's safe to
             //   assume we see a consistent state of `path_hashes` during shard iteration, given
             //   we're observing the read-locked state of that shard.
-            for path in self.path_hashes.iter() {
-                let Some(group) = self.all_groups.get(path.value()) else {
+            for group_id in self.path_hashes.read().values() {
+                let all_groups = self.all_groups.read();
+                let Some(group) = all_groups.get(group_id) else {
                     unreachable!(
                         "As long as the group_id is found from path_hashes, \
                         the group must be found from `all_groups`."
@@ -605,24 +619,24 @@ mod inner {
                 };
 
                 // Since we call `group_added` on every group,
-                self.monitor.write().group_added(path.value(), &group.context);
+                self.monitor.write().group_added(*group_id, &group.context);
             }
 
             old_monitor
         }
 
-        #[cfg(feature = "encryption")]
+        #[cfg(feature = "crypt")]
         const CRYPT_PREFIX: &'static str = "%%CONFIG-IT-SECRET%%";
 
         /// Uses hard coded NONCE, just to run the algorithm.
-        #[cfg(feature = "encryption")]
+        #[cfg(feature = "crypt")]
         const CRYPT_NONCE: [u8; 12] = [15, 43, 5, 12, 6, 66, 126, 231, 141, 18, 33, 71];
 
-        #[cfg(feature = "encryption")]
+        #[cfg(feature = "crypt")]
         fn crypt_sys_key() -> Option<[u8; 32]> {
             use std::sync::OnceLock;
 
-            #[cfg(feature = "machine-id-encryption")]
+            #[cfg(feature = "crypt-machine-id")]
             {
                 static CACHED: OnceLock<Option<[u8; 32]>> = OnceLock::new();
 
@@ -635,7 +649,7 @@ mod inner {
                 })
             }
 
-            #[cfg(not(feature = "machine-id-encryption"))]
+            #[cfg(not(feature = "crypt-machine-id"))]
             {
                 None
             }
@@ -644,7 +658,7 @@ mod inner {
         fn dump_node(
             ctx: &GroupContext,
             archive: &mut archive::Archive,
-            #[cfg(feature = "encryption")] crypt_key_loader: impl Fn() -> Option<[u8; 32]>,
+            #[cfg(feature = "crypt")] crypt_key_loader: impl Fn() -> Option<[u8; 32]>,
         ) {
             let _s = tr::info_span!("dump_node()", template=?ctx.template_name, path=?ctx.path);
 
@@ -654,7 +668,7 @@ mod inner {
             // Clear existing values before dumping.
             node.values.clear();
 
-            #[cfg(feature = "encryption")]
+            #[cfg(feature = "crypt")]
             let mut crypt_key = None;
 
             '_outer: for (meta, val) in ctx
@@ -666,7 +680,7 @@ mod inner {
                 let _s = tr::info_span!("node dump", varname=?meta.varname);
                 let dst = node.values.entry(meta.name.into()).or_default();
 
-                #[cfg(feature = "encryption")]
+                #[cfg(feature = "crypt")]
                 'encryption: {
                     use aes_gcm::aead::{Aead, KeyInit};
                     use base64::prelude::*;
@@ -700,7 +714,7 @@ mod inner {
                     ));
                 }
 
-                #[cfg(not(feature = "encryption"))]
+                #[cfg(not(feature = "crypt"))]
                 if meta.metadata.flags.contains(MetaFlag::SECRET) {
                     // To prevent accidental data leak, secret data is not exported when encryption
                     // is disabled
@@ -730,13 +744,11 @@ mod inner {
                 .sources
                 .iter()
                 .filter(|e| !e.meta.flags.contains(MetaFlag::NO_IMPORT))
-                .filter_map(|x| {
-                    node.values.get(x.meta.name).map(|o| (x, o.clone().into_deserializer()))
-                })
+                .filter_map(|x| node.values.get(x.meta.name).map(|o| (x, o)))
             {
                 let _s = tr::info_span!("node load", varname=?elem.meta.varname);
 
-                #[cfg(feature = "encryption")]
+                #[cfg(feature = "crypt")]
                 'decryption: {
                     if !elem.meta.flags.contains(MetaFlag::SECRET) {
                         break 'decryption;
@@ -758,7 +770,7 @@ mod inner {
                 match elem.update_value_from(de) {
                     Ok(_) => {
                         has_update = true;
-                        monitor.entity_value_updated(&ctx.group_id, &elem.id);
+                        monitor.entity_value_updated(ctx.group_id, elem.id);
                     }
                     Err(e) => {
                         tr::warn!("Element value update error during node loading: {e:?}")
@@ -818,8 +830,7 @@ mod inner {
             let this = self.inner;
 
             let import_archive = |archive: &Archive| {
-                for elem in this.all_groups.iter() {
-                    let group = elem.value();
+                for group in this.all_groups.read().values() {
                     let path = &group.context.path;
                     let path = path.iter();
                     let Some(node) = archive.find_path(path) else { continue };
@@ -885,12 +896,15 @@ mod inner {
             let mut archive = Archive::default();
             let this = self.inner;
 
-            for elem in this.all_groups.iter() {
-                let group = elem.value();
-
-                #[cfg(feature = "encryption")]
+            for group in this.all_groups.read().values() {
+                #[cfg(feature = "crypt")]
                 let key_loader = || this.encryption_key.read().or_else(Inner::crypt_sys_key);
-                Inner::dump_node(&group.context, &mut archive, key_loader);
+                Inner::dump_node(
+                    &group.context,
+                    &mut archive,
+                    #[cfg(feature = "crypt")]
+                    key_loader,
+                );
             }
 
             let mut self_archive = this.archive.write();

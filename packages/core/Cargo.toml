@@ -37,7 +37,6 @@ thiserror = { version = "1", optional = true }
 
 smallvec = { version = "1", features = ["serde"], optional = true }
 tr = { version = "0.1", optional = true, package = "tracing" }
-dashmap = { version = "5.5.3", optional = true }
 
 derive_setters = { version = "0.1.6", optional = true }
 
@@ -72,13 +71,12 @@ indoc = "2"
 tokio = { version = "1", features = ["full"] }
 
 [features]
-default = ["config", "indexmap", "jsonschema"]
+default = ["config", "config-derive", "indexmap"]
+full = ["config", "config-derive", "indexmap", "jsonschema", "crypt-machine-id"]
 
 config = [
-	"config-derive",
 	"dep:thiserror",
 	"dep:tr",
-	"dep:dashmap",
 	"dep:derive_setters",
 	"dep:parking_lot",
 	"dep:smallvec",
@@ -86,16 +84,9 @@ config = [
 	"dep:cs",
 ]
 
-config-derive = ["dep:memoffset", "dep:impls"]
-machine-id-encryption = [
-	"dep:machine-uid",
-	"encryption",
-	"dep:base64",
-	"dep:sha2",
-]
-encryption = ["dep:aes-gcm"]
+config-derive = ["dep:memoffset", "dep:impls", "dep:macros"]
+crypt-machine-id = ["dep:machine-uid", "crypt", "dep:sha2"]
+crypt = ["dep:aes-gcm", "dep:base64"]
 
 indexmap = ["dep:indexmap"]
 jsonschema = ["dep:schemars", "macros/jsonschema"]
-
-monitor = []

@@ -1,3 +1,5 @@
+#![cfg(feature = "crypt-machine-id")]
+
 use std::collections::HashMap;
 
 use config_it::commit_elem;

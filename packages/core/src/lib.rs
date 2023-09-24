@@ -129,7 +129,7 @@ mod config_export {
     use crate::shared::*;
 
     /// Primary macro for defining configuration group template.
-    #[cfg(feature = "config")]
+    #[cfg(feature = "config-derive")]
     pub use macros::Template;
 
     pub use entity::{Validation, ValidationResult};
