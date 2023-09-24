@@ -74,33 +74,65 @@ impl<const N: usize> Default for LocalPropContextArrayImpl<N> {
     }
 }
 
+/// Represents the context associated with a configuration group in the storage system.
 ///
-/// May storage implement this
-///
+/// A `GroupContext` provides necessary information about a particular group's instantiation
+/// and its connection to the underlying storage. Implementations of the storage system may
+/// use this structure to manage and access configurations tied to a specific group.
 #[derive(cs::Debug)]
 pub struct GroupContext {
-    /// This group's instance ID
+    /// A unique identifier for the configuration group instance.
     pub group_id: GroupID,
 
-    /// Type ID of base template. Used to verify newly creation group's validity.
+    /// The type ID of the base template from which this group was derived.
+    /// Used to validate the legitimacy of groups created afresh.
     pub template_type_id: TypeId,
 
-    /// List of sources; each element represents single property.
+    /// An ordered list of data entities, each corresponding to an individual property
+    /// within the configuration group.
     pub(crate) sources: Arc<[EntityData]>,
 
+    /// A weak reference to a hook which, if set, can be triggered upon
+    /// group unregistration. Useful for clean-up operations or notifications.
     pub(crate) w_unregister_hook: Weak<dyn Any + Send + Sync>,
+
+    /// Represents the current version of the group. This may be incremented with
+    /// updates, allowing for versioned access and change tracking.
     pub(crate) version: AtomicU64,
 
-    /// Path of instantiated config set.
+    /// The hierarchical path representing the location of this configuration set
+    /// within a broader configuration system.
     pub path: SharedStringSequence,
 
-    /// Broadcast subscriber to receive updates from backend.
+    /// A channel for receiving update notifications from the
+    /// backend, enabling the group to respond to external changes or synchronize its state.
     pub(crate) update_receiver_channel: noti::Receiver,
 }
 
-pub mod monitor {
+mod monitor {
     //! Exposed APIs to control over entities
-    impl super::GroupContext {}
+
+    use crate::{config::noti, shared::ItemID};
+
+    impl super::GroupContext {
+        /// Finds an item with the given `item_id` in the group's sources.
+        pub fn find_item(&self, item_id: ItemID) -> Option<&super::EntityData> {
+            debug_assert!(
+                self.sources.windows(2).all(|w| w[0].id < w[1].id),
+                "Logic Error: Sources are not sorted!"
+            );
+
+            self.sources
+                .binary_search_by(|x| x.id.cmp(&item_id))
+                .map(|index| &self.sources[index])
+                .ok()
+        }
+
+        /// Returns a channel for receiving update notifications for this group.
+        pub fn watch_update(&self) -> noti::Receiver {
+            self.update_receiver_channel.clone()
+        }
+    }
 }
 
 ///
@@ -194,35 +226,63 @@ impl<T: Template> Group<T> {
         }
     }
 
-    /// Fetch underlying object's updates and apply to local cache. Returns true if there was
-    /// any update available.
+    /// Conveniently updates the group instance during method chaining. Especially useful when
+    /// initializing a group immediately after its creation, without the need to assign it to a
+    /// separate mutable variable.
+    ///
+    /// ```ignore
+    /// // Without `updated`:
+    /// let group = {
+    ///     let mut group = storage.create(["my","group"]).unwrap();
+    ///     group.update();
+    ///     group
+    /// };
+    ///
+    /// // With `updated`:
+    /// let group = storage.create(["my","group"]).map(|x| x.updated());
+    /// ```
+    pub fn updated(mut self) -> Self {
+        self.update();
+        self
+    }
+
+    /// Fetches and applies updates from the underlying object to the local cache.
+    ///
+    /// This function checks if there are updates available in the source and applies them to the
+    /// local cache. If any updates are found, or if this is the initial fetch (determined by the
+    /// `version_cached` being 0), the function will return `true`.
+    ///
+    /// # Returns
+    ///
+    /// - `true` if updates were found and applied or if this is the initial fetch.
+    /// - `false` otherwise.
     pub fn update(&mut self) -> bool {
         let local = self.local.as_slice_mut();
 
-        // Forces initial update always return true.
+        // Ensures that the initial update always returns true.
         let mut has_update = self.version_cached == 0;
 
-        // Perform quick check: Does update fence value changed?
+        // Check if the update fence value has changed.
         match self.origin.version.load(Ordering::Relaxed) {
             new_ver if new_ver == self.version_cached => return false,
             new_ver => self.version_cached = new_ver,
         }
 
+        // Ensure the local and origin sources have the same length.
         debug_assert_eq!(
             local.len(),
             self.origin.sources.len(),
-            "Logic Error: set was not correctly initialized!"
+            "Logic Error: The set was not correctly initialized!"
         );
 
         for ((index, local), source) in zip(zip(0..local.len(), &mut *local), &*self.origin.sources)
         {
-            // Perform quick check to see if given config entity has any update.
+            // Check if the given config entity has any updates.
             match source.version() {
-                // NOTE: The locally updated version uses only 63 bits of the bit variable, which
-                // may occasionally cause it to differ from the source version. However, this
-                // discrepancy is unlikely to be a practical issue because it would require a
-                // version gap of at least 2^63 to occur, and the tolerance resets to 2^63 whenever
-                // an update is made.
+                // NOTE: The locally updated version uses 63 bits out of 64. In rare scenarios, this
+                // might cause it to deviate from the source version. However, this situation is
+                // unlikely to be of practical concern unless a version gap of at least 2^63 arises.
+                // Moreover, the tolerance resets to 2^63 with each update.
                 v if v == local.bits.version() => continue,
                 v => local.bits.set_version(v),
             }
@@ -237,8 +297,17 @@ impl<T: Template> Group<T> {
         has_update
     }
 
-    /// Check element update from its address, and clears dirty flag on given element.
-    /// This is only meaningful when followed by [`Group::update`] call.
+    /// Inspects the given element for updates using its address, then resets its dirty flag. For
+    /// this check to have meaningful results, it's typically followed by a [`Group::update`]
+    /// invocation.
+    ///
+    /// # Arguments
+    ///
+    /// * `prop` - A raw pointer to the property to be checked.
+    ///
+    /// # Returns
+    ///
+    /// * `true` if the property was marked dirty and has been reset, `false` otherwise.
     pub fn consume_update<U: 'static>(&mut self, prop: *const U) -> bool {
         let Some(index) = self.get_index_by_ptr(prop) else { return false };
         let bits = &mut self.local.as_slice_mut()[index].bits;
@@ -251,7 +320,6 @@ impl<T: Template> Group<T> {
         }
     }
 
-    /// Get index of element based on element address.
     #[doc(hidden)]
     pub fn get_index_by_ptr<U: 'static>(&self, e: *const U) -> Option<usize> {
         debug_assert!({
@@ -263,7 +331,6 @@ impl<T: Template> Group<T> {
         self.get_prop_by_ptr(e).map(|prop| prop.index)
     }
 
-    /// Get property descriptor by element address. Provides primitive guarantee for type safety.
     #[doc(hidden)]
     pub fn get_prop_by_ptr<U: 'static>(&self, e: *const U) -> Option<&'static PropertyInfo> {
         let ptr = e as *const u8 as isize;
@@ -284,32 +351,46 @@ impl<T: Template> Group<T> {
         }
     }
 
-    /// Commit changes on element to core context, then it will be propagated to all other groups
-    /// which shares same core context.
+    /// Commits changes made to an element, ensuring that these changes are propagated to all other
+    /// groups that share the same core context.
+    ///
+    /// # Arguments
+    ///
+    /// * `prop`: The element containing the changes to be committed.
+    /// * `notify`: If set to `true`, it triggers other groups that share the same context to be
+    ///   notified of this change.
     pub fn commit_elem<U: Clone + Entity>(&self, prop: &U, notify: bool) {
-        // Replace source argument with created ptr
+        // Replace source argument with created pointer
         let elem = &(*self.origin.sources)[self.get_index_by_ptr(prop).unwrap()];
 
-        // SAFETY: We know that `vtable.implements_copy()` is strictly managed.
-        let impl_copy = elem.property_info().vtable.implements_copy();
+        // Determine if the value type supports copy operations
+        let impl_copy = elem.meta.vtable.implements_copy();
+
+        // SAFETY: We rely on the `vtable.implements_copy()` check to ensure safe data handling.
+        // Proper management of this check is essential to guarantee the safety of this operation.
         let new_value = unsafe { EntityValue::from_value(prop.clone(), impl_copy) };
 
+        // Apply the new value to the element
         elem.__apply_value(new_value);
-        elem.__notify_value_change(notify)
+        // Update and potentially notify other contexts of the change
+        elem.touch(notify);
     }
 
-    /// Notifie this element has been changed, without committing any changes to core context.
+    /// Notify changes to core context, without actual content change. This will trigger the entire
+    /// notification mechanism as if the value has been changed.
     pub fn touch_elem<U: 'static>(&self, prop: *const U) {
         let elem = &(*self.origin.sources)[self.get_index_by_ptr(prop).unwrap()];
-        elem.__notify_value_change(true)
+        elem.touch(true)
     }
 
-    /// Clone new update receiver channel. Given channel will be notified whenever call to
-    /// `update()` method meaningful. However, as the event can be generated manually even
-    /// if there's no actual update, it's not recommended to make critical logics rely on
-    /// this signal.
+    /// Creates a new update receiver channel. The provided channel is notified whenever an
+    /// `update()` method call detects changes. However, note that the event can be manually
+    /// triggered even if there are no actual updates. Therefore, relying on this signal for
+    /// critical logic is not recommended.
+    ///
+    /// The channel will always be notified on its first `wait()` call.
     pub fn watch_update(&self) -> WatchUpdate {
-        self.origin.update_receiver_channel.clone()
+        self.origin.watch_update()
     }
 
     /// Mark all elements dirty. Next call to [`Group::update()`] may not return true if there
@@ -320,8 +401,9 @@ impl<T: Template> Group<T> {
         self.local.as_slice_mut().iter_mut().for_each(|e| e.bits.set_dirty(1));
     }
 
-    /// Mark this group dirty. Next call to `update()` method will return true, regardless of
-    /// whether there's any actual update.
+    /// Marks the entire group as dirty. The subsequent call to the `update()` method will return
+    /// `true`, irrespective of any actual underlying updates. This operation doesn't affect
+    /// individual property-wise dirty flags within the group.
     pub fn mark_group_dirty(&mut self) {
         self.version_cached = 0;
     }
@@ -337,8 +419,8 @@ impl<T: Template> Group<T> {
         self.get_prop_by_ptr(elem).unwrap()
     }
 
-    /// Get instance path of `self`. This value is same as the list of tokens that you have
-    /// provided to [`crate::Storage::create_group`] method.
+    /// Retrieves the instance path of `self`. This value corresponds to the list of tokens
+    /// provided during the group's creation with the [`crate::Storage::create_group`] method.
     pub fn path(&self) -> &SharedStringSequence {
         &self.origin.path
     }

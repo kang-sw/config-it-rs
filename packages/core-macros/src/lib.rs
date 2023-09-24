@@ -1,37 +1,3 @@
-//!
-//!
-//! # Usage
-//!
-//! # Attributes
-//!
-//! All attributes are put inside of `#[config(...)]` or `#[config_it(...)]` attribute.
-//!
-//! - `alias = "<name>"`: Set alias for the field.
-//! - `default = <expr>`: Set default value for the field.
-//! - `default_expr = "<expr>"`: Set default value for the field.
-//! - `admin | admin_write | admin_read`: Prohibit access to the field for the user.
-//!
-//! - `min = <expr> | max = <expr> | one_of = [<expr>...]`: Sets constraint for the field.
-//! - `validate_with = "<function_name>"`: Sets validation function for the field. Its signature
-//!   must be `fn(&mut T) -> Result<Validation, impl Into<Cow<'static, str>>>`.
-//!
-//! - `readonly | writeonly`: Mark element as read-only or write-only.
-//! - `secret`: Mark element as secret. (e.g. password)
-//!
-//! - `env = "<literal>"`: Read default value from environment variable.
-//! - `env_once = "<literal>"`: Same as env, but caches value only once.
-//! - `transient | no_export | no_import`: Prohibit export/import of the field.
-//! - `editor = $this::MetadataEditorHint::<ident>`: Sets editor hint for the field.
-//!
-//! - `hidden`: Hide field from the editor.
-//! - `hidden_non_admin`: Hide field only from non-admin users.
-//!
-//! # Using with non-config-it types
-//!
-//! For types which are not part of configuration, but does not provides `Default` trait, you can
-//! use `#[non_config_default_expr = "<expr>"]` attribute to provide default for these types.
-//!
-
 use std::borrow::Cow;
 
 use proc_macro::TokenStream as LangTokenStream;
@@ -42,6 +8,52 @@ use syn::{
     punctuated::Punctuated, spanned::Spanned, Attribute, Expr, ExprLit, Ident, Lit, LitStr, Meta,
     Token,
 };
+
+/// # Usage
+///
+/// ```ignore
+/// #[derive(config_it::Template, Clone)]
+/// struct MyConfig {
+///     /// Documentation comments are retrieved and used as descriptions in the editor.
+///     #[config(default = 154)]
+///     pub any_number: i32,
+///     
+///     #[non_config_default_expr = r#"1.try_into().unwrap()"#]
+///     pub non_config_number: std::num::NonZeroUsize,
+///     
+///     pub non_config_boolean: bool,
+/// }
+/// ```
+///
+/// # Attributes
+///
+/// Attributes are encapsulated within `#[config(...)]` or `#[config_it(...)]`.
+///
+/// - `alias = "<name>"`: Assign an alias to the field.
+/// - `default = <expr>` or `default_expr = "<expr>"`: Define a default value for the field.
+/// - `admin | admin_write | admin_read`: Restrict access to the field for non-admin users.
+///
+/// - `min = <expr>`, `max = <expr>`, `one_of = [<expr>...]`: Apply constraints to the field.
+/// - `validate_with = "<function_name>"`: Specify a validation function for the field with the
+///   signature `fn(&mut T) -> Result<Validation, impl Into<Cow<'static, str>>>`.
+///
+/// - `readonly | writeonly`: Designate an element as read-only or write-only.
+/// - `secret`: Flag an element as confidential (e.g., passwords). The value will be archived as a
+///   encrypted base64 string, which is becomes readable when imported back by storage.
+///
+/// - `env = "<literal>"` or `env_once = "<literal>"`: Set the default value from an environment
+///   variable.
+/// - `transient | no_export | no_import`: Prevent field export/import.
+/// - `editor = <ident>`: Define an editor hint for the field. See
+///   [`config_it::shared::meta::MetadataEditorHint`]
+///
+/// - `hidden` or `hidden_non_admin`: Make a field invisible in the editor or only to non-admin
+///   users, respectively.
+///
+/// # Interacting with non-config-it Types
+///
+/// For non-configuration types that lack a `Default` trait, the `#[non_config_default_expr =
+/// "<expr>"]` attribute can be used to specify default values.
 
 #[proc_macro_error]
 #[proc_macro_derive(Template, attributes(config_it, config, non_config_default_expr))]
@@ -203,6 +215,8 @@ fn visit_fields(
                 };
 
                 field_type = FieldType::PlainWithDefaultExpr(span, expr);
+            } else {
+                // Safely ignore unknown attributes
             }
         }
 

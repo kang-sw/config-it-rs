@@ -20,7 +20,7 @@ pub struct MyStruct {
     #[config_it(default = 2, max = 3)]
     maximum: i32,
 
-    #[config_it(default = 24, max = 3)]
+    #[config_it(default = 24, max = 3, editor=ColorRgba255)]
     maximum_va: usize,
 
     #[config_it(default = "3@", one_of = ["ab3", "go04"])]

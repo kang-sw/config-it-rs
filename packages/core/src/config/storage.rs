@@ -117,7 +117,8 @@ impl Storage {
     ///
     /// # Returns
     ///
-    /// A reference to the existing or newly created item of type `T`.
+    /// A reference to the existing or newly created item of type `T`. Value remains in template
+    /// default until you call first `update()` on it.
     pub fn find_or_create<'a, T>(
         &self,
         path: impl IntoIterator<Item = impl AsRef<str> + 'a>,
@@ -161,7 +162,8 @@ impl Storage {
     /// # Returns
     ///
     /// Returns a `Result` containing the found group or a `GroupFindError` if the group was not
-    /// found or if the template type does not match the expected type.
+    /// found or if the template type does not match the expected type. Value remains in template
+    /// default until you call first `update()` on it.
     pub fn find<'a, T: group::Template>(
         &self,
         path: impl Into<PathHash>,
@@ -182,7 +184,8 @@ impl Storage {
         }
     }
 
-    /// Creates a new instance of the `Storage` struct with the specified type parameter.
+    /// Creates a new instance of the `Storage` struct with the specified type parameter. Value
+    /// remains in template default until you call first `update()` on it.
     pub fn create<'a, T>(
         &self,
         path: impl IntoIterator<Item = &'a (impl AsRef<str> + ?Sized + 'a)>,
@@ -209,7 +212,7 @@ impl Storage {
 
         // This ID may not be used if group creation failed ... it's generally okay since we have
         // 2^63 trials.
-        let register_id = GroupID::new_unique();
+        let register_id = GroupID::new_unique_incremental();
         let entity_hook = Arc::new(EntityHookImpl { register_id, inner: Arc::downgrade(&self.0) });
 
         debug_assert!(
@@ -535,7 +538,7 @@ mod inner {
 
         pub fn on_value_update(&self, group_id: GroupID, data: &entity::EntityData, silent: bool) {
             // Monitor should always be notified on value update, regardless of silent flag
-            self.monitor.read().entity_value_updated(&group_id, &data.id());
+            self.monitor.read().entity_value_updated(&group_id, &data.id);
 
             // If silent flag is set, skip internal notify to other instances.
             if silent {
@@ -618,10 +621,9 @@ mod inner {
             '_outer: for (elem, de) in ctx
                 .sources
                 .iter()
-                .map(|e| (e, e.property_info()))
-                .filter(|(_, m)| !m.metadata.flags.contains(MetaFlag::NO_IMPORT))
-                .filter_map(|(e, m)| {
-                    node.values.get(m.name).map(|o| (e, o.clone().into_deserializer()))
+                .filter(|e| !e.meta.flags.contains(MetaFlag::NO_IMPORT))
+                .filter_map(|x| {
+                    node.values.get(x.meta.name).map(|o| (x, o.clone().into_deserializer()))
                 })
             {
                 #[cfg(feature = "encryption")]
@@ -644,7 +646,7 @@ mod inner {
                 match elem.update_value_from(de) {
                     Ok(_) => {
                         has_update = true;
-                        monitor.entity_value_updated(&ctx.group_id, &elem.id());
+                        monitor.entity_value_updated(&ctx.group_id, &elem.id);
                     }
                     Err(e) => {
                         log::warn!("Element value update error during node loading: {e:?}")

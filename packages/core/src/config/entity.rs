@@ -302,9 +302,9 @@ impl EntityValue {
 #[derive(cs::Debug)]
 pub struct EntityData {
     /// Unique entity id for program run-time
-    id: ItemID,
+    pub id: ItemID,
+    pub meta: &'static PropertyInfo,
 
-    meta: &'static PropertyInfo,
     version: AtomicU64,
     value: RwLock<EntityValue>,
 
@@ -322,22 +322,17 @@ pub enum EntityUpdateError {
 }
 
 impl EntityData {
-    pub(crate) fn new(meta: &'static PropertyInfo, hook: Arc<dyn EntityEventHook>) -> Self {
+    pub(crate) fn new(
+        property_info: &'static PropertyInfo,
+        hook: Arc<dyn EntityEventHook>,
+    ) -> Self {
         Self {
-            id: ItemID::new_unique(),
+            id: ItemID::new_unique_incremental(),
             version: AtomicU64::new(0),
-            value: RwLock::new(meta.vtable.create_default()),
-            meta,
+            value: RwLock::new(property_info.vtable.create_default()),
+            meta: property_info,
             hook,
         }
-    }
-
-    pub fn id(&self) -> ItemID {
-        self.id
-    }
-
-    pub fn property_info(&self) -> &'static PropertyInfo {
-        self.meta
     }
 
     pub(crate) fn version(&self) -> u64 {
@@ -363,16 +358,33 @@ impl EntityData {
         self.version.fetch_add(1, Ordering::Release);
     }
 
+    /// Attempts to update the central value of a config entity by deserializing the provided input.
     ///
-    /// Update config entity's central value by parsing given deserializer.
+    /// This function first deserializes the input to the expected data structure. After successful
+    /// deserialization, it validates the value to ensure it conforms to the expected constraints.
+    /// The method offers three potential outcomes:
+    ///
+    /// 1. Successful deserialization and validation: the value is perfectly valid and requires no
+    ///    alterations.
+    /// 2. Successful deserialization but failed validation: the value needed adjustments to meet
+    ///    the validator's constraints.
+    /// 3. Failed deserialization or validation: an error occurred during the process.
     ///
     /// # Returns
     ///
-    /// * `Ok(true)` - Deserialization successful, validation successful.
-    /// * `Ok(false)` - Deserialization successful, validation unsuccessful, as value was modified
-    ///                 to satisfy validator constraint
-    /// * `Err(_)` - Deserialization or validation has failed.
+    /// * `Ok(true)` - Both deserialization and validation were successful without the need for any
+    ///   modifications.
+    /// * `Ok(false)` - Deserialization succeeded, but the value was adjusted during validation to
+    ///   meet constraints.
+    /// * `Err(_)` - Either the deserialization process or validation failed.
     ///
+    /// # Type Parameters
+    ///
+    /// * `T`: Represents the type of the deserializer.
+    ///
+    /// # Parameters
+    ///
+    /// * `de`: An instance of the deserializer used to update the central value.
     pub fn update_value_from<'a, T>(&self, de: T) -> Result<Validation, EntityUpdateError>
     where
         T: serde::Deserializer<'a>,
@@ -402,7 +414,23 @@ impl EntityData {
         }
     }
 
-    pub(crate) fn __notify_value_change(&self, make_storage_dirty: bool) {
+    /// Notifies the underlying storage that a field within this group has been updated.
+    ///
+    /// The `touch` method serves as a mechanism to propagate changes to the appropriate parts of
+    /// the system. Depending on the `make_storage_dirty` flag:
+    ///
+    /// - If set to `true`, the notification of change will be broadcasted to all group instances
+    ///   that share the same group context, ensuring synchronization across shared contexts.
+    ///
+    /// - If set to `false`, only the monitor will be notified of the value update, without
+    ///   affecting other group instances.
+    ///
+    /// # Arguments
+    ///
+    /// * `make_storage_dirty`: A boolean flag that determines the scope of the update notification.
+    ///   When set to `true`, it affects all group instances sharing the same context. When `false`,
+    ///   only the monitor is alerted of the change.
+    pub fn touch(&self, make_storage_dirty: bool) {
         self.hook.on_value_changed(self, !make_storage_dirty);
     }
 }

@@ -9,25 +9,25 @@ type Map<T, V> = std::collections::BTreeMap<T, V>;
 #[cfg(feature = "indexmap")]
 type Map<T, V> = indexmap::IndexMap<T, V>;
 
+/// Defines rules for serializing category names within the [`Archive`].
 ///
-/// [`Archive`] is serialized a map of key-value pairs, where key is a string, and value is
-/// plain object. Since key for categories cannot be distinguished from value objects' keys,
-/// a special rule for category name is applied.
+/// When an [`Archive`] is serialized, it manifests as a map of key-value pairs, where the key is a
+/// string, and the value is a plain object. Due to the indistinguishable nature of category keys
+/// from value object keys, a unique naming convention for categories is necessary.
 ///
-/// Default rule is to prefix category name with `~`. So a category named `hello` will be
-/// serialized as `~hello`.
+/// The default naming convention prefixes category names with `~`. For instance, a category named
+/// `hello` is serialized as `~hello`.
 ///
-/// This rule can be changed by serialize or deserialize objects within boundary of
-/// [`with_category_rule`].
-///
+/// Users can customize this rule for both serialization and deserialization processes by invoking
+/// the [`with_category_rule`] function.
 pub enum CategoryRule<'a> {
-    /// Category name is prefixed with this token.
+    /// Categories are signified by prefixing their names with the specified token.
     Prefix(&'a str),
 
-    /// Category name is suffixed with this token.
+    /// Categories are signified by appending their names with the specified token.
     Suffix(&'a str),
 
-    /// Category name is wrapped with this token.
+    /// Categories are signified by wrapping their names between the specified start and end tokens.
     Wrap(&'a str, &'a str),
 }
 
@@ -35,9 +35,29 @@ thread_local! {
     static CATEGORY_RULE: Cell<CategoryRule<'static>> = Cell::new(Default::default());
 }
 
+/// Temporarily overrides the category serialization rule while serializing or deserializing a map.
 ///
-/// Serialize or deserialize a map with customized category rule support.
+/// This function allows for a custom `CategoryRule` to be specified for the duration of the
+/// provided closure, `f`. This is especially useful when there's a need to diverge from the default
+/// category naming convention during a specific serialization or deserialization task.
 ///
+/// # Safety
+///
+/// The implementation uses thread-local storage (`CATEGORY_RULE`) to store the custom rule. The
+/// original rule or default value is safely restored upon function exit, ensuring consistent
+/// behavior across different invocations. Moreover, this function is panic-safe, meaning if a panic
+/// occurs within the closure, the rule is still guaranteed to be restored before the panic
+/// propagates.
+///
+/// # Arguments
+///
+/// * `rule`: The custom category rule to apply.
+/// * `f`: A closure representing the serialization or deserialization task where the custom rule
+///   should be used.
+///
+/// # Panics
+///
+/// This function will propagate any panics that occur within the provided closure.
 pub fn with_category_rule(rule: CategoryRule, f: impl FnOnce() + std::panic::UnwindSafe) {
     CATEGORY_RULE.with(|x| unsafe {
         // SAFETY: The `x` is guaranteed to be restored to its original value on function exit,
@@ -93,6 +113,22 @@ impl<'a> CategoryRule<'a> {
     }
 }
 
+/// Represents a hierarchical archive of configuration values and categories.
+///
+/// The `Archive` struct organizes configuration data into a tree-like structure. Each node in this
+/// structure can represent either a configuration category (identified by a path) or an individual
+/// configuration value.
+///
+/// Categories within the archive are uniquely identified by keys that are prefixed with a special
+/// character, typically `~`, though this can be customized using [`with_category_rule`]. Each
+/// category can further contain nested categories and values, allowing for a deeply nested
+/// hierarchical organization of configuration data.
+///
+/// Configuration values within a category are stored as key-value pairs, where the key is a string
+/// representing the configuration name, and the value is its associated JSON representation.
+///
+/// This structure provides a compact and efficient way to represent, serialize, and deserialize
+/// configuration data with support for custom category naming conventions.
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct Archive {
     /// Every '~' prefixed keys
@@ -193,6 +229,17 @@ impl Archive {
 }
 
 impl Archive {
+    /// Searches for a nested category within the archive using the specified path.
+    ///
+    /// Given a path (as an iterator of strings), this method traverses the archive hierarchically
+    /// to locate the target category.
+    ///
+    /// # Parameters
+    /// * `path`: The path of the target category, represented as an iterable of strings.
+    ///
+    /// # Returns
+    /// An `Option` containing a reference to the found `Archive` (category) if it exists,
+    /// or `None` otherwise.
     pub fn find_path<'s, 'a, T: AsRef<str> + 'a>(
         &'s self,
         path: impl IntoIterator<Item = T>,
@@ -213,6 +260,16 @@ impl Archive {
         node
     }
 
+    /// Retrieves a mutable reference to a nested category, creating it if it doesn't exist.
+    ///
+    /// This method is useful for ensuring a category exists at a certain path, creating any
+    /// necessary intermediate categories along the way.
+    ///
+    /// # Parameters
+    /// * `path`: The path of the target category, represented as an iterable of strings.
+    ///
+    /// # Returns
+    /// A mutable reference to the target `Archive` (category).
     pub fn find_or_create_path_mut<'s, 'a>(
         &'s mut self,
         path: impl IntoIterator<Item = &'a str>,
@@ -235,12 +292,17 @@ impl Archive {
         node
     }
 
+    /// Generates a differential patch between the current and a newer archive.
     ///
-    /// Creates archive which contains only the differences between two archives.
-    /// This does not affect to removed categories/values of newer archive.
+    /// This method examines the differences between the current archive and a provided newer
+    /// archive. The result is an `Archive` containing only the differences. The method also
+    /// modifies the `newer` archive in place, removing the elements that are part of the patch.
     ///
-    /// Patched elements are removed from newer archive.
+    /// # Parameters
+    /// * `newer`: A mutable reference to the newer version of the archive.
     ///
+    /// # Returns
+    /// An `Archive` containing only the differences between the current and newer archives.
     pub fn create_patch(&self, newer: &mut Self) -> Self {
         let mut patch = Self::default();
 
@@ -276,10 +338,24 @@ impl Archive {
         patch
     }
 
+    /// Checks if the archive is empty.
+    ///
+    /// An archive is considered empty if it has no categories (paths) and no values.
+    ///
+    /// # Returns
+    /// `true` if the archive is empty, otherwise `false`.
     pub fn is_empty(&self) -> bool {
         self.paths.is_empty() && self.values.is_empty()
     }
 
+    /// Merges data from another archive into the current one.
+    ///
+    /// This method recursively merges categories and replaces values from the other archive into
+    /// the current one. In the case of overlapping categories, it will dive deeper and merge the
+    /// inner values and categories.
+    ///
+    /// # Parameters
+    /// * `other`: The other archive to merge from.
     pub fn merge_from(&mut self, other: Self) {
         // Recursively merge p
         for (k, v) in other.paths {
@@ -292,6 +368,17 @@ impl Archive {
         }
     }
 
+    /// Merges data from another archive into a clone of the current one and returns the merged
+    /// result.
+    ///
+    /// This method is a combinatory operation that uses `merge_from` under the hood but doesn't
+    /// modify the current archive in place, instead, it returns a new merged archive.
+    ///
+    /// # Parameters
+    /// * `other`: The other archive to merge from.
+    ///
+    /// # Returns
+    /// A new `Archive` which is the result of merging the current archive with the provided one.
     #[must_use]
     pub fn merge(mut self, other: Self) -> Self {
         self.merge_from(other);

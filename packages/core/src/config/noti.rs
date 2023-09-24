@@ -43,14 +43,6 @@ struct Inner {
 }
 
 impl Receiver {
-    pub fn wait(&mut self) -> Wait {
-        Wait { rx: self, state: WaitState::Created }
-    }
-
-    pub fn consume_update(&mut self) -> Option<()> {
-        self.1.upgrade().map(|x| self.0 = x.lock().fence)
-    }
-
     pub fn invalidate(&mut self) {
         self.0 = 0;
     }
@@ -59,7 +51,6 @@ impl Receiver {
         self.1.upgrade().map(|x| x.lock().fence != self.0)
     }
 
-    /// API for channel compatibility
     pub fn try_recv(&mut self) -> Result<(), TryWaitError> {
         let flag = self.1.upgrade().ok_or(TryWaitError::Closed)?.lock().fence;
         if self.0 != flag {
@@ -70,15 +61,14 @@ impl Receiver {
         }
     }
 
-    /// API for channel compatibility
     pub fn recv(&mut self) -> Wait {
-        self.wait()
+        Wait { rx: self, state: WaitState::Created }
     }
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum TryWaitError {
-    #[error("Closed notify channel.")]
+    #[error("Closed notify channel")]
     Closed,
 
     #[error("There's no update")]
@@ -87,10 +77,10 @@ pub enum TryWaitError {
 
 #[derive(thiserror::Error, Debug)]
 pub enum WaitError {
-    #[error("Closed notify channel.")]
+    #[error("Closed notify channel")]
     Closed,
 
-    #[error("Polled after expiration.")]
+    #[error("Expired notify channel")]
     Expired,
 }
 
