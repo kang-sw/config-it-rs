@@ -1,6 +1,6 @@
 [package]
 name = "config-it"
-version = "0.8.0"
+version = "0.8.1"
 edition = "2021"
 description = "Centralized dynamic configuration management"
 authors = ["kang-sw <ki6080@gmail.com>"]
@@ -82,9 +82,11 @@ config = [
 	"dep:cs",
 ]
 
-machine-id-encryption = ["dep:machine-uid", "encryption"]
 config-derive = ["dep:memoffset", "dep:impls"]
+machine-id-encryption = ["dep:machine-uid", "encryption"]
 encryption = ["dep:aes-gcm"]
 
 indexmap = ["dep:indexmap"]
 jsonschema = ["dep:schemars", "macros/jsonschema"]
+
+monitor = []
