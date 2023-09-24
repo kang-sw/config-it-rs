@@ -1,42 +1,48 @@
 use std::borrow::Cow;
 
 bitflags::bitflags! {
-    /// Metadata flags for this config entity.
+    /// Represents metadata flags for a configuration entity.
     ///
-    /// This flag contains various hints for config-it to determine how to handle this variable.
+    /// These flags provide hints and directives to the config system (`config-it`)
+    /// about how to treat and interact with the associated configuration variable.
     #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Copy, PartialEq, Eq)]
     pub struct MetaFlag: u32 {
-        /// Disable import from `import` operation
+        /// Prevents the variable from being included in `import` operations.
         const NO_IMPORT = 1 << 0;
 
-        /// Disable export to `export` operation
+        /// Prevents the variable from being included in `export` operations.
         const NO_EXPORT = 1 << 1;
 
-        /// Hint monitor that this variable should be hidden from user.
+        /// Advises the monitor to hide this variable from non-admin users.
         const HIDDEN_NON_ADMIN = 1 << 2;
 
-        /// Hint monitor that this variable should be hidden from all users
+        /// Advises the monitor to hide this variable from all users, regardless of role.
         const HIDDEN = 1 << 6;
 
-        /// Hint monitor that this variable should only be read by admin.
+        /// Indicates that only admin users should be allowed to read this variable.
         const ADMIN_READ = 1 << 3;
 
-        /// Hint monitor  that this variable should only be written by admin.
+        /// Indicates that only admin users should be allowed to write to this variable. Implicitly
+        /// includes the `ADMIN_READ` permission.
         const ADMIN_WRITE = 1 << 4 | Self::ADMIN_READ.bits();
 
-        /// Hint monitor that this property is read-only. Even admin cannot write to this.
+        /// Designates the variable as read-only, ensuring that no user, even admins, can modify its
+        /// value.
         const READONLY = 1 << 5;
 
-        /// None can read this variable. (e.g. Secret)
+        /// Marks the variable as write-only. This means its value cannot be read or accessed
+        /// (useful for secrets, where the value might be set but not retrieved).
         const WRITEONLY = 1 << 7;
 
-        /// Encrypt this variable when saving to storage.
+        /// Ensures that the variable's value is encrypted when stored. Implicitly includes the
+        /// `WRITEONLY` property, reflecting the sensitive nature of the data.
         const SECRET = 1 << 8 | Self::WRITEONLY.bits();
 
-        /// Hint monitor that this is admin-only variable.
+        /// Designates the variable as exclusive to admin users for both reading and writing.
         const ADMIN = Self::ADMIN_READ.bits() | Self::ADMIN_WRITE.bits();
 
-        /// Hint monitor that this variable is transient, and should not be saved to storage.
+        /// Informs the monitor that this variable is transient, implying that it shouldn't be
+        /// persisted to storage. This combines both `NO_EXPORT` and `NO_IMPORT` properties.
         const TRANSIENT = MetaFlag::NO_EXPORT.bits() | MetaFlag::NO_IMPORT.bits();
     }
 }
@@ -68,32 +74,35 @@ pub enum MetadataEditorHint {
     Code(Cow<'static, str>),
 }
 
-/// Shared generic properties of this metadata entity.
+/// Describes metadata for a configuration entity, intended for utilization by external tools.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct Metadata {
-    /// Identifier for this config entity.
+    /// Unique identifier for this configuration entity.
     pub name: &'static str,
 
-    /// Source variable name. Usually same as 'name' unless another name is specified for it.
+    /// Source variable name from the configuration definition. It's typically identical to 'name'
+    /// unless an alternative name is explicitly set.
     pub varname: &'static str,
 
-    /// Typename for this config entity.
+    /// String representation of the type for this configuration entity.
     pub type_name: &'static str,
 
-    ///
+    /// Flags that denote various behaviors and hints associated with the configuration entity.
     pub flags: MetaFlag,
 
-    /// Hint for monitoring editor. This is not directly used by this crate, but exists for hinting
-    /// remote monitor how to edit this variable.
+    /// Provides guidance for a monitoring editor on how to interact with this variable. While this
+    /// crate doesn't use this hint directly, it helps external monitors understand the preferred
+    /// method to edit the variable.
     pub editor_hint: Option<MetadataEditorHint>,
 
-    /// Optional schema. Will be used by remote monitor to manage this variable.
+    /// If enabled, provides a schema that remote monitors can leverage to manage this variable
+    /// effectively.
     #[cfg(feature = "jsonschema")]
     pub schema: Option<crate::Schema>,
 
-    ///
+    /// A brief description that elaborates on the purpose or role of the configuration entity.
     pub description: &'static str,
 
-    /// Environment variable name
+    /// Corresponding environment variable name, if any, that maps to this configuration entity.
     pub env: Option<&'static str>,
 }

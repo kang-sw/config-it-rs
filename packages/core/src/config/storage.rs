@@ -1,3 +1,20 @@
+//! The `storage` module provides a high-level interface to interact with configuration data,
+//! ensuring safety, flexibility, and efficiency.
+//!
+//! This module primarily revolves around the `Storage` struct, which serves as the main access
+//! point for users to interact with the underlying storage system. By abstracting intricate
+//! operations into straightforward methods, it simplifies user interaction with stored
+//! configuration data.
+//!
+//! Key features include:
+//! - **Data Retrieval and Creation**: Safely find or create items with `find_or_create`.
+//! - **Data Import/Export**: Handle complex serialization and deserialization logic seamlessly with
+//!   `import` and `exporter`.
+//! - **Monitoring**: Integrate external monitoring systems and receive updates about storage
+//!   modifications using the `replace_monitor`, `unset_monitor`, and `notify_editions` methods.
+//! - **Encryption Support**: Securely encrypt data (when the encryption feature is enabled) using
+//!   `set_encryption_key`.
+
 use std::{
     any::{Any, TypeId},
     mem::replace,
@@ -51,9 +68,20 @@ pub trait Monitor: Send + Sync + 'static {
 /* ---------------------------------------------------------------------------------------------- */
 /*                                           STORAGE API                                          */
 /* ---------------------------------------------------------------------------------------------- */
+/// Provides a high-level, thread-safe interface to the configuration storage system.
 ///
-/// Storage manages multiple sets registered by preset key.
+/// `Storage` acts as the primary access point for users to interact with the underlying storage
+/// system. It abstracts away the intricacies of direct storage interactions by wrapping around the
+/// `inner::Inner` type, ensuring concurrent safety.
 ///
+/// With `Storage`, users can seamlessly perform read and write operations on their configuration
+/// data without worrying about potential concurrency issues. This design ensures that the storage
+/// system remains robust and efficient, even in multi-threaded environments.
+///
+/// # Features:
+/// - **Thread Safety**: Guarantees safe concurrent access to the configuration storage.
+/// - **High-level Interface**: Abstracts the complexities of direct storage interactions, offering
+///   a user-friendly API.
 #[derive(Debug, Default, Clone)]
 pub struct Storage(Arc<inner::Inner>);
 
@@ -80,7 +108,16 @@ pub enum GroupCreationError {
 }
 
 impl Storage {
-    /// Tries to find existing group from path name, and if it doesn't exist, tries to create new
+    /// Searches for an existing item of type `T` in the storage, or creates a new one if it doesn't
+    /// exist.
+    ///
+    /// # Arguments
+    ///
+    /// * `T` - The type of item to search for or create.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the existing or newly created item of type `T`.
     pub fn find_or_create<'a, T>(
         &self,
         path: impl IntoIterator<Item = impl AsRef<str> + 'a>,
@@ -111,7 +148,20 @@ impl Storage {
         }
     }
 
-    /// A shortcut for find_group_ex
+    /// Find a group with the given path and template type.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - The path of the group to find.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `T` - The type of the template to use for the group.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing the found group or a `GroupFindError` if the group was not
+    /// found or if the template type does not match the expected type.
     pub fn find<'a, T: group::Template>(
         &self,
         path: impl Into<PathHash>,
@@ -132,6 +182,7 @@ impl Storage {
         }
     }
 
+    /// Creates a new instance of the `Storage` struct with the specified type parameter.
     pub fn create<'a, T>(
         &self,
         path: impl IntoIterator<Item = &'a (impl AsRef<str> + ?Sized + 'a)>,
@@ -197,31 +248,23 @@ impl Storage {
             .map(|context| group::Group::create_with__(context, unregister_anchor))
     }
 
-    /// Dump all  configs from storage.
+    /// Create internal archive export task.
     ///
-    /// # Arguments
-    ///
-    /// * `no_merge` - If true, only active archive contents will be collected.
-    ///   Otherwise, result will contain merge result of previously loaded archive.
-    /// * `no_update` - If true, existing archive won't
+    /// You should explicitly call `confirm()` to retrieve the exported archive explcitly.
     pub fn exporter(&self) -> inner::ExportTask {
         inner::ExportTask::new(&self.0)
     }
 
-    /// Deserializes data
+    /// Deserializes the data.
     ///
-    /// # Arguments
+    /// # Data Serialization Rules:
+    /// - The root component is the first path component and is written as-is.
+    /// - Subsequent path components must be prefixed with a `~` (tilde) character.
+    ///   - If not prefixed, they are treated as a field element of the enclosing path component.
+    /// - A key prefixed with '~' within an existing field is ...
+    ///   (Note: The comment here seems to be incomplete; please provide further details.)
     ///
-    /// * `de` - Deserializer
-    /// * `merge` - True if loaded archive should merge onto existing one. Otherwise, it'll replace
-    ///             currently loaded archive data.
-    ///
-    /// # Data serialization rule:
-    ///  - The first path component is root component, which is written as-is.
-    ///  - Any path component after the first must be prefixed with `~(tilde)` character.
-    ///    - Otherwise, they are treated as field element of enclosing path component.
-    ///  - Any '~' prefixed key inside of existing field
-    ///
+    /// # Example JSON structure:
     /// ```json
     /// {
     ///     "root_path": {
@@ -237,11 +280,28 @@ impl Storage {
     ///     "another_root_path": {}
     /// }
     /// ```
+    ///
+    /// # Returns
+    ///
+    /// An instance of `ImportOnDrop` which will handle the import operation.
     pub fn import(&self, archive: archive::Archive) -> inner::ImportOnDrop {
         inner::ImportOnDrop::new(&self.0, archive)
     }
 
-    /// Replace existing monitor to given one.
+    /// Replaces the current monitor with the provided one.
+    ///
+    /// This function dumps the active list of groups to the new monitor sequentially. If the
+    /// monitor is not efficiently implemented, this operation can significantly impact the
+    /// performance of all storage consumers and replicators. Therefore, exercise caution when
+    /// replacing the monitor on a storage instance that's under heavy use.
+    ///
+    /// # Arguments
+    ///
+    /// * `handler` - The new monitor to replace the current one.
+    ///
+    /// # Returns
+    ///
+    /// The previous monitor that has been replaced.
     pub fn replace_monitor(&self, handler: Arc<impl Monitor>) -> Arc<dyn Monitor> {
         self.0.replace_monitor(handler)
     }
@@ -258,9 +318,13 @@ impl Storage {
         }
     }
 
-    /// Supply cypher key. If not specified until the first de/encryption, it will be generated from
-    /// machine, or if the machine-uid generation is not available, it'll simply use some hard-coded
-    /// sequence.
+    /// Sets the encryption key.
+    ///
+    /// If the encryption key is not provided before the first encryption or decryption operation, it will be automatically generated based on the machine's unique identifier (UID). If machine-UID generation is not supported, a predefined, hard-coded sequence will be used as the key.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - Byte slice representing the encryption key.
     #[cfg(feature = "encryption")]
     pub fn set_encryption_key(&self, key: &[u8]) {
         todo!("Digest input key sequence")
@@ -315,35 +379,42 @@ mod inner {
 
     use super::*;
 
-    /// Drives storage internal events.
+    /// Manages and drives internal storage events.
     ///
-    /// - Receives update request
+    /// Primarily responsible for handling update requests and orchestrating
+    /// the underlying storage mechanisms.
     #[derive(cs::Debug)]
     pub(super) struct Inner {
-        /// List of all config sets registered in this storage.
+        /// Maintains a registry of all configuration sets within this storage.
         ///
-        /// Uses group id as key.
+        /// The key is the group's unique identifier, `GroupID`.
         all_groups: DashMap<GroupID, GroupRegistration>,
 
-        /// List of all registered monitors within this storage.
+        /// Maintains a list of all monitors registered to this storage.
         ///
-        /// On every monitor event, storage driver will iterate each session channels
-        ///  and will try replication.
+        /// Upon each monitoring event, the storage driver iterates over each session channel to
+        /// attempt replication. This ensures that all components are kept in sync with storage
+        /// changes.
         #[debug(with = "fmt_monitor")]
         pub monitor: RwLock<Arc<dyn Monitor>>,
 
-        /// Registered path hashes. Used to quickly compare if there are any path name
-        ///  duplication.
+        /// Keeps track of registered path hashes to quickly identify potential path name
+        /// duplications.
         ///
-        /// Uses path hash as key, group id as value.
+        /// Uses the path's hash representation as the key and its corresponding `GroupID` as the
+        /// value.
         path_hashes: DashMap<PathHash, GroupID>,
 
-        /// Cached archive. May contain contents for currently non-exist groups.
+        /// Holds a cached version of the archive. This may include content for groups that are
+        /// currently non-existent.
         pub archive: RwLock<archive::Archive>,
 
-        /// AES-256 key for encryption
+        /// AES-256 encryption key for securing data.
+        ///
+        /// This key is used when the encryption feature is enabled. It ensures that stored data is
+        /// encrypted, adding an additional layer of security.
         #[cfg(feature = "encryption")]
-        #[debug(with = "fmt_encrpytion_key")]
+        #[debug(with = "fmt_encryption_key")]
         encryption_key: RwLock<Option<[u8; 32]>>,
     }
 
@@ -414,30 +485,33 @@ mod inner {
             context: Arc<GroupContext>,
             evt_on_update: noti::Sender,
         ) -> Result<Arc<GroupContext>, GroupCreationError> {
-            // Path-hash to GroupID mappings can be collided if there's simultaneous access.
-            // Therefore treat group insertion as success only when path_hash was successfully
-            // registered to corresponding group ID.
+            // Path-hash to GroupID mappings might experience collisions due to simultaneous access.
+            // To ensure integrity, only consider the group insertion successful when its path_hash
+            // is successfully registered to its corresponding group ID.
             let group_id = context.group_id;
             let inserted = context.clone();
-
             let rg = GroupRegistration { context, evt_on_update };
 
+            // If the path already exists in the archive, load the corresponding node.
             if let Some(node) = self.archive.read().find_path(rg.context.path.iter()) {
                 Self::load_node(&rg.context, node, &EmptyMonitor);
             }
 
+            // Ensure that the Group ID is unique.
             assert!(
                 self.all_groups.insert(group_id, rg).is_none(),
-                "Group ID never be duplicated." // as long as we didn't consume all 2^64 candidates ...
+                "Group IDs must be unique." // Ensure we haven't exhausted all 2^64 possibilities.
             );
 
+            // Check for path-hash collisions. In the rare case where a collision occurs due to
+            // another thread registering the same path-hash, we remove the current group
+            // registration and return an error.
             if self.path_hashes.entry(path_hash).or_insert(group_id).value() != &group_id {
-                // This is corner case where path hash was registered by other thread. In this case,
-                // we should remove group registration and return error.
                 self.all_groups.remove(&group_id);
                 return Err(GroupCreationError::PathCollisionRace(inserted.path.clone()));
             }
 
+            // Notify the monitor that a new group has been added.
             self.monitor.read().group_added(&group_id, &inserted);
             Ok(inserted)
         }
@@ -469,9 +543,10 @@ mod inner {
             }
 
             // This is trivially fallible operation.
-            let Some(group) = self.all_groups.get(&group_id) else { return };
-            group.context.version.fetch_add(1, Ordering::Relaxed);
-            group.evt_on_update.notify();
+            if let Some(group) = self.all_groups.get(&group_id) {
+                group.context.version.fetch_add(1, Ordering::Relaxed);
+                group.evt_on_update.notify();
+            }
         }
 
         pub fn replace_monitor(&self, new_monitor: Arc<dyn Monitor>) -> Arc<dyn Monitor> {
