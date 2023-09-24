@@ -501,7 +501,7 @@ fn from_meta_list(meta_list: syn::MetaList) -> Option<FieldProperty> {
                 } else if is_("hidden") {
                     r.hidden = true
                 } else {
-                    emit_error!(arg, "Unknown attribute, {:?}", arg.path())
+                    emit_error!(arg, "Unknown attribute")
                 }
             }
             Meta::List(_) => {
@@ -535,7 +535,7 @@ fn from_meta_list(meta_list: syn::MetaList) -> Option<FieldProperty> {
                 } else if is_("editor") {
                     r.editor = Some(value);
                 } else {
-                    emit_error!(path.span(), "Unknown attribute, {:?}", path)
+                    emit_error!(path.span(), "Unknown attribute")
                 }
             }
         }

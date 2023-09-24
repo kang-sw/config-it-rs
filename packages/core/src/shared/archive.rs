@@ -60,8 +60,8 @@ thread_local! {
 /// This function will propagate any panics that occur within the provided closure.
 pub fn with_category_rule(rule: CategoryRule, f: impl FnOnce() + std::panic::UnwindSafe) {
     CATEGORY_RULE.with(|x| unsafe {
-        // SAFETY: The `x` is guaranteed to be restored to its original value on function exit,
-        //         even if a panic occurs.
+        // SAFETY: Temporarily override lifetime as &'static; The `x` is guaranteed to be restored
+        //         to its original value on function exit, even if a panic occurs.
         x.replace(std::mem::transmute(rule));
 
         let err = std::panic::catch_unwind(|| {

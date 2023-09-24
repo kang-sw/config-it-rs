@@ -82,7 +82,7 @@ config = [
 	"dep:cs",
 ]
 
-machine-id-encryption = ["dep:machine-uid"]
+machine-id-encryption = ["dep:machine-uid", "encryption"]
 config-derive = ["dep:memoffset", "dep:impls"]
 encryption = ["dep:aes-gcm"]
 
