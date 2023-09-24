@@ -274,15 +274,7 @@ impl Archive {
         &'s mut self,
         path: impl IntoIterator<Item = &'a str>,
     ) -> &'s mut Archive {
-        let mut iter = path.into_iter();
-
-        let mut node = self.paths.entry(iter.next().unwrap().into()).or_default();
-
-        for key in iter {
-            node = node.paths.entry(key.into()).or_default();
-        }
-
-        node
+        path.into_iter().fold(self, |node, key| node.paths.entry(key.into()).or_default())
     }
 
     /// Generates a differential patch between the current and a newer archive.
