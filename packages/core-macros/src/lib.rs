@@ -23,6 +23,15 @@ use syn::{
 ///     
 ///     pub non_config_boolean: bool,
 /// }
+///
+/// let storage = config_it::create_storage();
+/// let mut config = storage.find_or_create::<MyConfig>(["my", "config", "path"]).unwrap();
+///
+/// // Initial update always reports dirty.
+/// assert_eq!(config.update(), true);
+/// assert_eq!(config.consume_update(&config.any_number), true);
+/// assert_eq!(config.consume_update(&config.non_config_number), true);
+/// assert_eq!(config.consume_update(&config.non_config_boolean), true);
 /// ```
 ///
 /// # Attributes
