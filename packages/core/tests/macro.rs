@@ -23,6 +23,9 @@ pub struct MyStruct {
     #[config_it(default = 24, max = 3, editor=ColorRgba255)]
     maximum_va: usize,
 
+    #[config_it(default = 24, max = 3, editor=Code("rust".into()))]
+    maximum_gg: usize,
+
     #[config_it(default = "3@", one_of = ["ab3", "go04"])]
     data: String,
 

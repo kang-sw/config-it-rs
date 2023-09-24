@@ -17,10 +17,10 @@ use syn::{
 ///     /// Documentation comments are retrieved and used as descriptions in the editor.
 ///     #[config(default = 154)]
 ///     pub any_number: i32,
-///     
+///
 ///     #[non_config_default_expr = r#"1.try_into().unwrap()"#]
 ///     pub non_config_number: std::num::NonZeroUsize,
-///     
+///
 ///     pub non_config_boolean: bool,
 /// }
 ///
@@ -54,8 +54,8 @@ use syn::{
 ///   variable.
 /// - `transient | no_export | no_import`: Prevent field export/import.
 /// - `editor = <ident>`: Define an editor hint for the field. See
-///   [`config_it::shared::meta::MetadataEditorHint`]
-///
+///   [`config_it::shared::meta::MetadataEditorHint`](https://docs.rs/config-it/latest/config_it/shared/meta/enum.MetadataEditorHint.html)
+///   - e.g. Specify expression as `editor = ColorRgba255`, `editor = Code("rust".into())`, etc.
 /// - `hidden` or `hidden_non_admin`: Make a field invisible in the editor or only to non-admin
 ///   users, respectively.
 ///
@@ -163,7 +163,7 @@ fn visit_fields(
     let mut field_index = 0usize;
 
     for field in fields.into_iter() {
-        let field_span = field.span();
+        let field_span = field.ident.span();
         let field_ty = field.ty;
         let field_ident = field.ident.expect("This is struct with named fields");
 
@@ -207,7 +207,7 @@ fn visit_fields(
                 });
             } else if meta.path().is_ident("non_config_default_expr") {
                 /* --------------------------------- Non-config --------------------------------- */
-                let span = meta.span();
+                let span = meta.path().span();
                 let Meta::NameValue(expr) = meta else {
                     emit_error!(meta, "Expected expression");
                     continue;
@@ -223,7 +223,7 @@ fn visit_fields(
                     continue;
                 };
 
-                field_type = FieldType::PlainWithDefaultExpr(span, expr);
+                field_type = FieldType::PlainWithDefaultExpr(expr);
             } else {
                 // Safely ignore unknown attributes
             }
@@ -238,8 +238,8 @@ fn visit_fields(
                     .push(quote_spanned!(field_span => #field_ident: Default::default(),));
                 continue;
             }
-            FieldType::PlainWithDefaultExpr(span, expr) => {
-                fn_default_config.push(quote_spanned!(span => #field_ident: #expr,));
+            FieldType::PlainWithDefaultExpr(expr) => {
+                fn_default_config.push(quote!(#field_ident: #expr,));
                 continue;
             }
             FieldType::Property(x) => x,
@@ -248,7 +248,7 @@ fn visit_fields(
         /* --------------------------------- Default Generation --------------------------------- */
         let default_expr = match prop.default {
             Some(FieldPropertyDefault::Expr(expr)) => {
-                quote_spanned!(expr.span() => <#field_ty>::try_from(#expr).unwrap())
+                quote!(<#field_ty>::try_from(#expr).unwrap())
             }
 
             Some(FieldPropertyDefault::ExprStr(lit)) => {
@@ -349,9 +349,10 @@ fn visit_fields(
                 .unwrap_or_else(|| none.clone());
             let editor_hint = editor
                 .map(|x| {
-                    quote!(Some(
-                        __meta::MetadataEditorHint::#x
-                    ))
+                    let x = quote_spanned!(x.span() =>
+                        MetadataEditorHint::#x
+                    );
+                    quote!(Some(#this_crate::shared::meta::#x))
                 })
                 .unwrap_or_else(|| none.clone());
 
@@ -364,40 +365,40 @@ fn visit_fields(
             });
             let validation_function = {
                 let fn_min = min.map(|x| {
-                    quote_spanned!(x.span() => {
+                    quote!(
                         if *mref < #x {
                             editted = true;
                             *mref = #x;
                         }
-                    })
+                    )
                 });
                 let fn_max = max.map(|x| {
-                    quote_spanned!(x.span() => {
+                    quote!(
                         if *mref > #x {
                             editted = true;
                             *mref = #x;
                         }
-                    })
+                    )
                 });
                 let fn_one_of = one_of.map(|x| {
-                    quote_spanned!(x.span() => {
+                    quote!(
                         if #x.into_iter().all(|x| x != *mref) {
                             return Err("Value is not one of the allowed values".into());
                         }
-                    })
+                    )
                 });
                 let fn_user = validate_with.map(|x| {
                     let Ok(ident) = x.parse::<syn::ExprPath>() else {
                         emit_error!(x, "Expected valid identifier");
                         return none.clone();
                     };
-                    quote_spanned!(x.span() => {
+                    quote!(
                         match #ident(mref) {
                             Ok(__entity::Validation::Valid) => {}
                             Ok(__entity::Validation::Modified) => { editted = true }
                             Err(e) => return Err(e),
                         }
-                    })
+                    )
                 });
 
                 quote! {
@@ -546,7 +547,7 @@ fn from_meta_list(meta_list: syn::MetaList) -> Option<FieldProperty> {
 
 enum FieldType {
     Plain,
-    PlainWithDefaultExpr(Span, Expr),
+    PlainWithDefaultExpr(Expr),
     Property(FieldProperty),
 }
 
