@@ -28,18 +28,21 @@ use super::{
 ///
 /// Monitor should properly handle property flags, such as `ADMIN`, `READONLY`, `SECRET`, etc ...
 ///
-/// TODO: Handle flags; `HIDDEN`
-
+/// Blocking behavior may cause deadlock, thus monitor should be implemented as non-blocking
+/// manner. (e.g. forwarding events to channel)
 pub trait Monitor: Send + Sync + 'static {
-    fn group_add_batch(&self, iter: &mut dyn Iterator<Item = (GroupID, Arc<GroupContext>)>) {
-        let _ = iter;
-    }
+    /// Called when new group is added.
     fn group_added(&self, group_id: &GroupID, group: &Arc<GroupContext>) {
         let _ = (group_id, group);
     }
+
+    /// Can be call with falsy group_id if monitor is being replaced.
     fn group_removed(&self, group_id: &GroupID) {
         let _ = group_id;
     }
+
+    /// Called when any entity value is updated. Can be called with falsy group_id if monitor is
+    /// being replaced.
     fn entity_value_updated(&self, group_id: &GroupID, item_id: &ItemID) {
         let _ = (group_id, item_id);
     }
@@ -442,22 +445,23 @@ mod inner {
         pub fn unregister_group(&self, group_id: GroupID, path_hash: PathHash) {
             self.path_hashes.remove_if(&path_hash, |_, v| v == &group_id);
             if let Some((_, ctx)) = self.all_groups.remove(&group_id) {
-                // Treat this remove as valid only when the group has ever been validly created.
-                // `all_groups.remove` can return `None` if the group wasn't successfully registered
-                // during `register_group`. In this case, this function will be called on disposal
-                // of `GroupUnregisterHook` inside of the function `create_impl`.
+                // Consider the removal valid only if the group was previously and validly created.
+                // The method `all_groups.remove` might return `None` if the group was not
+                // successfully registered during `register_group`. If this happens, this function
+                // gets invoked during the disposal of `GroupUnregisterHook` within the
+                // `create_impl` function.
 
-                // On valid removal, accumulate contents to cached archive.
+                // For valid removals, add contents to the cached archive.
                 Self::dump_node(&ctx.context, &mut self.archive.write());
 
-                // Notify removal
+                // Notify about the removal
                 self.monitor.read().group_removed(&group_id);
             }
         }
 
         pub fn on_value_update(&self, group_id: GroupID, data: &entity::EntityData, silent: bool) {
             // Monitor should always be notified on value update, regardless of silent flag
-            self.monitor.read().entity_value_updated(&group_id, &data.get_id());
+            self.monitor.read().entity_value_updated(&group_id, &data.id());
 
             // If silent flag is set, skip internal notify to other instances.
             if silent {
@@ -471,10 +475,35 @@ mod inner {
         }
 
         pub fn replace_monitor(&self, new_monitor: Arc<dyn Monitor>) -> Arc<dyn Monitor> {
+            // At the start of the operation, we replace the monitor. This means that before we add all
+            // valid groups to the new monitor, there may be notifications about group removals or updates.
+            // Without redesigning the entire storage system into a more expensive locking mechanism,
+            // there's no way to avoid this. We assume that monitor implementation providers will handle
+            // any incorrect updates gracefully and thus, we are ignoring this case.
+
             let old_monitor = replace(&mut *self.monitor.write(), new_monitor.clone());
-            new_monitor.group_add_batch(&mut self.path_hashes.iter().filter_map(|elem| {
-                self.all_groups.get(&elem.value()).map(|e| (*e.key(), e.context.clone()))
-            }));
+
+            // NOTE: Ensuring thread-safe behavior during the initialization of a new monitor:
+            // - Iteration partially locks `path_hashes` based on shards (see DashMap
+            //   implementation).
+            // - This means that new group insertions or removals can occur during iteration.
+            // - However, it's guaranteed that while iterating over a shard, no other thread can
+            //   modify the same shard of `path_hashes`.
+            // - Since every group insertion or removal first modifies `path_hashes`, it's safe to
+            //   assume we see a consistent state of `path_hashes` during shard iteration, given
+            //   we're observing the read-locked state of that shard.
+            for path in self.path_hashes.iter() {
+                let Some(group) = self.all_groups.get(&path.value()) else {
+                    unreachable!(
+                        "As long as the group_id is found from path_hashes, \
+                        the group must be found from `all_groups`."
+                    )
+                };
+
+                // Since we call `group_added` on every group,
+                new_monitor.group_added(&path.value(), &group.context);
+            }
+
             old_monitor
         }
 
@@ -491,7 +520,7 @@ mod inner {
             for (meta, val) in ctx
                 .sources
                 .iter()
-                .map(|e| e.get_value())
+                .map(|e| e.property_value())
                 .filter(|(meta, _)| !meta.metadata.flags.contains(MetaFlag::NO_EXPORT))
             {
                 let dst = node.values.entry(meta.name.into()).or_default();
@@ -514,7 +543,7 @@ mod inner {
             '_outer: for (elem, de) in ctx
                 .sources
                 .iter()
-                .map(|e| (e, e.get_meta()))
+                .map(|e| (e, e.property_info()))
                 .filter(|(_, m)| !m.metadata.flags.contains(MetaFlag::NO_IMPORT))
                 .filter_map(|(e, m)| {
                     node.values.get(m.name).map(|o| (e, o.clone().into_deserializer()))
@@ -540,7 +569,7 @@ mod inner {
                 match elem.update_value_from(de) {
                     Ok(_) => {
                         has_update = true;
-                        monitor.entity_value_updated(&ctx.group_id, &elem.get_id());
+                        monitor.entity_value_updated(&ctx.group_id, &elem.id());
                     }
                     Err(e) => {
                         log::warn!("Element value update error during node loading: {e:?}")
@@ -568,13 +597,17 @@ mod inner {
         #[setters(skip)]
         archive: ManuallyDrop<Archive>,
 
-        /// If set this to true, the imported config will be merged onto existing cache. Usually turning
-        /// this on is useful to prevent unsaved archive entity from being overwritten.
+        /// When set to true, the imported config will be merged with the existing cache. This is typically
+        /// useful to prevent unsaved archive entities from being overwritten.
+        ///
+        /// Default is `true`.
         merge_onto_cache: bool,
 
-        /// If this option is enabled, imported setting will be converted into 'patch' before applied.
-        /// Otherwise, the imported setting will be applied directly, and will affect to all properties
-        /// that are included in the archive even if there is no actual change on archive content.
+        /// If this option is enabled, the imported settings will be treated as a 'patch' before being applied.
+        /// If disabled, the imported settings will directly overwrite existing ones, affecting all properties
+        /// in the archive even if the archive content hasn't actually changed.
+        ///
+        /// Default is `true`.
         apply_as_patch: bool,
     }
 
@@ -637,15 +670,19 @@ mod inner {
         #[setters(skip)]
         inner: &'a Inner,
 
-        /// On export, storage collects only active instances of config groups. If this is set to true,
-        /// collected result will be merged onto existing dump cache, thus it will preserve
-        /// uninitialized config groups' archive data.
+        /// On export, the storage gathers only active instances of config groups. If this is set to true,
+        /// the collected results will be merged with the existing dump cache, preserving
+        /// the archive data of uninitialized config groups.
         ///
-        /// Otherwise, only active config groups will be exported.
+        /// If set to false, only active config groups will be exported.
+        ///
+        /// Default is `true`
         merge_onto_dumped: bool,
 
-        /// If this option is set true, storage will replace import cache with dumped export data.
-        /// This will affect the next config group creation.
+        /// When this option is true, the storage will overwrite the import cache with the exported data.
+        /// This will influence the creation of the next config group.
+        ///
+        /// Default is `true`
         replace_import_cache: bool,
     }
 

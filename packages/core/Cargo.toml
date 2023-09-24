@@ -68,7 +68,7 @@ indoc = "2"
 tokio = { version = "1", features = ["full"] }
 
 [features]
-default = ["config", "indexmap", "jsonschema", "machine-id-encryption"]
+default = ["config", "indexmap", "jsonschema"]
 
 config = [
 	"config-derive",

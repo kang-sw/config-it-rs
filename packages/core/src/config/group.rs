@@ -86,7 +86,7 @@ pub struct GroupContext {
     pub template_type_id: TypeId,
 
     /// List of sources; each element represents single property.
-    pub sources: Arc<[EntityData]>,
+    pub(crate) sources: Arc<[EntityData]>,
 
     pub(crate) w_unregister_hook: Weak<dyn Any + Send + Sync>,
     pub(crate) version: AtomicU64,
@@ -96,6 +96,11 @@ pub struct GroupContext {
 
     /// Broadcast subscriber to receive updates from backend.
     pub(crate) update_receiver_channel: noti::Receiver,
+}
+
+pub mod monitor {
+    //! Exposed APIs to control over entities
+    impl super::GroupContext {}
 }
 
 ///
@@ -212,7 +217,7 @@ impl<T: Template> Group<T> {
         for ((index, local), source) in zip(zip(0..local.len(), &mut *local), &*self.origin.sources)
         {
             // Perform quick check to see if given config entity has any update.
-            match source.get_version() {
+            match source.version() {
                 // NOTE: The locally updated version uses only 63 bits of the bit variable, which
                 // may occasionally cause it to differ from the source version. However, this
                 // discrepancy is unlikely to be a practical issue because it would require a
@@ -225,7 +230,7 @@ impl<T: Template> Group<T> {
             has_update = true;
             local.bits.set_dirty(1);
 
-            let (meta, value) = source.get_value();
+            let (meta, value) = source.property_value();
             self.__body.update_elem_at__(index, value.as_any(), meta);
         }
 
@@ -286,7 +291,7 @@ impl<T: Template> Group<T> {
         let elem = &(*self.origin.sources)[self.get_index_by_ptr(prop).unwrap()];
 
         // SAFETY: We know that `vtable.implements_copy()` is strictly managed.
-        let impl_copy = elem.get_meta().vtable.implements_copy();
+        let impl_copy = elem.property_info().vtable.implements_copy();
         let new_value = unsafe { EntityValue::from_value(prop.clone(), impl_copy) };
 
         elem.__apply_value(new_value);

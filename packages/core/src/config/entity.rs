@@ -1,4 +1,4 @@
-use parking_lot::Mutex;
+use parking_lot::RwLock;
 use serde::de::DeserializeOwned;
 use std::any::{Any, TypeId};
 use std::borrow::Cow;
@@ -64,13 +64,22 @@ where
 ///
 #[derive(Debug)]
 pub struct PropertyInfo {
-    pub type_id: TypeId,
+    pub(crate) type_id: TypeId,
+    pub(crate) index: usize,
+    pub(crate) metadata: Metadata,
+    pub(crate) vtable: &'static dyn MetadataVTable,
+}
 
-    pub index: usize,
-    pub memory_offset: usize,
-
-    pub metadata: Metadata,
-    pub vtable: &'static dyn MetadataVTable,
+impl PropertyInfo {
+    #[doc(hidden)]
+    pub fn new(
+        type_id: TypeId,
+        index: usize,
+        metadata: Metadata,
+        vtable: &'static dyn MetadataVTable,
+    ) -> Self {
+        Self { type_id, index, metadata, vtable }
+    }
 }
 
 impl std::ops::Deref for PropertyInfo {
@@ -297,7 +306,7 @@ pub struct EntityData {
 
     meta: &'static PropertyInfo,
     version: AtomicU64,
-    value: Mutex<EntityValue>,
+    value: RwLock<EntityValue>,
 
     #[debug(skip)]
     hook: Arc<dyn EntityEventHook>,
@@ -317,26 +326,31 @@ impl EntityData {
         Self {
             id: ItemID::new_unique(),
             version: AtomicU64::new(0),
-            value: Mutex::new(meta.vtable.create_default()),
+            value: RwLock::new(meta.vtable.create_default()),
             meta,
             hook,
         }
     }
 
-    pub fn get_id(&self) -> ItemID {
+    pub fn id(&self) -> ItemID {
         self.id
     }
 
-    pub fn get_meta(&self) -> &'static PropertyInfo {
+    pub fn property_info(&self) -> &'static PropertyInfo {
         self.meta
     }
 
-    pub fn get_version(&self) -> u64 {
+    pub(crate) fn version(&self) -> u64 {
         self.version.load(Ordering::Relaxed)
     }
 
-    pub fn get_value(&self) -> (&'static PropertyInfo, EntityValue) {
-        (self.meta, self.value.lock().clone())
+    pub(crate) fn property_value(&self) -> (&'static PropertyInfo, EntityValue) {
+        (self.meta, self.value.read().clone())
+    }
+
+    /// Serialize this property into given serializer.
+    pub fn serialize_into<S: serde::Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+        serde::Serialize::serialize(&self.value.read().as_serialize(), ser)
     }
 
     /// If `silent` option is disabled, increase config set and source argument's fence
@@ -345,7 +359,7 @@ impl EntityData {
     pub(crate) fn __apply_value(&self, value: EntityValue) {
         debug_assert!(self.meta.type_id == value.as_any().type_id());
 
-        *self.value.lock() = value;
+        *self.value.write() = value;
         self.version.fetch_add(1, Ordering::Release);
     }
 

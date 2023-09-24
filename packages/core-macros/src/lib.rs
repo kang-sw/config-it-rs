@@ -36,7 +36,7 @@ use std::borrow::Cow;
 
 use proc_macro::TokenStream as LangTokenStream;
 use proc_macro2::{Span, TokenStream};
-use proc_macro_error::{emit_error,  proc_macro_error};
+use proc_macro_error::{emit_error, proc_macro_error};
 use quote::{quote, quote_spanned};
 use syn::{
     punctuated::Punctuated, spanned::Spanned, Attribute, Expr, ExprLit, Ident, Lit, LitStr, Meta,
@@ -107,7 +107,7 @@ pub fn derive_collect_fn(item: LangTokenStream) -> LangTokenStream {
 
                 fn elem_at_mut__(&mut self, index: usize) -> &mut dyn std::any::Any {
                     use ::std::any::Any;
-                    
+
                     match index {
                         #(#fn_elem_at_mut)*
                         _ => panic!("Invalid index {}", index),
@@ -139,7 +139,7 @@ fn visit_fields(
     let mut doc_string = Vec::new();
     let mut field_index = 0usize;
 
-    for  field in fields.into_iter() {
+    for field in fields.into_iter() {
         let field_span = field.span();
         let field_ty = field.ty;
         let field_ident = field.ident.expect("This is struct with named fields");
@@ -211,9 +211,10 @@ fn visit_fields(
         /* -------------------------------------------------------------------------------------- */
         let prop = match field_type {
             FieldType::Plain => {
-                fn_default_config.push(quote_spanned!(field_span => #field_ident: Default::default(),));
+                fn_default_config
+                    .push(quote_spanned!(field_span => #field_ident: Default::default(),));
                 continue;
-            },
+            }
             FieldType::PlainWithDefaultExpr(span, expr) => {
                 fn_default_config.push(quote_spanned!(span => #field_ident: #expr,));
                 continue;
@@ -278,7 +279,7 @@ fn visit_fields(
         /* --------------------------------- Metadata Generation -------------------------------- */
         {
             let FieldProperty {
-                alias,
+                rename,
                 admin,
                 admin_write,
                 admin_read,
@@ -314,7 +315,7 @@ fn visit_fields(
             .filter_map(|x| x);
 
             let varname = field_ident.to_string();
-            let name = alias
+            let name = rename
                 .map(|x| Cow::Owned(x.value()))
                 .unwrap_or_else(|| Cow::Borrowed(varname.as_str()));
             let doc_string = doc_string.join("\n");
@@ -376,7 +377,7 @@ fn visit_fields(
 
                 quote! {
                     let mut editted = false;
-                    
+
                     #fn_min
                     #fn_max
                     #fn_one_of
@@ -398,11 +399,10 @@ fn visit_fields(
                     use __config::__lookup::*;
                     use __shared::meta as __meta;
 
-                    __entity::PropertyInfo {
-                        index: #field_index,
-                        memory_offset: #const_offset_ident,
-                        type_id: std::any::TypeId::of::<#field_ty>(),
-                        metadata: __meta::Metadata {
+                    __entity::PropertyInfo::new(
+                        /* type_id:*/ std::any::TypeId::of::<#field_ty>(),
+                        /* index:*/ #field_index,
+                        /* metadata:*/ __meta::Metadata {
                             flags: {
                                 use __meta::MetaFlag;
                                 #(#flags |)* MetaFlag::empty()
@@ -415,7 +415,7 @@ fn visit_fields(
                             editor_hint: #editor_hint,
                             #schema
                         },
-                        vtable: Box::leak(Box::new(__entity::MetadataVTableImpl {
+                        /* vtable:*/ Box::leak(Box::new(__entity::MetadataVTableImpl {
                             impl_copy: #this_crate::impls!(#field_ty: Copy),
                             fn_default: #default_fn_ident,
                             fn_validate: {
@@ -427,7 +427,7 @@ fn visit_fields(
                                 __validate
                             },
                         }))
-                    }
+                    )
                 },
             });
         }
@@ -435,7 +435,7 @@ fn visit_fields(
         /* ------------------------------ Index Access Genenration ------------------------------ */
         fn_prop_at_offset.push(quote!(#const_offset_ident => Some(#field_index),));
         fn_elem_at_mut.push(quote!(#field_index => &mut self.#field_ident as &mut dyn Any,));
-        
+
         /* -------------------------------- Field Index Increment ------------------------------- */
         field_index += 1;
     }
@@ -488,8 +488,8 @@ fn from_meta_list(meta_list: syn::MetaList) -> Option<FieldProperty> {
                     r.default = Some(FieldPropertyDefault::Expr(value));
                 } else if is_("default_expr") {
                     r.default = expr_take_lit_str(value).map(FieldPropertyDefault::ExprStr);
-                } else if is_("alias") {
-                    r.alias = expr_take_lit_str(value);
+                } else if is_("alias") || is_("rename") {
+                    r.rename = expr_take_lit_str(value);
                 } else if is_("min") {
                     r.min = Some(value);
                 } else if is_("max") {
@@ -541,7 +541,7 @@ enum FieldPropertyDefault {
 
 #[derive(Default)]
 struct FieldProperty {
-    alias: Option<syn::LitStr>,
+    rename: Option<syn::LitStr>,
     default: Option<FieldPropertyDefault>,
     admin: bool,
     admin_write: bool,
