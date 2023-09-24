@@ -1,1 +1,0 @@
-mklink /J config-it-macros-impl\src\utils config-it-macros\src\utils
