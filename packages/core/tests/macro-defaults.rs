@@ -1,3 +1,5 @@
+#![cfg(feature = "config-derive")]
+
 #[derive(config_it::Template, Clone)]
 struct Foo {
     /// This is to

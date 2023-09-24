@@ -1,3 +1,4 @@
+#![cfg(feature = "config-derive")]
 use config_it::config::storage::GroupFindError;
 
 #[test]

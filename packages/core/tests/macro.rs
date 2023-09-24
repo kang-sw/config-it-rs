@@ -1,3 +1,4 @@
+#![cfg(feature = "config-derive")]
 #![allow(unused_imports)]
 
 use config_it::Archive;
@@ -88,8 +89,8 @@ fn config_set_valid_operations() {
 
         #[cfg(feature = "jsonschema")]
         {
-            assert!(group.property_info(&group.maximum).schema.is_some());
-            assert!(group.property_info(&group.my_type).schema.is_none());
+            assert!(group.meta(&group.maximum).schema.is_some());
+            assert!(group.meta(&group.my_type).schema.is_none());
         }
 
         let mut brd = group.watch_update();
@@ -159,8 +160,8 @@ fn config_set_valid_operations() {
 
         dbg!(&*group);
 
-        let meta = group.property_info(&group.my_value);
-        dbg!((meta.name, &*meta));
+        let meta = group.meta(&group.my_value);
+        dbg!((meta.name, meta));
 
         assert!(!group.update(), "Re-request handled correctly.");
         assert!(group.consume_update(&group.data), "Updated configs correctly applied.");

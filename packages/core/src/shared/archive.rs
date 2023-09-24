@@ -210,22 +210,6 @@ impl Archive {
     pub fn len_paths(&self) -> usize {
         self.paths.len()
     }
-
-    pub fn reserve_values(&mut self, additional: usize) {
-        self.values.reserve(additional);
-    }
-
-    pub fn reserve_paths(&mut self, additional: usize) {
-        self.paths.reserve(additional);
-    }
-
-    pub fn shrink_to_fit_values(&mut self) {
-        self.values.shrink_to_fit();
-    }
-
-    pub fn shrink_to_fit_paths(&mut self) {
-        self.paths.shrink_to_fit();
-    }
 }
 
 impl Archive {
@@ -448,6 +432,7 @@ impl Serialize for Archive {
 }
 
 #[test]
+#[allow(clippy::approx_constant)]
 fn test_archive_basic() {
     let src = r#"
         {

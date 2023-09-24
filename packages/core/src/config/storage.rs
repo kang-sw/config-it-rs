@@ -49,12 +49,12 @@ use super::{
 /// manner. (e.g. forwarding events to channel)
 pub trait Monitor: Send + Sync + 'static {
     /// Called when new group is added.
-    fn group_added(&mut self, group_id: &GroupID, group: &Arc<GroupContext>) {
+    fn group_added(&mut self, group_id: GroupID, group: &Arc<GroupContext>) {
         let _ = (group_id, group);
     }
 
     /// Can be call with falsy group_id if monitor is being replaced.
-    fn group_removed(&mut self, group_id: &GroupID) {
+    fn group_removed(&mut self, group_id: GroupID) {
         let _ = group_id;
     }
 
@@ -64,7 +64,7 @@ pub trait Monitor: Send + Sync + 'static {
     /// Since this is called frequently compared to group modification commands, receives immutable
     /// self reference. Therefore, all state modification should be handled with interior
     /// mutability!
-    fn entity_value_updated(&self, group_id: &GroupID, item_id: &ItemID) {
+    fn entity_value_updated(&self, group_id: GroupID, item_id: ItemID) {
         let _ = (group_id, item_id);
     }
 }
@@ -112,6 +112,11 @@ pub enum GroupCreationError {
 }
 
 impl Storage {
+    /// Gets ID of this storage instance. ID is unique per single program instance.
+    pub fn storage_id(&self) -> crate::shared::StorageID {
+        self.0.id
+    }
+
     /// Searches for an existing item of type `T` in the storage, or creates a new one if it doesn't
     /// exist.
     ///
@@ -241,6 +246,7 @@ impl Storage {
         let context = Arc::new(GroupContext {
             group_id: register_id,
             template_type_id: TypeId::of::<T>(),
+            template_name: T::template_name(),
             w_unregister_hook: Arc::downgrade(
                 &(unregister_anchor.clone() as Arc<dyn Any + Send + Sync>),
             ),
@@ -332,9 +338,11 @@ impl Storage {
     /// # Arguments
     ///
     /// * `key` - Byte slice representing the encryption key.
-    #[cfg(feature = "encryption")]
-    pub fn set_encryption_key(&self, key: &[u8]) {
-        todo!("Digest input key sequence")
+    #[cfg(feature = "crypt")]
+    pub fn set_crypt_key(&self, key: impl AsRef<[u8]>) {
+        use sha2::{Digest, Sha256};
+        let arr = &*Sha256::new().chain_update(key).finalize();
+        self.0.crypt_key.write().replace(std::array::from_fn(|index| arr[index]));
     }
 }
 
@@ -372,16 +380,14 @@ impl EntityEventHook for EntityHookImpl {
 }
 
 mod inner {
-    use std::mem::ManuallyDrop;
+    use std::{collections::HashMap, mem::ManuallyDrop};
 
-    use dashmap::DashMap;
     use derive_setters::Setters;
     use parking_lot::RwLock;
-    use serde::de::IntoDeserializer;
 
     use crate::{
         config::entity::Entity,
-        shared::{archive::Archive, meta::MetaFlag},
+        shared::{archive::Archive, meta::MetaFlag, StorageID},
     };
 
     use super::*;
@@ -392,10 +398,13 @@ mod inner {
     /// the underlying storage mechanisms.
     #[derive(cs::Debug)]
     pub(super) struct Inner {
+        /// Unique(during runtime) identifier for this storage.
+        pub id: StorageID,
+
         /// Maintains a registry of all configuration sets within this storage.
         ///
         /// The key is the group's unique identifier, `GroupID`.
-        all_groups: DashMap<GroupID, GroupRegistration>,
+        all_groups: RwLock<HashMap<GroupID, GroupRegistration>>,
 
         /// Maintains a list of all monitors registered to this storage.
         ///
@@ -410,7 +419,7 @@ mod inner {
         ///
         /// Uses the path's hash representation as the key and its corresponding `GroupID` as the
         /// value.
-        path_hashes: DashMap<PathHash, GroupID>,
+        path_hashes: RwLock<HashMap<PathHash, GroupID>>,
 
         /// Holds a cached version of the archive. This may include content for groups that are
         /// currently non-existent.
@@ -420,9 +429,9 @@ mod inner {
         ///
         /// This key is used when the encryption feature is enabled. It ensures that stored data is
         /// encrypted, adding an additional layer of security.
-        #[cfg(feature = "encryption")]
+        #[cfg(feature = "crypt")]
         #[debug(with = "fmt_encryption_key")]
-        encryption_key: RwLock<Option<[u8; 32]>>,
+        pub crypt_key: RwLock<Option<[u8; 32]>>,
     }
 
     fn fmt_monitor(
@@ -437,8 +446,8 @@ mod inner {
         write!(f, "{:?}", exists.then_some(ptr))
     }
 
-    #[cfg(feature = "encryption")]
-    fn fmt_encrpytion_key(
+    #[cfg(feature = "crypt")]
+    fn fmt_encryption_key(
         key: &RwLock<Option<[u8; 32]>>,
         f: &mut std::fmt::Formatter<'_>,
     ) -> std::fmt::Result {
@@ -465,17 +474,20 @@ mod inner {
     impl Inner {
         pub fn new(monitor: Box<dyn Monitor>) -> Self {
             Self {
-                all_groups: Default::default(),
+                id: StorageID::new_unique_incremental(),
                 monitor: RwLock::new(monitor),
-                path_hashes: Default::default(),
                 archive: Default::default(),
-                #[cfg(feature = "encryption")]
-                encryption_key: Default::default(),
+                #[cfg(feature = "crypt")]
+                crypt_key: Default::default(),
+
+                // NOTE: Uses 4 shards for both maps. The default implementation's shared amount,
+                all_groups: Default::default(),
+                path_hashes: Default::default(),
             }
         }
 
         pub fn notify_edition(&self, group_id: GroupID) {
-            if let Some(group) = self.all_groups.get(&group_id) {
+            if let Some(group) = self.all_groups.read().get(&group_id) {
                 group.context.version.fetch_add(1, Ordering::Relaxed);
                 group.evt_on_update.notify();
             }
@@ -483,9 +495,9 @@ mod inner {
 
         pub fn find_group(&self, path_hash: &PathHash) -> Option<Arc<GroupContext>> {
             self.path_hashes
+                .read()
                 .get(path_hash)
-                .and_then(|id| self.all_groups.get(&*id))
-                .map(|ctx| ctx.context.clone())
+                .and_then(|id| self.all_groups.read().get(id).map(|x| x.context.clone()))
         }
 
         pub fn register_group(
@@ -503,31 +515,52 @@ mod inner {
 
             // If the path already exists in the archive, load the corresponding node.
             if let Some(node) = self.archive.read().find_path(rg.context.path.iter()) {
-                Self::load_node(&rg.context, node, &EmptyMonitor);
+                Self::load_node(
+                    &rg.context,
+                    node,
+                    &EmptyMonitor,
+                    #[cfg(feature = "crypt")]
+                    Self::crypt_key_loader(&self.crypt_key),
+                );
             }
 
             // Ensure that the Group ID is unique.
             assert!(
-                self.all_groups.insert(group_id, rg).is_none(),
+                self.all_groups.write().insert(group_id, rg).is_none(),
                 "Group IDs must be unique." // Ensure we haven't exhausted all 2^64 possibilities.
             );
 
             // Check for path-hash collisions. In the rare case where a collision occurs due to
             // another thread registering the same path-hash, we remove the current group
             // registration and return an error.
-            if self.path_hashes.entry(path_hash).or_insert(group_id).value() != &group_id {
-                self.all_groups.remove(&group_id);
+            if self.path_hashes.write().entry(path_hash).or_insert(group_id) != &group_id {
+                self.all_groups.write().remove(&group_id);
                 return Err(GroupCreationError::PathCollisionRace(inserted.path.clone()));
             }
 
             // Notify the monitor that a new group has been added.
-            self.monitor.write().group_added(&group_id, &inserted);
+            self.monitor.write().group_added(group_id, &inserted);
             Ok(inserted)
         }
 
         pub fn unregister_group(&self, group_id: GroupID, path_hash: PathHash) {
-            self.path_hashes.remove_if(&path_hash, |_, v| v == &group_id);
-            if let Some((_, ctx)) = self.all_groups.remove(&group_id) {
+            {
+                let mut path_hashes = self.path_hashes.write();
+                if !path_hashes.get(&path_hash).is_some_and(|v| *v == group_id) {
+                    tr::debug!(?group_id, ?path_hash, "unregister_group() call to unexist group");
+                    return;
+                };
+
+                path_hashes.remove(&path_hash);
+            }
+
+            if let Some(ctx) = self.all_groups.write().remove(&group_id) {
+                let _s = tr::info_span!(
+                    "unregister_group()",
+                    template = ?ctx.context.template_name,
+                    path = ?ctx.context.path
+                );
+
                 // Consider the removal valid only if the group was previously and validly created.
                 // The method `all_groups.remove` might return `None` if the group was not
                 // successfully registered during `register_group`. If this happens, this function
@@ -535,16 +568,21 @@ mod inner {
                 // `create_impl` function.
 
                 // For valid removals, add contents to the cached archive.
-                Self::dump_node(&ctx.context, &mut self.archive.write());
+                Self::dump_node(
+                    &ctx.context,
+                    &mut self.archive.write(),
+                    #[cfg(feature = "crypt")]
+                    Self::crypt_key_loader(&self.crypt_key),
+                );
 
                 // Notify about the removal
-                self.monitor.write().group_removed(&group_id);
+                self.monitor.write().group_removed(group_id);
             }
         }
 
         pub fn on_value_update(&self, group_id: GroupID, data: &entity::EntityData, silent: bool) {
             // Monitor should always be notified on value update, regardless of silent flag
-            self.monitor.read().entity_value_updated(&group_id, &data.id);
+            self.monitor.read().entity_value_updated(group_id, data.id);
 
             // If silent flag is set, skip internal notify to other instances.
             if silent {
@@ -552,7 +590,7 @@ mod inner {
             }
 
             // This is trivially fallible operation.
-            if let Some(group) = self.all_groups.get(&group_id) {
+            if let Some(group) = self.all_groups.read().get(&group_id) {
                 group.context.version.fetch_add(1, Ordering::Relaxed);
                 group.evt_on_update.notify();
             }
@@ -576,8 +614,9 @@ mod inner {
             // - Since every group insertion or removal first modifies `path_hashes`, it's safe to
             //   assume we see a consistent state of `path_hashes` during shard iteration, given
             //   we're observing the read-locked state of that shard.
-            for path in self.path_hashes.iter() {
-                let Some(group) = self.all_groups.get(path.value()) else {
+            for group_id in self.path_hashes.read().values() {
+                let all_groups = self.all_groups.read();
+                let Some(group) = all_groups.get(group_id) else {
                     unreachable!(
                         "As long as the group_id is found from path_hashes, \
                         the group must be found from `all_groups`."
@@ -585,77 +624,216 @@ mod inner {
                 };
 
                 // Since we call `group_added` on every group,
-                self.monitor.write().group_added(path.value(), &group.context);
+                self.monitor.write().group_added(*group_id, &group.context);
             }
 
             old_monitor
         }
 
-        #[cfg(feature = "encryption")]
-        const CRYPTO_PREFIX: &'static str = "%%CONFIG-IT-SECRET%%";
+        /// ⚠️ **CAUTION!** Do NOT alter this literal! Any modification will DESTROY all existing
+        /// encrypted data irreparably! ⚠️
+        ///
+        /// PREFIX itself is valid base64, which is decorated word 'secret'.
+        #[cfg(feature = "crypt")]
+        const CRYPT_PREFIX: &'static str = "+/+sE/cRE+t//";
 
-        fn dump_node(ctx: &GroupContext, archive: &mut archive::Archive) {
+        #[cfg(feature = "crypt")]
+        fn crypt_key_loader(
+            key: &RwLock<Option<[u8; 32]>>,
+        ) -> impl Fn() -> Option<[u8; 32]> + '_ + Copy {
+            || key.read().or_else(Self::crypt_sys_key)
+        }
+
+        /// Uses hard coded NONCE, just to run the algorithm.
+        #[cfg(feature = "crypt")]
+        const CRYPT_NONCE: [u8; 12] = [15, 43, 5, 12, 6, 66, 126, 231, 141, 18, 33, 71];
+
+        #[cfg(feature = "crypt")]
+        fn crypt_sys_key() -> Option<[u8; 32]> {
+            #[cfg(feature = "crypt-machine-id")]
+            {
+                use std::sync::OnceLock;
+                static CACHED: OnceLock<Option<[u8; 32]>> = OnceLock::new();
+
+                *CACHED.get_or_init(|| {
+                    machine_uid::get().ok().map(|uid| {
+                        use sha2::{Digest, Sha256};
+                        let arr = &*Sha256::new().chain_update(uid).finalize();
+                        std::array::from_fn(|index| arr[index])
+                    })
+                })
+            }
+
+            #[cfg(not(feature = "crypt-machine-id"))]
+            {
+                None
+            }
+        }
+
+        fn dump_node(
+            ctx: &GroupContext,
+            archive: &mut archive::Archive,
+            #[cfg(feature = "crypt")] crypt_key_loader: impl Fn() -> Option<[u8; 32]>,
+        ) {
+            let _s = tr::info_span!("dump_node()", template=?ctx.template_name, path=?ctx.path);
+
             let paths = ctx.path.iter();
             let node = archive.find_or_create_path_mut(paths);
 
             // Clear existing values before dumping.
             node.values.clear();
 
-            for (meta, val) in ctx
+            #[cfg(feature = "crypt")]
+            let mut crypt_key = None;
+
+            '_outer: for (meta, val) in ctx
                 .sources
                 .iter()
                 .map(|e| e.property_value())
                 .filter(|(meta, _)| !meta.metadata.flags.contains(MetaFlag::NO_EXPORT))
             {
+                let _s = tr::info_span!("node dump", varname=?meta.varname);
                 let dst = node.values.entry(meta.name.into()).or_default();
 
-                #[cfg(feature = "encryption")]
+                #[cfg(feature = "crypt")]
+                'encryption: {
+                    use aes_gcm::aead::{Aead, KeyInit};
+                    use base64::prelude::*;
+
+                    if !meta.metadata.flags.contains(MetaFlag::SECRET) {
+                        break 'encryption;
+                    }
+
+                    if crypt_key.is_none() {
+                        crypt_key = Some(crypt_key_loader().ok_or(()));
+                    }
+
+                    // Check if key was correctly loaded. If not, skip serialization itself to not
+                    // export delicate data.
+                    let Ok(key) = crypt_key.as_ref().unwrap() else {
+                        tr::warn!("Crypt key missing. Skipping secret data serialization.");
+                        continue '_outer;
+                    };
+                    let Ok(json) = serde_json::to_vec(val.as_serialize()) else {
+                        tr::warn!("JSON dump failed");
+                        continue '_outer;
+                    };
+
+                    let cipher = aes_gcm::Aes256Gcm::new(key.into());
+                    let Ok(enc) = cipher.encrypt(&Self::CRYPT_NONCE.into(), &json[..]) else {
+                        tr::warn!("Encryption failed");
+                        continue '_outer;
+                    };
+
+                    *dst = serde_json::Value::String(format!(
+                        "{}{}",
+                        Self::CRYPT_PREFIX,
+                        BASE64_STANDARD_NO_PAD.encode(&enc)
+                    ));
+
+                    continue '_outer;
+                }
+
+                #[cfg(not(feature = "crypt"))]
                 if meta.metadata.flags.contains(MetaFlag::SECRET) {
-                    todo!("JsonString => AES-256 Enc => Base64String => Prefix");
+                    tr::warn!("`crypt` Feature disabled: Skipping secret data serialization.");
+                    continue;
                 }
 
                 match serde_json::to_value(val.as_serialize()) {
                     Ok(val) => *dst = val,
-                    Err(e) => log::warn!("failed to dump {}: {}", meta.name, e),
+                    Err(error) => {
+                        tr::warn!(%error, "JSON dump failed");
+                    }
                 }
             }
         }
 
-        fn load_node(ctx: &GroupContext, node: &archive::Archive, monitor: &dyn Monitor) -> bool {
+        fn load_node(
+            ctx: &GroupContext,
+            node: &archive::Archive,
+            monitor: &dyn Monitor,
+            #[cfg(feature = "crypt")] crypt_key_loader: impl Fn() -> Option<[u8; 32]>,
+        ) -> bool {
+            let _s = tr::info_span!("load_node()", template=?ctx.template_name, path=?ctx.path);
             let mut has_update = false;
+
+            #[cfg(feature = "crypt")]
+            let mut crypt_key = None;
 
             '_outer: for (elem, de) in ctx
                 .sources
                 .iter()
                 .filter(|e| !e.meta.flags.contains(MetaFlag::NO_IMPORT))
-                .filter_map(|x| {
-                    node.values.get(x.meta.name).map(|o| (x, o.clone().into_deserializer()))
-                })
+                .filter_map(|x| node.values.get(x.meta.name).map(|o| (x, o)))
             {
-                #[cfg(feature = "encryption")]
+                let _s = tr::info_span!("node load", varname=?elem.meta.varname);
+
+                #[allow(unused_mut)]
+                let mut update_result = None;
+
+                #[cfg(feature = "crypt")]
                 'decryption: {
-                    if !elem.get_meta().metadata.flags.contains(MetaFlag::SECRET) {
+                    use aes_gcm::aead::{Aead, KeyInit};
+                    use base64::prelude::*;
+
+                    if !elem.meta.flags.contains(MetaFlag::SECRET) {
+                        // Just try to deserialize from plain value.
                         break 'decryption;
                     }
 
+                    // Non-string value is not an encrypted property. serve as-is.
                     let Some(str) = de.as_str() else { break 'decryption };
 
-                    if !str.starts_with(Self::CRYPTO_PREFIX) {
+                    // Verify if it is encrpyted string repr.
+                    if !str.starts_with(Self::CRYPT_PREFIX) {
+                        tr::debug!("Non-encrypted string repr. serve as-is.");
                         break 'decryption;
                     }
 
-                    todo!("'Prefixed' Base64String => AES-256 Dec => JsonValue");
+                    let str = &str[Self::CRYPT_PREFIX.len()..];
+                    let Ok(bin) = BASE64_STANDARD_NO_PAD.decode(str).map_err(|error| {
+                        tr::debug!(
+                            %error,
+                            "Crypt-prefixed string is not valid base64. \
+                             Trying to parse as plain string."
+                        )
+                    }) else {
+                        break 'decryption;
+                    };
 
-                    continue 'outer;
+                    if crypt_key.is_none() {
+                        crypt_key = Some(crypt_key_loader().ok_or(()));
+                    }
+
+                    // Check if key was correctly loaded. If not, just try to parse string as plain
+                    // string ... which woun't be very useful though.
+                    let Ok(key) = crypt_key.as_ref().unwrap() else {
+                        tr::warn!("Crypt key missing. Skipping secret data serialization.");
+                        break 'decryption;
+                    };
+
+                    let cipher = aes_gcm::Aes256Gcm::new(key.into());
+                    let Ok(json) =
+                        cipher.decrypt(&Self::CRYPT_NONCE.into(), &bin[..]).map_err(|error| {
+                            tr::warn!(%error, "Failed to decrypt secret data");
+                        })
+                    else {
+                        break 'decryption;
+                    };
+
+                    update_result = Some(
+                        elem.update_value_from(&mut serde_json::Deserializer::from_slice(&json)),
+                    );
                 }
 
-                match elem.update_value_from(de) {
+                match update_result.unwrap_or_else(|| elem.update_value_from(de)) {
                     Ok(_) => {
                         has_update = true;
-                        monitor.entity_value_updated(&ctx.group_id, &elem.id);
+                        monitor.entity_value_updated(ctx.group_id, elem.id);
                     }
-                    Err(e) => {
-                        log::warn!("Element value update error during node loading: {e:?}")
+                    Err(error) => {
+                        tr::warn!(%error, "Element value update error during node loading")
                     }
                 }
             }
@@ -711,14 +889,22 @@ mod inner {
             let mut imported = unsafe { ManuallyDrop::take(&mut self.archive) };
             let this = self.inner;
 
+            #[cfg(feature = "crypt")]
+            let key_loader = Inner::crypt_key_loader(&this.crypt_key);
+
             let import_archive = |archive: &Archive| {
-                for elem in this.all_groups.iter() {
-                    let group = elem.value();
+                for group in this.all_groups.read().values() {
                     let path = &group.context.path;
                     let path = path.iter();
                     let Some(node) = archive.find_path(path) else { continue };
 
-                    if Inner::load_node(&group.context, node, &**this.monitor.read()) {
+                    if Inner::load_node(
+                        &group.context,
+                        node,
+                        &**this.monitor.read(),
+                        #[cfg(feature = "crypt")]
+                        key_loader,
+                    ) {
                         group.evt_on_update.notify();
                     }
                 }
@@ -779,9 +965,16 @@ mod inner {
             let mut archive = Archive::default();
             let this = self.inner;
 
-            for elem in this.all_groups.iter() {
-                let group = elem.value();
-                Inner::dump_node(&group.context, &mut archive);
+            #[cfg(feature = "crypt")]
+            let key_loader = Inner::crypt_key_loader(&this.crypt_key);
+
+            for group in this.all_groups.read().values() {
+                Inner::dump_node(
+                    &group.context,
+                    &mut archive,
+                    #[cfg(feature = "crypt")]
+                    key_loader,
+                );
             }
 
             let mut self_archive = this.archive.write();

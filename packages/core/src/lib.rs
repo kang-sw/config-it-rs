@@ -93,8 +93,8 @@
 //! }
 //! ```
 //!
+#[cfg(feature = "config")]
 pub mod config;
-pub mod monitor;
 pub mod shared;
 
 // Just re-exported, for compatibility.
@@ -116,21 +116,21 @@ pub use schemars::schema::{RootSchema as Schema, SchemaObject};
 pub use config_export::*;
 
 #[doc(hidden)]
-#[cfg(feature = "config")]
+#[cfg(feature = "config-derive")]
 pub use memoffset::offset_of;
 
 #[doc(hidden)]
-#[cfg(feature = "config")]
+#[cfg(feature = "config-derive")]
 pub use impls::impls;
+
+/// Primary macro for defining configuration group template.
+#[cfg(feature = "config-derive")]
+pub use macros::Template;
 
 #[cfg(feature = "config")]
 mod config_export {
     use crate::config::*;
     use crate::shared::*;
-
-    /// Primary macro for defining configuration group template.
-    #[cfg(feature = "config")]
-    pub use macros::Template;
 
     pub use entity::{Validation, ValidationResult};
 

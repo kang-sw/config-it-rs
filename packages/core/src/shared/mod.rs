@@ -28,6 +28,11 @@ macro_rules! id_type {
 }
 
 id_type!(
+    /// Represents a unique identifier for a storage instance.
+    StorageID,
+    derive_more::From
+);
+id_type!(
     /// Represents a unique identifier for a path within the archive.
     ///
     /// This ID type is a wrapper around a 64-bit unsigned integer and is used to distinguish and
@@ -100,16 +105,18 @@ impl<'a, T: IntoIterator<Item = &'a str>> From<T> for PathHash {
     }
 }
 
-impl GroupID {
-    pub(crate) fn new_unique_incremental() -> Self {
-        static ID_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-        Self(ID_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
-    }
+macro_rules! gen_new_fn {
+    ($type:path) => {
+        impl $type {
+            #[cfg(feature = "config")]
+            pub(crate) fn new_unique_incremental() -> Self {
+                static ID_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+                Self(ID_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
+            }
+        }
+    };
 }
 
-impl ItemID {
-    pub(crate) fn new_unique_incremental() -> Self {
-        static ID_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-        Self(ID_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
-    }
-}
+gen_new_fn!(StorageID);
+gen_new_fn!(GroupID);
+gen_new_fn!(ItemID);

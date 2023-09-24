@@ -88,6 +88,9 @@ pub struct GroupContext {
     /// Used to validate the legitimacy of groups created afresh.
     pub template_type_id: TypeId,
 
+    /// Type name and module path of this group (cached),
+    pub template_name: (&'static str, &'static str),
+
     /// An ordered list of data entities, each corresponding to an individual property
     /// within the configuration group.
     pub(crate) sources: Arc<[EntityData]>,
@@ -415,7 +418,7 @@ impl<T: Template> Group<T> {
     }
 
     /// Get generated metadata of given element
-    pub fn property_info<U: 'static>(&self, elem: *const U) -> &'static PropertyInfo {
+    pub fn meta<U: 'static>(&self, elem: *const U) -> &'static PropertyInfo {
         self.get_prop_by_ptr(elem).unwrap()
     }
 

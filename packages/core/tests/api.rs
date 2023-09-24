@@ -1,3 +1,5 @@
+#![cfg(feature = "config-derive")]
+
 use config_it::{commit_elem, consume_update, mark_dirty, Storage, ValidationResult};
 use futures::executor::block_on;
 
@@ -92,6 +94,7 @@ fn validate_int(value: &mut i32) -> ValidationResult {
 }
 
 #[test]
+#[allow(clippy::approx_constant)]
 fn test_use_case() {
     // USAGE ///////////////////////////////////////////////////////////////////////////////////////
 
@@ -222,7 +225,7 @@ fn test_use_case() {
         //
         // You can access each field of the group instance in common deref manner.
         assert!(group.string_field.is_empty());
-        assert!(group.array_init == &[1, 2, 3, 4, 5]);
+        assert!(group.array_init == [1, 2, 3, 4, 5]);
         assert!(group.env_var == 123);
 
         // 4. Importing and Exporting
