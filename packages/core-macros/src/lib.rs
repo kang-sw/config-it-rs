@@ -99,6 +99,7 @@ pub fn derive_collect_fn(item: LangTokenStream) -> LangTokenStream {
 
     quote!(
         #[allow(unused_parens)]
+        #[allow(unused_imports)]
         #[allow(unused_braces)]
         #[allow(clippy::useless_conversion)]
         #[allow(clippy::redundant_closure)]
