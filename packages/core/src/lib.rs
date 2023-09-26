@@ -98,7 +98,6 @@ pub mod config;
 pub mod shared;
 
 // Just re-exported, for compatibility.
-pub extern crate compact_str;
 pub extern crate serde;
 
 pub use shared::{archive, meta};

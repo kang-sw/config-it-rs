@@ -73,7 +73,7 @@ rand = "0.8"
 threadpool = "1.8"
 
 [features]
-default = ["config-derive"]
+default = ["full"]
 full = ["config-derive", "indexmap", "jsonschema", "crypt-machine-id"]
 
 config = [
