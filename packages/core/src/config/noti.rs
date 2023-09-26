@@ -165,19 +165,22 @@ impl<'a> std::future::Future for Wait<'a> {
                 };
 
                 let mut inner = inner.lock();
-
-                this.state = WaitState::Expired;
-
+                
                 if inner.fence != this.rx.0 {
                     this.rx.0 = inner.fence;
                     this.state = WaitState::Expired;
 
                     Poll::Ready(Ok(()))
                 } else {
-                    // For falsy wakeup, registers itself again
-                    this.unregister();
-                    inner.waiters.push((id, cx.waker().clone()));
-
+                    if inner.waiters.iter().find(|x| x.0 == id).is_none() {
+                        // For falsy wakeup, registers itself again
+                        // Remove the waiter from the list.
+                        inner.waiters.push((id, cx.waker().clone()));
+                    } else {
+                        // If the waiter was found, it means that the waker was already registered
+                        // and it's okay to leave it as it is.
+                    }
+                    
                     Poll::Pending
                 }
             }
