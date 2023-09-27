@@ -6,7 +6,7 @@ description = "Embedded web dashboard for config-it project"
 
 [dependencies]
 axum = "0.6.20"
-config-it = { version = "0.8", path = "../core" }
+config-it = { version = "0.9", path = "../core" }
 dioxus = "0.4"
 tokio = { version = "1.32.0", features = ["full"] }
 tracing = "0.1.37"

@@ -52,6 +52,7 @@ bitflags::bitflags! {
 /// This is used by remote monitor to determine how to edit this variable.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum MetadataEditorHint {
     /// For color in range [0.0, 1.0]
     ///
@@ -76,6 +77,7 @@ pub enum MetadataEditorHint {
 
 /// Describes metadata for a configuration entity, intended for utilization by external tools.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[non_exhaustive]
 pub struct Metadata {
     /// Unique identifier for this configuration entity.
     pub name: &'static str,
@@ -105,4 +107,30 @@ pub struct Metadata {
 
     /// Corresponding environment variable name, if any, that maps to this configuration entity.
     pub env: Option<&'static str>,
+}
+
+impl Metadata {
+    #[doc(hidden)]
+    pub fn __macro_new(
+        name: &'static str,
+        varname: &'static str,
+        type_name: &'static str,
+        flags: MetaFlag,
+        editor_hint: Option<MetadataEditorHint>,
+        description: &'static str,
+        env: Option<&'static str>,
+        #[cfg(feature = "jsonschema")] schema: Option<crate::Schema>,
+    ) -> Self {
+        Self {
+            name,
+            varname,
+            type_name,
+            flags,
+            editor_hint,
+            #[cfg(feature = "jsonschema")]
+            schema,
+            description,
+            env,
+        }
+    }
 }

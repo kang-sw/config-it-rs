@@ -360,9 +360,7 @@ fn visit_fields(
 
             let schema = cfg!(feature = "jsonschema").then(|| {
                 quote! {
-                    schema: {
-                        __default_ref_ptr::<#field_ty>().get_schema()
-                    }
+                    __default_ref_ptr::<#field_ty>().get_schema()
                 }
             });
             let validation_function = {
@@ -430,19 +428,19 @@ fn visit_fields(
                     __entity::PropertyInfo::new(
                         /* type_id:*/ std::any::TypeId::of::<#field_ty>(),
                         /* index:*/ #field_index,
-                        /* metadata:*/ __meta::Metadata {
-                            flags: {
+                        /* metadata:*/ __meta::Metadata::__macro_new(
+                            #name,
+                            #varname,
+                            stringify!(#field_ty),
+                            {
                                 use __meta::MetaFlag;
                                 #(#flags |)* MetaFlag::empty()
                             },
-                            name: #name,
-                            type_name: stringify!(#field_ty),
-                            varname: #varname,
-                            description: #doc_string,
-                            env: #env,
-                            editor_hint: #editor_hint,
-                            #schema
-                        },
+                            #editor_hint,
+                            #doc_string,
+                            #env,
+                            #schema // Comma is included
+                        ),
                         /* vtable:*/ Box::leak(Box::new(__entity::MetadataVTableImpl {
                             impl_copy: #this_crate::impls!(#field_ty: Copy),
                             fn_default: #default_fn_ident,
