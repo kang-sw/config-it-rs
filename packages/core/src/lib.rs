@@ -135,7 +135,7 @@ mod config_export {
 
     pub use archive::Archive;
     pub use group::{Group, Template};
-    pub use storage::Storage;
+    pub use storage::{Monitor, Storage};
 
     pub fn create_storage() -> Storage {
         Storage::default()

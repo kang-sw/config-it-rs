@@ -135,6 +135,11 @@ mod monitor {
         pub fn watch_update(&self) -> noti::Receiver {
             self.update_receiver_channel.clone()
         }
+
+        /// List of available entities
+        pub fn entities(&self) -> &[super::EntityData] {
+            &self.sources
+        }
     }
 }
 
