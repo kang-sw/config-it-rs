@@ -1016,11 +1016,11 @@ pub mod atomic {
     }
 
     impl AtomicStorageArc {
-        pub fn get(&self) -> Storage {
+        pub fn load(&self) -> Storage {
             Storage(self.0.load_full())
         }
 
-        pub fn set(&self, storage: Storage) {
+        pub fn store(&self, storage: Storage) {
             self.0.store(storage.0)
         }
     }
