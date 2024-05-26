@@ -40,6 +40,10 @@ use super::{
 /*                                      STORAGE MONITOR TRAIT                                     */
 /* ---------------------------------------------------------------------------------------------- */
 
+#[derive(thiserror::Error, Debug, Default)]
+#[error("Internal monitor reference disposed.")]
+pub struct MonitorClosed;
+
 /// Monitors every storage actions. If monitor tracks every event of single storage, it can
 /// replicate internal state perfectly.
 ///
@@ -49,13 +53,19 @@ use super::{
 /// manner. (e.g. forwarding events to channel)
 pub trait Monitor: Send + Sync + 'static {
     /// Called when new group is added.
-    fn group_added(&mut self, group_id: GroupId, group: &Arc<GroupContext>) {
+    fn group_added(
+        &mut self,
+        group_id: GroupId,
+        group: &Arc<GroupContext>,
+    ) -> Result<(), MonitorClosed> {
         let _ = (group_id, group);
+        Ok(())
     }
 
     /// Can be call with falsy group_id if monitor is being replaced.
-    fn group_removed(&mut self, group_id: GroupId) {
+    fn group_removed(&mut self, group_id: GroupId) -> Result<(), MonitorClosed> {
         let _ = group_id;
+        Ok(())
     }
 
     /// Called when any entity value is updated. Can be called with falsy group_id if monitor is
@@ -64,8 +74,13 @@ pub trait Monitor: Send + Sync + 'static {
     /// Since this is called frequently compared to group modification commands, receives immutable
     /// self reference. Therefore, all state modification should be handled with interior
     /// mutability!
-    fn entity_value_updated(&self, group_id: GroupId, item_id: ItemId) {
+    fn entity_value_updated(
+        &self,
+        group_id: GroupId,
+        item_id: ItemId,
+    ) -> Result<(), MonitorClosed> {
         let _ = (group_id, item_id);
+        Ok(())
     }
 }
 
@@ -315,13 +330,8 @@ impl Storage {
     /// # Returns
     ///
     /// The previous monitor that has been replaced.
-    pub fn replace_monitor(&self, handler: Box<impl Monitor>) -> Box<dyn Monitor> {
-        self.0.replace_monitor(handler)
-    }
-
-    /// Unset monitor instance.
-    pub fn unset_monitor(&self) {
-        *self.0.monitor.write() = Box::new(inner::EmptyMonitor);
+    pub fn add_monitor(&self, handler: Box<impl Monitor>) {
+        self.0.add_monitor(handler)
     }
 
     /// Send monitor event to storage driver.
@@ -383,7 +393,7 @@ mod inner {
     use std::{collections::HashMap, mem::ManuallyDrop};
 
     use derive_setters::Setters;
-    use parking_lot::RwLock;
+    use parking_lot::{Mutex, RwLock};
 
     use crate::{
         config::entity::Entity,
@@ -411,8 +421,8 @@ mod inner {
         /// Upon each monitoring event, the storage driver iterates over each session channel to
         /// attempt replication. This ensures that all components are kept in sync with storage
         /// changes.
-        #[debug(with = "fmt_monitor")]
-        pub monitor: RwLock<Box<dyn Monitor>>,
+        #[debug(skip)]
+        pub monitors: RwLock<Vec<Box<dyn Monitor>>>,
 
         /// Keeps track of registered path hashes to quickly identify potential path name
         /// duplications.
@@ -434,6 +444,7 @@ mod inner {
         pub crypt_key: RwLock<Option<[u8; 32]>>,
     }
 
+    #[cfg(any())]
     fn fmt_monitor(
         monitor: &RwLock<Box<dyn Monitor>>,
         f: &mut std::fmt::Formatter<'_>,
@@ -461,7 +472,7 @@ mod inner {
 
     impl Default for Inner {
         fn default() -> Self {
-            Self::new(Box::new(EmptyMonitor))
+            Self::new()
         }
     }
 
@@ -472,10 +483,10 @@ mod inner {
     }
 
     impl Inner {
-        pub fn new(monitor: Box<dyn Monitor>) -> Self {
+        pub fn new() -> Self {
             Self {
                 id: StorageId::new_unique_incremental(),
-                monitor: RwLock::new(monitor),
+                monitors: Default::default(),
                 archive: Default::default(),
                 #[cfg(feature = "crypt")]
                 crypt_key: Default::default(),
@@ -500,6 +511,32 @@ mod inner {
                 .and_then(|id| self.all_groups.read().get(id).map(|x| x.context.clone()))
         }
 
+        fn _write_event(&self, write_fn: impl Fn(&mut dyn Monitor) -> Result<(), MonitorClosed>) {
+            // TODO: for each mutable access
+        }
+
+        fn _write_event_at(
+            &self,
+            addr: *const dyn Monitor,
+            index_cache: &mut usize,
+            write_fn: impl FnOnce(&mut dyn Monitor) -> Result<(), MonitorClosed>,
+        ) -> Option<()> {
+            let filter_fn = |m| std::ptr::addr_eq(addr, m);
+            let mut monitors = self.monitors.write();
+            let m_idx = if monitors.get(*index_cache).filter(|m| filter_fn(m.as_ref())).is_some() {
+                Some(*index_cache)
+            } else {
+                monitors.iter_mut().position(|m| filter_fn(m.as_ref()))
+            }?;
+
+            if write_fn(&mut *monitors[m_idx]).is_err() {
+                monitors.remove(m_idx);
+            }
+
+            *index_cache = m_idx;
+            Some(())
+        }
+
         pub fn register_group(
             &self,
             path_hash: PathHash,
@@ -518,7 +555,7 @@ mod inner {
                 Self::load_node(
                     &rg.context,
                     node,
-                    &EmptyMonitor,
+                    |_, _| {},
                     #[cfg(feature = "crypt")]
                     Self::crypt_key_loader(&self.crypt_key),
                 );
@@ -539,7 +576,7 @@ mod inner {
             }
 
             // Notify the monitor that a new group has been added.
-            self.monitor.write().group_added(group_id, &inserted);
+            self._write_event(|m| m.group_added(group_id, &inserted));
             Ok(inserted)
         }
 
@@ -576,13 +613,13 @@ mod inner {
                 );
 
                 // Notify about the removal
-                self.monitor.write().group_removed(group_id);
+                self._write_event(|m| m.group_removed(group_id));
             }
         }
 
         pub fn on_value_update(&self, group_id: GroupId, data: &entity::EntityData, silent: bool) {
             // Monitor should always be notified on value update, regardless of silent flag
-            self.monitor.read().entity_value_updated(group_id, data.id);
+            self._write_event(|m| m.entity_value_updated(group_id, data.id));
 
             // If silent flag is set, skip internal notify to other instances.
             if silent {
@@ -596,14 +633,17 @@ mod inner {
             }
         }
 
-        pub fn replace_monitor(&self, new_monitor: Box<dyn Monitor>) -> Box<dyn Monitor> {
-            // At the start of the operation, we replace the monitor. This means that before we add all
-            // valid groups to the new monitor, there may be notifications about group removals or updates.
-            // Without redesigning the entire storage system into a more expensive locking mechanism,
-            // there's no way to avoid this. We assume that monitor implementation providers will handle
-            // any incorrect updates gracefully and thus, we are ignoring this case.
+        pub fn add_monitor(&self, new_monitor: Box<dyn Monitor>) {
+            // Add the monitor first. It'll possibly send some invalid events initially.
+            let addr = &*new_monitor as *const _;
+            let monitor_index = {
+                let mut m = self.monitors.write();
+                let idx = m.len();
+                m.push(new_monitor);
+                idx
+            };
 
-            let old_monitor = replace(&mut *self.monitor.write(), new_monitor);
+            let mut group_dump = Vec::with_capacity(self.path_hashes.read().len());
 
             // NOTE: Ensuring thread-safe behavior during the initialization of a new monitor:
             // - Iteration partially locks `path_hashes` based on shards (see DashMap
@@ -614,20 +654,25 @@ mod inner {
             // - Since every group insertion or removal first modifies `path_hashes`, it's safe to
             //   assume we see a consistent state of `path_hashes` during shard iteration, given
             //   we're observing the read-locked state of that shard.
-            for group_id in self.path_hashes.read().values() {
+            for &group_id in self.path_hashes.read().values() {
                 let all_groups = self.all_groups.read();
-                let Some(group) = all_groups.get(group_id) else {
+                let Some(group) = all_groups.get(&group_id) else {
                     unreachable!(
                         "As long as the group_id is found from path_hashes, \
                         the group must be found from `all_groups`."
                     )
                 };
 
-                // Since we call `group_added` on every group,
-                self.monitor.write().group_added(*group_id, &group.context);
+                group_dump.push((group_id, group.context.clone()));
             }
 
-            old_monitor
+            self._write_event_at(addr, &mut { monitor_index }, move |m| {
+                for (group_id, group_context) in group_dump {
+                    m.group_added(group_id, &group_context)?
+                }
+
+                Ok(())
+            });
         }
 
         /// ⚠️ **CAUTION!** Do NOT alter this literal! Any modification will DESTROY all existing
@@ -752,7 +797,7 @@ mod inner {
         fn load_node(
             ctx: &GroupContext,
             node: &archive::Archive,
-            monitor: &dyn Monitor,
+            mut notify_update: impl FnMut(GroupId, ItemId),
             #[cfg(feature = "crypt")] crypt_key_loader: impl Fn() -> Option<[u8; 32]>,
         ) -> bool {
             let _s = tr::info_span!("load_node()", template=?ctx.template_name, path=?ctx.path);
@@ -830,7 +875,7 @@ mod inner {
                 match update_result.unwrap_or_else(|| elem.update_value_from(de)) {
                     Ok(_) => {
                         has_update = true;
-                        monitor.entity_value_updated(ctx.group_id, elem.id);
+                        notify_update(ctx.group_id, elem.id);
                     }
                     Err(error) => {
                         tr::warn!(%error, "Element value update error during node loading")
@@ -898,13 +943,19 @@ mod inner {
                     let path = path.iter();
                     let Some(node) = archive.find_path(path) else { continue };
 
+                    let mut updates = Vec::new();
+
                     if Inner::load_node(
                         &group.context,
                         node,
-                        &**this.monitor.read(),
+                        |g_id, e_id| updates.push((g_id, e_id)),
                         #[cfg(feature = "crypt")]
                         key_loader,
                     ) {
+                        for (g_id, e_id) in updates {
+                            this._write_event(|m| m.entity_value_updated(g_id, e_id));
+                        }
+
                         group.evt_on_update.notify();
                     }
                 }
