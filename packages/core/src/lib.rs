@@ -137,6 +137,9 @@ mod config_export {
     pub use group::{Group, Template};
     pub use storage::{Monitor, Storage};
 
+    #[cfg(feature = "arc-swap")]
+    pub use storage::atomic::AtomicStorageArc;
+
     pub fn create_storage() -> Storage {
         Storage::default()
     }

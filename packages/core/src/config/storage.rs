@@ -994,3 +994,34 @@ mod inner {
         }
     }
 }
+
+#[cfg(feature = "arc-swap")]
+pub mod atomic {
+    use arc_swap::ArcSwap;
+
+    use super::Storage;
+
+    pub struct AtomicStorageArc(ArcSwap<super::inner::Inner>);
+
+    impl From<Storage> for AtomicStorageArc {
+        fn from(value: Storage) -> Self {
+            Self(ArcSwap::new(value.0))
+        }
+    }
+
+    impl Default for AtomicStorageArc {
+        fn default() -> Self {
+            Self::from(Storage::default())
+        }
+    }
+
+    impl AtomicStorageArc {
+        pub fn get(&self) -> Storage {
+            Storage(self.0.load_full())
+        }
+
+        pub fn set(&self, storage: Storage) {
+            self.0.store(storage.0)
+        }
+    }
+}
