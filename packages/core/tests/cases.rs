@@ -89,7 +89,7 @@ fn serde_struct() {
 
     let storage = config_it::create_storage();
     let mut outer = storage.create::<Outer>(["outer"]).unwrap();
-    outer.inner.name = "John".to_owned();
+    "John".clone_into(&mut outer.inner.name);
     outer.inner.age = 30;
 
     outer.commit_elem(&outer.inner, false);

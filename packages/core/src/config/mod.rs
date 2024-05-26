@@ -15,6 +15,7 @@ pub mod __lookup {
         }
     }
 
+    #[allow(dead_code)]
     trait AnyType {}
     impl<T> AnyType for T {}
 
