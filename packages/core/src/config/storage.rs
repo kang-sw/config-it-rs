@@ -17,7 +17,6 @@
 
 use std::{
     any::{Any, TypeId},
-    mem::replace,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc, Weak,
@@ -52,6 +51,11 @@ pub struct MonitorClosed;
 /// Blocking behavior may cause deadlock, thus monitor should be implemented as non-blocking
 /// manner. (e.g. forwarding events to channel)
 pub trait Monitor: Send + Sync + 'static {
+    /// Returns true if it's okay to be deleted from list. It is to confirm that this monitor has
+    /// returned [`MonitorClosed`], since there can be falsy disposal request for alive group that
+    /// has returned `Ok(())` before.
+    fn should_dispose(&self) -> bool;
+
     /// Called when new group is added.
     fn group_added(
         &mut self,
@@ -393,7 +397,7 @@ mod inner {
     use std::{collections::HashMap, mem::ManuallyDrop};
 
     use derive_setters::Setters;
-    use parking_lot::{Mutex, RwLock};
+    use parking_lot::RwLock;
 
     use crate::{
         config::entity::Entity,
@@ -444,19 +448,6 @@ mod inner {
         pub crypt_key: RwLock<Option<[u8; 32]>>,
     }
 
-    #[cfg(any())]
-    fn fmt_monitor(
-        monitor: &RwLock<Box<dyn Monitor>>,
-        f: &mut std::fmt::Formatter<'_>,
-    ) -> std::fmt::Result {
-        let ptr = &**monitor.read() as *const _;
-
-        // Extract data pointers of `ptr`, and `&EmptyMonitor`
-        let exists = ptr as *const () != &EmptyMonitor as *const _ as *const ();
-
-        write!(f, "{:?}", exists.then_some(ptr))
-    }
-
     #[cfg(feature = "crypt")]
     fn fmt_encryption_key(
         key: &RwLock<Option<[u8; 32]>>,
@@ -465,10 +456,6 @@ mod inner {
         let exists = key.read().is_some();
         write!(f, "{:?}", exists)
     }
-
-    /// A dummy monitor class, which represnet empty monitor.
-    pub(super) struct EmptyMonitor;
-    impl Monitor for EmptyMonitor {}
 
     impl Default for Inner {
         fn default() -> Self {
@@ -511,8 +498,37 @@ mod inner {
                 .and_then(|id| self.all_groups.read().get(id).map(|x| x.context.clone()))
         }
 
-        fn _write_event(&self, write_fn: impl Fn(&mut dyn Monitor) -> Result<(), MonitorClosed>) {
-            // TODO: for each mutable access
+        fn _write_event_mut(
+            &self,
+            write_fn: impl Fn(&mut dyn Monitor) -> Result<(), MonitorClosed>,
+        ) {
+            self.monitors.write().retain_mut(|m| write_fn(m.as_mut()).is_ok())
+        }
+
+        fn _write_event(&self, write_fn: impl Fn(&dyn Monitor) -> Result<(), MonitorClosed>) {
+            let mut dispose_any = false;
+
+            for item in self.monitors.read().iter() {
+                if write_fn(item.as_ref()).is_err() {
+                    dispose_any = true
+                }
+            }
+
+            if dispose_any {
+                // This linearly iterates all disposal, which is much more inefficient than simply
+                // retaining the mutably acquired monitors array. However, at the same time, as
+                // long as there's no monitor disposal, this routine allows concurrent access to
+                // monitors array, which is likely much more efficient than acquiring write lock
+                // every time.
+                //
+                // Generally, the monitor disposal happens much rarely than not.
+                self.monitors.write().retain(|m| {
+                    // Double-check if it's actually being disposed. It's unlikely happen, though,
+                    // as we're using the monitor's raw address as key of disposal, there can be
+                    // reallocation on same address after disposal.
+                    !m.should_dispose()
+                })
+            }
         }
 
         fn _write_event_at(
@@ -576,7 +592,7 @@ mod inner {
             }
 
             // Notify the monitor that a new group has been added.
-            self._write_event(|m| m.group_added(group_id, &inserted));
+            self._write_event_mut(|m| m.group_added(group_id, &inserted));
             Ok(inserted)
         }
 
@@ -613,7 +629,7 @@ mod inner {
                 );
 
                 // Notify about the removal
-                self._write_event(|m| m.group_removed(group_id));
+                self._write_event_mut(|m| m.group_removed(group_id));
             }
         }
 
@@ -953,7 +969,7 @@ mod inner {
                         key_loader,
                     ) {
                         for (g_id, e_id) in updates {
-                            this._write_event(|m| m.entity_value_updated(g_id, e_id));
+                            this._write_event_mut(|m| m.entity_value_updated(g_id, e_id));
                         }
 
                         group.evt_on_update.notify();
