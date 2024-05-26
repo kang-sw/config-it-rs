@@ -29,7 +29,7 @@ macro_rules! id_type {
 
 id_type!(
     /// Represents a unique identifier for a storage instance.
-    StorageID,
+    StorageId,
     derive_more::From
 );
 id_type!(
@@ -51,7 +51,7 @@ id_type!(
     ///
     /// This ID type also supports the `From` trait, which allows seamless conversion from certain
     /// other types.
-    GroupID,
+    GroupId,
     derive_more::From
 );
 id_type!(
@@ -63,7 +63,7 @@ id_type!(
     ///
     /// The `From` trait support ensures that `ItemID` can be easily constructed from other relevant
     /// types.
-    ItemID,
+    ItemId,
     derive_more::From
 );
 
@@ -117,6 +117,6 @@ macro_rules! gen_new_fn {
     };
 }
 
-gen_new_fn!(StorageID);
-gen_new_fn!(GroupID);
-gen_new_fn!(ItemID);
+gen_new_fn!(StorageId);
+gen_new_fn!(GroupId);
+gen_new_fn!(ItemId);

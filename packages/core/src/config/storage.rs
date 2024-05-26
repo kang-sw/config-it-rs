@@ -28,7 +28,7 @@ use strseq::SharedStringSequence;
 
 use crate::{
     config::{entity, noti},
-    shared::{archive, GroupID, ItemID, PathHash},
+    shared::{archive, GroupId, ItemId, PathHash},
 };
 
 use super::{
@@ -49,12 +49,12 @@ use super::{
 /// manner. (e.g. forwarding events to channel)
 pub trait Monitor: Send + Sync + 'static {
     /// Called when new group is added.
-    fn group_added(&mut self, group_id: GroupID, group: &Arc<GroupContext>) {
+    fn group_added(&mut self, group_id: GroupId, group: &Arc<GroupContext>) {
         let _ = (group_id, group);
     }
 
     /// Can be call with falsy group_id if monitor is being replaced.
-    fn group_removed(&mut self, group_id: GroupID) {
+    fn group_removed(&mut self, group_id: GroupId) {
         let _ = group_id;
     }
 
@@ -64,7 +64,7 @@ pub trait Monitor: Send + Sync + 'static {
     /// Since this is called frequently compared to group modification commands, receives immutable
     /// self reference. Therefore, all state modification should be handled with interior
     /// mutability!
-    fn entity_value_updated(&self, group_id: GroupID, item_id: ItemID) {
+    fn entity_value_updated(&self, group_id: GroupId, item_id: ItemId) {
         let _ = (group_id, item_id);
     }
 }
@@ -94,13 +94,13 @@ pub enum GroupFindError {
     #[error("Given path was not found")]
     PathNotFound,
     #[error("Type ID mismatch from original registration")]
-    MismatchedTypeID,
+    MismatchedTypeId,
 }
 
 #[derive(thiserror::Error, Debug)]
 pub enum GroupFindOrCreateError {
     #[error("Type ID mismatch from original registration")]
-    MismatchedTypeID,
+    MismatchedTypeId,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -113,7 +113,7 @@ pub enum GroupCreationError {
 
 impl Storage {
     /// Gets ID of this storage instance. ID is unique per single program instance.
-    pub fn storage_id(&self) -> crate::shared::StorageID {
+    pub fn storage_id(&self) -> crate::shared::StorageId {
         self.0.id
     }
 
@@ -145,7 +145,7 @@ impl Storage {
         loop {
             match self.find(path_hash) {
                 Ok(found) => break Ok(found),
-                Err(GFE::MismatchedTypeID) => break Err(GFOE::MismatchedTypeID),
+                Err(GFE::MismatchedTypeId) => break Err(GFOE::MismatchedTypeId),
                 Err(GFE::PathNotFound) => {}
             }
 
@@ -181,7 +181,7 @@ impl Storage {
 
         if let Some(group) = self.0.find_group(&path_hash) {
             if group.template_type_id != std::any::TypeId::of::<T>() {
-                Err(GroupFindError::MismatchedTypeID)
+                Err(GroupFindError::MismatchedTypeId)
             } else if let Some(anchor) = group.w_unregister_hook.upgrade() {
                 Ok(group::Group::create_with__(group, anchor))
             } else {
@@ -221,7 +221,7 @@ impl Storage {
 
         // This ID may not be used if group creation failed ... it's generally okay since we have
         // 2^63 trials.
-        let register_id = GroupID::new_unique_incremental();
+        let register_id = GroupId::new_unique_incremental();
         let entity_hook = Arc::new(EntityHookImpl { register_id, inner: Arc::downgrade(&self.0) });
 
         debug_assert!(
@@ -325,7 +325,7 @@ impl Storage {
     }
 
     /// Send monitor event to storage driver.
-    pub fn notify_editions(&self, items: impl IntoIterator<Item = GroupID>) {
+    pub fn notify_editions(&self, items: impl IntoIterator<Item = GroupId>) {
         for group in items {
             self.0.notify_edition(group);
         }
@@ -351,7 +351,7 @@ impl Storage {
 /* ---------------------------------------------------------------------------------------------- */
 
 struct GroupUnregisterHook {
-    register_id: GroupID,
+    register_id: GroupId,
     path_hash: PathHash,
     inner: Weak<inner::Inner>,
 }
@@ -366,7 +366,7 @@ impl Drop for GroupUnregisterHook {
 }
 
 struct EntityHookImpl {
-    register_id: GroupID,
+    register_id: GroupId,
     inner: Weak<inner::Inner>,
 }
 
@@ -387,7 +387,7 @@ mod inner {
 
     use crate::{
         config::entity::Entity,
-        shared::{archive::Archive, meta::MetaFlag, StorageID},
+        shared::{archive::Archive, meta::MetaFlag, StorageId},
     };
 
     use super::*;
@@ -399,12 +399,12 @@ mod inner {
     #[derive(cs::Debug)]
     pub(super) struct Inner {
         /// Unique(during runtime) identifier for this storage.
-        pub id: StorageID,
+        pub id: StorageId,
 
         /// Maintains a registry of all configuration sets within this storage.
         ///
         /// The key is the group's unique identifier, `GroupID`.
-        all_groups: RwLock<HashMap<GroupID, GroupRegistration>>,
+        all_groups: RwLock<HashMap<GroupId, GroupRegistration>>,
 
         /// Maintains a list of all monitors registered to this storage.
         ///
@@ -419,7 +419,7 @@ mod inner {
         ///
         /// Uses the path's hash representation as the key and its corresponding `GroupID` as the
         /// value.
-        path_hashes: RwLock<HashMap<PathHash, GroupID>>,
+        path_hashes: RwLock<HashMap<PathHash, GroupId>>,
 
         /// Holds a cached version of the archive. This may include content for groups that are
         /// currently non-existent.
@@ -474,7 +474,7 @@ mod inner {
     impl Inner {
         pub fn new(monitor: Box<dyn Monitor>) -> Self {
             Self {
-                id: StorageID::new_unique_incremental(),
+                id: StorageId::new_unique_incremental(),
                 monitor: RwLock::new(monitor),
                 archive: Default::default(),
                 #[cfg(feature = "crypt")]
@@ -486,7 +486,7 @@ mod inner {
             }
         }
 
-        pub fn notify_edition(&self, group_id: GroupID) {
+        pub fn notify_edition(&self, group_id: GroupId) {
             if let Some(group) = self.all_groups.read().get(&group_id) {
                 group.context.version.fetch_add(1, Ordering::Relaxed);
                 group.evt_on_update.notify();
@@ -543,7 +543,7 @@ mod inner {
             Ok(inserted)
         }
 
-        pub fn unregister_group(&self, group_id: GroupID, path_hash: PathHash) {
+        pub fn unregister_group(&self, group_id: GroupId, path_hash: PathHash) {
             {
                 let mut path_hashes = self.path_hashes.write();
                 if !path_hashes.get(&path_hash).is_some_and(|v| *v == group_id) {
@@ -580,7 +580,7 @@ mod inner {
             }
         }
 
-        pub fn on_value_update(&self, group_id: GroupID, data: &entity::EntityData, silent: bool) {
+        pub fn on_value_update(&self, group_id: GroupId, data: &entity::EntityData, silent: bool) {
             // Monitor should always be notified on value update, regardless of silent flag
             self.monitor.read().entity_value_updated(group_id, data.id);
 

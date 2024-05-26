@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 use strseq::SharedStringSequence;
 
-use crate::shared::GroupID;
+use crate::shared::GroupId;
 
 use super::entity::{Entity, EntityData, EntityValue, PropertyInfo};
 use super::noti;
@@ -82,7 +82,7 @@ impl<const N: usize> Default for LocalPropContextArrayImpl<N> {
 #[derive(cs::Debug)]
 pub struct GroupContext {
     /// A unique identifier for the configuration group instance.
-    pub group_id: GroupID,
+    pub group_id: GroupId,
 
     /// The type ID of the base template from which this group was derived.
     /// Used to validate the legitimacy of groups created afresh.
@@ -115,11 +115,11 @@ pub struct GroupContext {
 mod monitor {
     //! Exposed APIs to control over entities
 
-    use crate::{config::noti, shared::ItemID};
+    use crate::{config::noti, shared::ItemId};
 
     impl super::GroupContext {
         /// Finds an item with the given `item_id` in the group's sources.
-        pub fn find_item(&self, item_id: ItemID) -> Option<&super::EntityData> {
+        pub fn find_item(&self, item_id: ItemId) -> Option<&super::EntityData> {
             debug_assert!(
                 self.sources.windows(2).all(|w| w[0].id < w[1].id),
                 "Logic Error: Sources are not sorted!"

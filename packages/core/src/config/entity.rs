@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use crate::shared::meta::Metadata;
-use crate::shared::ItemID;
+use crate::shared::ItemId;
 
 /// Number of available words for trivial entity value.
 ///
@@ -306,7 +306,7 @@ impl EntityValue {
 #[derive(cs::Debug)]
 pub struct EntityData {
     /// Unique entity id for program run-time
-    pub id: ItemID,
+    pub id: ItemId,
     pub meta: &'static PropertyInfo,
 
     version: AtomicU64,
@@ -331,7 +331,7 @@ impl EntityData {
         hook: Arc<dyn EntityEventHook>,
     ) -> Self {
         Self {
-            id: ItemID::new_unique_incremental(),
+            id: ItemId::new_unique_incremental(),
             version: AtomicU64::new(0),
             value: RwLock::new(property_info.vtable.create_default()),
             meta: property_info,

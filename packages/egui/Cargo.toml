@@ -1,8 +1,15 @@
 [package]
-name = "config-it-egui"
+name = "config-it-monitor"
 version = "0.0.0"
 edition = "2021"
 
 [dependencies]
-egui = "0.27"
 config-it = "0.9"
+
+# ------------------------------------------- Egui Deps ------------------------------------------ #
+egui = { version = "0.27", optional = true }
+
+# XXX: Dioxus dependency?
+
+[features]
+egui = ["dep:egui"]

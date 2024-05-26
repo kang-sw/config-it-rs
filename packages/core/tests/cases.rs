@@ -131,7 +131,7 @@ fn find_or() {
     assert!(a2.consume_update(&a2.name));
     assert!(a2.name == "John");
 
-    assert!(matches!(storage.find::<TemplateB>(path()), Err(GroupFindError::MismatchedTypeID)));
+    assert!(matches!(storage.find::<TemplateB>(path()), Err(GroupFindError::MismatchedTypeId)));
 
     drop(storage);
 }
