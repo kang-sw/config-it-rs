@@ -1,4 +1,9 @@
 [workspace]
 resolver = "2"
 
-members = ["packages/core-macros/", "packages/core/", "packages/egui/"]
+members = [
+    "packages/core-macros/",
+    "packages/core/",
+    "packages/monitor/",
+    "packages/monitor/examples/demo/",
+]

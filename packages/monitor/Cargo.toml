@@ -1,0 +1,17 @@
+[package]
+name = "config-it-egui"
+version = "0.0.0"
+edition = "2021"
+
+[dependencies]
+config-it = { version = "0.10", path = "../core", features = ["jsonschema"] }
+
+# ------------------------------------------- Dep: Egui ------------------------------------------ #
+egui = { version = "0.27", optional = true }
+
+[features]
+# Support for local EGUI monitor widget
+egui = ["dep:egui"]
+
+# Support for local DIOXUS monitor component series
+dioxus = []

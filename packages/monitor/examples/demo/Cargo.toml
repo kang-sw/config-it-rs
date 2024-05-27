@@ -1,0 +1,11 @@
+[package]
+name = "demo"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+config-it = { path = "../../../core/" }
+config-it-egui = { path = "../../" }
+egui = "0.27"
+eframe = "0.27"
+serde = "1"
