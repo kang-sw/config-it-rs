@@ -653,9 +653,16 @@ mod inner {
             // Add the monitor first. It'll possibly send some invalid events initially.
             let addr = &*new_monitor as *const _;
             let monitor_index = {
-                let mut m = self.monitors.write();
-                let idx = m.len();
-                m.push(new_monitor);
+                let mut monitors = self.monitors.write();
+
+                // NOTE: If there's no group update for long time, multiple added monitor
+                // references can only be accumulated over time. To prevent monitors incremented
+                // over time infinitely, here we collect garbages in addition to new monitor
+                // registration.
+                monitors.retain(|m| !m.should_dispose());
+
+                let idx = monitors.len();
+                monitors.push(new_monitor);
                 idx
             };
 
