@@ -58,7 +58,7 @@ pub trait Monitor: Send + Sync + 'static {
 
     /// Called when new group is added.
     fn group_added(
-        &mut self,
+        &self,
         group_id: GroupId,
         group: &Arc<GroupContext>,
     ) -> Result<(), MonitorClosed> {
@@ -67,7 +67,7 @@ pub trait Monitor: Send + Sync + 'static {
     }
 
     /// Can be call with falsy group_id if monitor is being replaced.
-    fn group_removed(&mut self, group_id: GroupId) -> Result<(), MonitorClosed> {
+    fn group_removed(&self, group_id: GroupId) -> Result<(), MonitorClosed> {
         let _ = group_id;
         Ok(())
     }
@@ -334,7 +334,7 @@ impl Storage {
     /// # Returns
     ///
     /// The previous monitor that has been replaced.
-    pub fn add_monitor(&self, handler: Box<impl Monitor>) {
+    pub fn add_monitor(&self, handler: Arc<impl Monitor>) {
         self.0.add_monitor(handler)
     }
 
@@ -426,7 +426,7 @@ mod inner {
         /// attempt replication. This ensures that all components are kept in sync with storage
         /// changes.
         #[debug(skip)]
-        pub monitors: RwLock<Vec<Box<dyn Monitor>>>,
+        pub monitors: RwLock<Vec<Arc<dyn Monitor>>>,
 
         /// Keeps track of registered path hashes to quickly identify potential path name
         /// duplications.
@@ -498,11 +498,11 @@ mod inner {
                 .and_then(|id| self.all_groups.read().get(id).map(|x| x.context.clone()))
         }
 
-        fn _write_event_mut(
+        fn _write_event_retained(
             &self,
-            write_fn: impl Fn(&mut dyn Monitor) -> Result<(), MonitorClosed>,
+            write_fn: impl Fn(&dyn Monitor) -> Result<(), MonitorClosed>,
         ) {
-            self.monitors.write().retain_mut(|m| write_fn(m.as_mut()).is_ok())
+            self.monitors.write().retain_mut(|m| write_fn(m.as_ref()).is_ok())
         }
 
         fn _write_event(&self, write_fn: impl Fn(&dyn Monitor) -> Result<(), MonitorClosed>) {
@@ -535,7 +535,7 @@ mod inner {
             &self,
             addr: *const dyn Monitor,
             index_cache: &mut usize,
-            write_fn: impl FnOnce(&mut dyn Monitor) -> Result<(), MonitorClosed>,
+            write_fn: impl FnOnce(&dyn Monitor) -> Result<(), MonitorClosed>,
         ) -> Option<()> {
             let filter_fn = |m| std::ptr::addr_eq(addr, m);
             let mut monitors = self.monitors.write();
@@ -545,7 +545,7 @@ mod inner {
                 monitors.iter_mut().position(|m| filter_fn(m.as_ref()))
             }?;
 
-            if write_fn(&mut *monitors[m_idx]).is_err() {
+            if write_fn(monitors[m_idx].as_ref()).is_err() {
                 monitors.remove(m_idx);
             }
 
@@ -592,7 +592,7 @@ mod inner {
             }
 
             // Notify the monitor that a new group has been added.
-            self._write_event_mut(|m| m.group_added(group_id, &inserted));
+            self._write_event_retained(|m| m.group_added(group_id, &inserted));
             Ok(inserted)
         }
 
@@ -629,7 +629,7 @@ mod inner {
                 );
 
                 // Notify about the removal
-                self._write_event_mut(|m| m.group_removed(group_id));
+                self._write_event_retained(|m| m.group_removed(group_id));
             }
         }
 
@@ -649,7 +649,7 @@ mod inner {
             }
         }
 
-        pub fn add_monitor(&self, new_monitor: Box<dyn Monitor>) {
+        pub fn add_monitor(&self, new_monitor: Arc<dyn Monitor>) {
             // Add the monitor first. It'll possibly send some invalid events initially.
             let addr = &*new_monitor as *const _;
             let monitor_index = {
@@ -976,7 +976,7 @@ mod inner {
                         key_loader,
                     ) {
                         for (g_id, e_id) in updates {
-                            this._write_event_mut(|m| m.entity_value_updated(g_id, e_id));
+                            this._write_event_retained(|m| m.entity_value_updated(g_id, e_id));
                         }
 
                         group.evt_on_update.notify();
